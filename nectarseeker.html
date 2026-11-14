@@ -15,7 +15,7 @@
     }
     * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       max-width: 820px;
       margin: 1.5rem auto;
       padding: 0 1rem;
@@ -26,11 +26,7 @@
     header { margin-bottom: 1.25rem; }
     h1 { margin: 0 0 0.35rem 0; font-size: 1.65rem; }
     p.subtitle { margin: 0; color: var(--muted); font-size: 0.92rem; }
-    .controls {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 0.65rem;
-    }
+    .controls { display: flex; gap: 0.5rem; margin-bottom: 0.65rem; }
     input {
       flex: 1;
       min-width: 0;
@@ -51,7 +47,6 @@
       cursor: pointer;
       font-weight: 600;
       touch-action: manipulation;
-      -webkit-tap-highlight-color: transparent;
     }
     button:hover { background: var(--primary-hover); }
     button:disabled { background: #999; cursor: not-allowed; }
@@ -72,7 +67,6 @@
       border-radius: 4px;
       font-weight: 500;
     }
-    .sample-btn:hover { background: #dee2e6; }
     .kc-row {
       margin-bottom: 1rem;
       display: flex;
@@ -85,7 +79,6 @@
       font-size: 0.9rem;
       padding: 0.6rem 1rem;
     }
-    .kc-btn:hover { background: #000; }
     #status {
       margin-bottom: 1rem;
       font-size: 0.92rem;
@@ -105,17 +98,8 @@
     }
     .card h3 { margin: 0 0 0.35rem 0; font-size: 1.12rem; }
     .card a { color: #0a58ca; text-decoration: none; }
-    .card a:hover { text-decoration: underline; }
-    .meta {
-      font-size: 0.84rem;
-      color: var(--muted);
-      margin-bottom: 0.5rem;
-    }
-    .snippet {
-      font-size: 0.92rem;
-      color: #333;
-      margin-bottom: 0.65rem;
-    }
+    .meta { font-size: 0.84rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .snippet { font-size: 0.92rem; color: #333; margin-bottom: 0.65rem; }
     .keywords {
       font-size: 0.8rem;
       color: #084298;
@@ -130,20 +114,21 @@
 
   <header>
     <h1>Hive Content Recommender</h1>
-    <p class="subtitle">Learns from the full text of posts you recently <strong>upvoted</strong> and <strong>commented on</strong>, then finds similar Hive articles. Tags are not used.</p>
+    <p class="subtitle">Learns from the full text of posts you recently
+      <strong>upvoted</strong> and <strong>commented on</strong>, then
+      finds similar Hive articles. Tags are not used.</p>
   </header>
 
   <div class="controls">
-    <input type="text" id="username" placeholder="Enter Hive 
-username (e.g. blocktrades)" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+    <input type="text" id="username" placeholder="Enter Hive username"
+      autocapitalize="none" autocorrect="off" autocomplete="off" />
     <button type="button" id="runBtn">Recommend</button>
   </div>
 
   <div class="samples">
     <span>Quick test:</span>
     <button type="button" class="sample-btn" data-user="blocktrades">@blocktrades</button>
-    <button type="button" class="sample-btn" data-user="theycallmedan">@theycallmedan<
-/button>
+    <button type="button" class="sample-btn" data-user="theycallmedan">@theycallmedan</button>
     <button type="button" class="sample-btn" data-user="acidyo">@acidyo</button>
   </div>
 
@@ -158,14 +143,11 @@ username (e.g. blocktrades)" autocapitalize="none" autocorrect="off" autocomplet
   <script>
     (function () {
       var status = document.getElementById('status');
-      window.addEventListener('error', function (event) {
+      window.addEventListener('error', function (e) {
         if (!status) return;
-        var detail = event && event.message ? event.message : 'Unknown JavaScript error';
-        if (event && (event.filename || event.lineno || event.colno)) {
-          detail += ' [' + (event.filename 
-|| 'inline script') + ':' + (event.lineno || '?') + ':' + (event.colno || '?') + ']';
-        }
-        status.textContent = 'JavaScript failed to start: ' + detail;
+        var msg = (e && e.message) ? e.message : 'Script error';
+        var line = (e && e.lineno) ? e.lineno : '?';
+        status.textContent = 'JS failed: ' + msg + ' (line ' + line + ')';
         status.style.background = '#f8d7da';
         status.style.color = '#842029';
         status.style.borderColor = '#f5c2c7';
@@ -183,60 +165,49 @@ username (e.g. blocktrades)" autocapitalize="none" autocorrect="off" autocomplet
       var kcBtnEl = document.getElementById('keychainBtn');
       var kcLabelEl = document.getElementById('kcLabel');
 
-      function setStatus(msg, 
-isError) {
+      function setStatus(msg, isError) {
         statusEl.textContent = msg;
         statusEl.style.background = isError ? '#f8d7da' : '#e7f1ff';
         statusEl.style.color = isError ? '#842029' : '#084298';
         statusEl.style.borderColor = isError ? '#f5c2c7' : '#b6d4fe';
       }
 
-      window.onerror = function (msg, url, line) {
-        setStatus('JS Error: ' + msg + ' (line ' + line + ')', true);
-      };
-
-      function safeGetStorage(key) {
-        try {
-          return window.localStorage 
-? (window.localStorage.getItem(key) || '') : '';
-        } catch (e) {
-          return '';
-        }
+      function getStore(k) {
+        try { return localStorage.getItem(k) || ''; } catch (e) { return ''; }
+      }
+      function setStore(k, v) {
+        try { localStorage.setItem(k, v); } catch (e) {}
       }
 
-      function safeSetStorage(key, val) {
-        try {
-          if (window.localStorage) window.localStorage.setItem(key, val);
-        } catch (e) {}
-      }
-
-      var HIVE_NODES = [
-        
-'https://api.hive.blog',
+      var NODES = [
+        'https://api.hive.blog',
         'https://api.deathwing.me',
         'https://api.openhive.network',
         'https://techcoderx.com'
       ];
 
-      var STOP_WORDS = {
-        the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
-        not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
-        will:1,way:1,about:1,many:1,then:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
-        thing:1,see:1,him:1,two:1,more:1,could:1,come:1,did:1,my:1,sound:1,most:1,people:1,over:1,
-        know:1,water:1,than:1,call:1,first:1,who:1,may:1,down:1,side:1,been:1,now:1,find:1,any:1,
-        new:1,work:1,part:1,take:1,get:1,place:1,made:1,live:1,where:1,after:1,back:1,little:1,
-        only:1,round:1,man:1,year:1,came:1,show:1,every:1,good:1,give:1,our:1,under:1,very:1,
-        
-just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,cause:1,
-        same:1,mean:1,differ:1,move:1,right:1,boy:1,old:1,too:1,does:1,tell:1,sentence:1,set:1,
-        three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
-        large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
-        ask:1,men:1,change:1,went:1,light:1,kind:1,off:1,need:1,house:1,picture:1,try:1,again:1,
-        animal:1,point:1,mother:1,world:1,near:1,build:1,self:1,earth:1,father:1,http:1,https:1,
-        www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,webp:1
-      };
+      var STOP_WORDS = (
+        'the,and,for,that,this,with,you,are,was,were,from,have,has,had,' +
+        'not,but,what,all,when,can,said,there,use,each,which,their,time,' +
+        'will,way,about,many,then,them,would,write,like,these,long,make,' +
+        'thing,see,him,two,more,could,come,did,my,sound,most,people,over,' +
+        'know,water,than,call,first,who,may,down,side,been,now,find,any,' +
+        'new,work,part,take,get,place,made,live,where,after,back,little,' +
+        'only,round,man,year,came,show,every,good,give,our,under,very,' +
+        'just,form,much,great,think,say,help,low,line,before,turn,cause,' +
+        'same,mean,differ,move,right,boy,old,too,does,tell,sentence,set,' +
+        'three,want,air,well,also,play,small,end,put,home,read,hand,port,' +
+        'large,spell,add,even,land,here,must,big,high,such,follow,act,why,' +
+        'ask,men,change,went,light,kind,off,need,house,picture,try,again,' +
+        'http,https,www,com,hive,peakd,ecency,post,blog,images,png,jpg,webp'
+      ).split(',');
 
-      function escapeHtml(str) {
+      var STOP = {};
+      for (var sw = 0; sw < STOP_WORDS.length; sw++) {
+        STOP[STOP_WORDS[sw]] = 1;
+      }
+
+      function esc(str) {
         return String(str)
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
@@ -244,499 +215,311 @@ just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,c
           .replace(/"/g, '&quot;');
       }
 
-      function postJson(url, payload, 
-timeoutMs) {
-        if (typeof window.fetch === 'function') {
-          return new Promise(function (resolve, reject) {
-            var done = false;
-            var timer = setTimeout(function () {
-              if (!done) {
-                done = true;
-                reject(new Error('Timeout on ' + url));
-              }
-            }, timeoutMs);
-
-            window.fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' 
-},
-              body: JSON.stringify(payload)
-            })
-              .then(function (res) {
-                if (!res.ok) throw new Error('HTTP ' + res.status + ' from ' + url);
-                return res.json();
-              })
-              .then(function (data) {
-                if (done) return;
-                done = true;
-                clearTimeout(timer);
-                resolve(data);
-              })
-              .catch(function (err) {
-                if (done) return;
-                done = 
-true;
-                clearTimeout(timer);
-                reject(err);
-              });
-          });
-        }
-
-        return new Promise(function (resolve, reject) {
-          var xhr = new XMLHttpRequest();
-          xhr.open('POST', url, true);
-          xhr.timeout = timeoutMs;
-          xhr.setRequestHeader('Content-Type', 'application/json');
-          xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4) 
-return;
-            if (xhr.status >= 200 && xhr.status < 300) {
-              try {
-                resolve(JSON.parse(xhr.responseText));
-              } catch (e) {
-                reject(new Error('Invalid JSON from ' + url));
-              }
-            } else {
-              reject(new Error('HTTP ' + xhr.status + ' from ' + url));
-            }
-          };
-          xhr.ontimeout = function () { reject(new Error('Timeout on ' + url)); 
-};
-          xhr.onerror = function () { reject(new Error('Network error on ' + url)); };
-          xhr.send(JSON.stringify(payload));
-        });
-      }
-
       function hiveCall(method, params) {
-        var index = 0;
-        var lastError = '';
-
-        function tryNextNode() {
-          if (index >= HIVE_NODES.length) {
-            return Promise.reject(new Error('All Hive RPC nodes failed (' 
-+ lastError + ').'));
+        var idx = 0;
+        var lastErr = '';
+        function next() {
+          if (idx >= NODES.length) {
+            return Promise.reject(new Error('All RPC nodes failed: ' + lastErr));
           }
-          var node = HIVE_NODES[index++];
-          return postJson(node, {
-            jsonrpc: '2.0',
-            method: method,
-            params: params,
-            id: 1
-          }, 10000).then(function (data) {
-            if (!data) throw new Error('Empty response from ' + node);
-            if (data.error) throw new Error(data.error.message || 'RPC error');
-            return data.result;
-          }).catch(function (err) 
-{
-            lastError = err && err.message ? err.message : String(err);
-            return tryNextNode();
+          var node = NODES[idx++];
+          return fetch(node, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 })
+          }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+          }).then(function (d) {
+            if (d && d.error) throw new Error(d.error.message || 'RPC error');
+            return d.result;
+          }).catch(function (e) {
+            lastErr = e.message || String(e);
+            return next();
           });
         }
-
-        return tryNextNode();
+        return next();
       }
 
-      function cleanMarkdown(text) {
+      function cleanText(text) {
         var src = String(text || '');
-        var noTags = '';
+        var out = '';
         var inTag = false;
         for (var i = 0; i < src.length; i++) {
           var ch = src.charAt(i);
-          if (ch === '<') 
-{
-            inTag = true;
-            noTags += ' ';
-          } else if (ch === '>') {
-            inTag = false;
-            noTags += ' ';
-          } else if (!inTag) {
-            noTags += ch;
-          }
+          if (ch === '<') { inTag = true; out += ' '; }
+          else if (ch === '>') { inTag = false; out += ' '; }
+          else if (!inTag) { out += ch; }
         }
-
-        var parts = noTags.split(' ');
-        var filtered = [];
-        for (var p = 0; p < parts.length; p++) {
-          var part = parts[p];
-          if (part.indexOf('http://') === 0 || part.indexOf('https://') === 0) 
-continue;
-          var cleanPart = '';
-          for (var c = 0; c < part.length; c++) {
-            var code = part.charCodeAt(c);
-            var isAlphaNum = (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-            cleanPart += isAlphaNum ? part.charAt(c) : ' ';
+        var words = out.split(' ');
+        var res = [];
+        for (var j = 0; j < words.length; j++) {
+          var w = words[j];
+          if (w.indexOf('http://') === 0 || w.indexOf('https://') === 0) continue;
+          var clean = '';
+          for (var c = 0; c < w.length; c++) {
+            var code = w.charCodeAt(c);
+            var ok = (code >= 48 && code <= 57) ||
+                     (code >= 65 && code <= 90) ||
+                     (code >= 97 && code <= 122);
+            clean += ok ? w.charAt(c) : ' ';
           }
-          if (cleanPart.trim()) filtered.push(cleanPart.trim());
+          if (clean.trim()) res.push(clean.trim());
         }
-        return filtered.join(' ');
+        return res.join(' ');
       }
 
       function tokenize(text) {
-        var clean = cleanMarkdown(text).toLowerCase();
-        var raw = clean.split(' ');
-        var tokens = [];
-        for (var i = 0; i < raw.length; i++) {
-          var w = raw[i];
-          if (w.length >= 3 && !STOP_WORDS[w] && isNaN(Number(w))) {
-            tokens.push(w);
-          }
+        var arr = cleanText(text).toLowerCase().split(' ');
+        var out = [];
+        for (var i = 0; i < arr.length; i++) {
+          var w = arr[i];
+          if (w.length >= 3 && !STOP[w] && isNaN(Number(w))) out.push(w);
         }
-        return tokens;
+        return out;
       }
 
-      function buildTermVector(tokens) {
+      function toVector(tokens) {
         var counts = {};
-        var normSq = 0;
         for (var i = 0; i < tokens.length; i++) {
-          var t = tokens[i];
-          counts[t] = (counts[t] || 0) + 1;
+          counts[tokens[i]] = (counts[tokens[i]] || 0) + 1;
         }
         var vec = {};
-        for (var term in counts) {
-          if (Object.prototype.hasOwnProperty.call(counts, term)) {
-            var tf = 1 + Math.log(counts[term]);
-            vec[term] = tf;
-            normSq += tf * 
-tf;
+        var normSq = 0;
+        for (var k in counts) {
+          if (Object.prototype.hasOwnProperty.call(counts, k)) {
+            var tf = 1 + Math.log(counts[k]);
+            vec[k] = tf;
+            normSq += tf * tf;
           }
         }
         return { vec: vec, norm: Math.sqrt(normSq) };
       }
 
-      function cosineSimilarity(a, b) {
-        if (!a.norm || !b.norm) return { score: 0, matchedTerms: [] };
+      function similarity(a, b) {
+        if (!a.norm || !b.norm) return { score: 0, terms: [] };
         var dot = 0;
-        var matched = [];
-        for (var term in a.vec) {
-          if (Object.prototype.hasOwnProperty.call(a.vec, term) && b.vec[term]) {
-            var prod = a.vec[term] * b.vec[term];
-            dot += 
-prod;
-            matched.push({ term: term, weight: prod });
+        var hits = [];
+        for (var k in a.vec) {
+          if (Object.prototype.hasOwnProperty.call(a.vec, k) && b.vec[k]) {
+            var w = a.vec[k] * b.vec[k];
+            dot += w;
+            hits.push({ t: k, w: w });
           }
         }
-        matched.sort(function (x, y) { return y.weight - x.weight; });
-        var topTerms = [];
-        for (var i = 0; i < Math.min(5, matched.length); i++) {
-          topTerms.push(matched[i].term);
-        }
-        return {
-          score: dot / (a.norm * b.norm),
-          matchedTerms: topTerms
-        };
+        hits.sort(function (x, y) { return y.w - x.w; });
+        var terms = [];
+        for (var i = 0; i < Math.min(5, hits.length); i++) terms.push(hits[i].t);
+        return { score: dot / (a.norm * b.norm), terms: terms };
       }
 
-      function parseHistoryItems(history, username) {
-        var seen = {};
-        var targets = [];
-        for (var i = history.length - 1; i >= 0; i--) {
-          var entry = history[i];
-          var record = Array.isArray(entry) ? entry[1] : entry;
-          var op = record && record.op;
-          if (!op) continue;
-
-          var type = '';
-          var data = {};
-          if (Array.isArray(op)) {
-            type = 
-op[0];
-            data = op[1] || {};
-          } else if (typeof op === 'object') {
-            type = String(op.type || '').replace('_operation', '');
-            data = op.value || op;
-          }
-
-          var author = '';
-          var permlink = '';
-          if (type === 'vote' && data.voter === username && Number(data.weight) > 0 && data.author !== username) {
-            author = data.author;
-            permlink = data.permlink;
-          } else if (type === 'comment' && data.author === username && 
-data.parent_author && data.parent_author !== username) {
-            author = data.parent_author;
-            permlink = data.parent_permlink;
-          }
-
-          if (author && permlink) {
-            var key = author + '/' + permlink;
-            if (!seen[key]) {
-              seen[key] = true;
-              targets.push({ author: author, permlink: permlink, key: key });
-              if (targets.length >= 12) break;
-            }
-          
-}
-        }
-        return targets;
+      function cleanUser(s) {
+        var u = String(s || '').trim().toLowerCase();
+        while (u.charAt(0) === '@') u = u.slice(1);
+        return u;
       }
 
-      function getRecentInteractions(username) {
-        return hiveCall('condenser_api.get_account_history', [username, -1, 200, 3, 0])
+      function getHistory(user) {
+        return hiveCall('condenser_api.get_account_history', [user, -1, 200, 3, 0])
           .catch(function () {
-            return hiveCall('condenser_api.get_account_history', [username, -1, 400]);
+            return hiveCall('condenser_api.get_account_history', [user, -1, 400]);
           })
-          .then(function (history) {
-            if (!Array.isArray(history) || history.length === 0) {
-              throw new 
-Error('Account @' + username + ' not found or has no recent activity.');
+          .then(function (hist) {
+            if (!Array.isArray(hist) || !hist.length) {
+              throw new Error('Account @' + user + ' not found or no recent activity.');
             }
-            return parseHistoryItems(history, username);
+            var seen = {};
+            var list = [];
+            for (var i = hist.length - 1; i >= 0; i--) {
+              var rec = Array.isArray(hist[i]) ? hist[i][1] : hist[i];
+              var op = rec && rec.op;
+              if (!op) continue;
+              var type = Array.isArray(op) ? op[0] : String(op.type || '').replace('_operation', '');
+              var val = Array.isArray(op) ? (op[1] || {}) : (op.value || op);
+              var a = '';
+              var p = '';
+              if (type === 'vote' && val.voter === user && Number(val.weight) > 0 && val.author !== user) {
+                a = val.author;
+                p = val.permlink;
+              } else if (type === 'comment' && val.author === user && val.parent_author && val.parent_author !== user) {
+                a = val.parent_author;
+                p = val.parent_permlink;
+              }
+              if (a && p) {
+                var key = a + '/' + p;
+                if (!seen[key]) {
+                  seen[key] = true;
+                  list.push({ author: a, permlink: p, key: key });
+                  if (list.length >= 12) break;
+                }
+              }
+            }
+            return list;
           });
       }
 
-      function fetchPostContent(author, permlink) {
+      function getPost(author, permlink) {
         return hiveCall('bridge.get_post', { author: author, permlink: permlink })
           .catch(function () {
-            return 
-hiveCall('condenser_api.get_content', [author, permlink]);
+            return hiveCall('condenser_api.get_content', [author, permlink]);
           });
       }
 
-      function fetchCandidatePosts() {
+      function getCandidates() {
         return Promise.all([
           hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '', limit: 20 }),
           hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 20 }),
           hiveCall('bridge.get_ranked_posts', { sort: 'hot', tag: '', limit: 20 })
-        ]).then(function (results) {
-          var combined = [];
-          var seen = 
-{};
-          for (var r = 0; r < results.length; r++) {
-            var list = results[r] || [];
-            for (var i = 0; i < list.length; i++) {
-              var p = list[i];
+        ]).then(function (res) {
+          var out = [];
+          var seen = {};
+          for (var r = 0; r < res.length; r++) {
+            var arr = res[r] || [];
+            for (var i = 0; i < arr.length; i++) {
+              var p = arr[i];
               if (!p || !p.author || !p.permlink) continue;
               var key = p.author + '/' + p.permlink;
-              if (!seen[key]) {
-                seen[key] = true;
-                combined.push(p);
-              }
+              if (!seen[key]) { seen[key] = true; out.push(p); }
             }
           }
-          return combined;
-        
-});
-      }
-
-      function resetButton() {
-        btnEl.disabled = false;
-        btnEl.textContent = 'Recommend';
-      }
-
-      function stripLeadingAt(str) {
-        var s = String(str || '').trim().toLowerCase();
-        while (s.charAt(0) === '@') {
-          s = s.slice(1);
-        }
-        return s;
-      }
-
-      function runRecommender() 
-{
-        var username = stripLeadingAt(inputEl.value);
-        if (!username) {
-          setStatus('Please enter a Hive username first.', true);
-          inputEl.focus();
-          return;
-        }
-
-        btnEl.disabled = true;
-        btnEl.textContent = 'Working...';
-        feedEl.innerHTML = '';
-        setStatus('Fetching recent upvotes and comments for @' + username + '...');
-
-        var interactedKeys = {};
-
-        getRecentInteractions(username)
-          .then(function (targets) {
-            if (targets.length === 0) {
-              throw new Error('No recent upvotes or comments found for @' + username + '.');
-            }
-            for (var i = 0; i < targets.length; i++) {
-              interactedKeys[targets[i].key] = true;
-            }
-            setStatus('Reading full text of ' + targets.length + ' posts you interacted with...');
-            return 
-Promise.all(targets.map(function (t) {
-              return fetchPostContent(t.author, t.permlink).catch(function () { return null; });
-            }));
-          })
-          .then(function (seedPosts) {
-            var allTokens = [];
-            var validCount = 0;
-            for (var i = 0; i < seedPosts.length; i++) {
-              var post = seedPosts[i];
-              if (post && (post.title || post.body)) {
-                validCount++;
-                var text = (post.title || '') + ' ' + (post.body || 
-'');
-                var tokens = tokenize(text);
-                for (var j = 0; j < tokens.length; j++) {
-                  allTokens.push(tokens[j]);
-                }
-              }
-            }
-            if (validCount === 0 || allTokens.length === 0) {
-              throw new Error('Could not extract enough text from your interacted posts.');
-            }
-
-            var profileVec = buildTermVector(allTokens);
-            setStatus('Scanning recent Hive articles and comparing 
-full-text similarity...');
-
-            return fetchCandidatePosts().then(function (candidates) {
-              var scored = [];
-              for (var i = 0; i < candidates.length; i++) {
-                var c = candidates[i];
-                var key = c.author + '/' + c.permlink;
-                if (c.author === username || interactedKeys[key]) continue;
-
-                var fullText = (c.title || '') + ' ' + (c.body || '');
-                var cTokens = tokenize(fullText);
-                if (cTokens.length < 25) 
-continue;
-
-                var cVec = buildTermVector(cTokens);
-                var sim = cosineSimilarity(profileVec, cVec);
-                if (sim.score > 0.02) {
-                  scored.push({
-                    post: c,
-                    score: sim.score,
-                    matchedTerms: sim.matchedTerms
-                  });
-                }
-              }
-
-              scored.sort(function (a, b) { return b.score - a.score; });
-              return scored.slice(0, 
-15);
-            });
-          })
-          .then(function (recommendations) {
-            resetButton();
-            if (recommendations.length === 0) {
-              setStatus('No strong content matches found right now. Try again shortly.', false);
-              return;
-            }
-
-            setStatus('Found ' + recommendations.length + ' recommended articles for @' + username + '.', false);
-            var html = 
-'';
-            for (var i = 0; i < recommendations.length; i++) {
-              var item = recommendations[i];
-              var p = item.post;
-              var url = 'https://peakd.com/@' + encodeURIComponent(p.author) + '/' + encodeURIComponent(p.permlink);
-              var rawSnippet = cleanMarkdown(p.body || '');
-              var snippet = rawSnippet.length > 210 ? rawSnippet.slice(0, 210) + '...' : rawSnippet;
-              var pct = Math.round(item.score * 
-100);
-
-              html += '<div class="card">';
-              html += '<h3><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
-              html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong> &middot; Match score: ' + pct + '%</div>';
-              html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
-              if (item.matchedTerms.length > 0) {
-                html += '<div 
-class="keywords">Shared themes: ' + escapeHtml(item.matchedTerms.join(', ')) + '</div>';
-              }
-              html += '</div>';
-            }
-            feedEl.innerHTML = html;
-          })
-          .catch(function (err) {
-            resetButton();
-            setStatus(err && err.message ? err.message : 'An unexpected error occurred.', true);
-          });
-      }
-
-      btnEl.addEventListener('click', 
-runRecommender);
-
-      inputEl.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.keyCode === 13) {
-          e.preventDefault();
-          runRecommender();
-        }
-      });
-
-      var sampleBtns = document.querySelectorAll('.sample-btn');
-      for (var s = 0; s < sampleBtns.length; s++) {
-        
-sampleBtns[s].addEventListener('click', function () {
-          var user = this.getAttribute('data-user');
-          if (user) {
-            inputEl.value = user;
-            runRecommender();
-          }
+          return out;
         });
       }
 
-      function checkKeychain() {
+      function run() {
+        var user = cleanUser(inputEl.value);
+        if (!user) {
+          setStatus('Please enter a Hive username first.', true);
+          return;
+        }
+        btnEl.disabled = true;
+        btnEl.textContent = 'Working...';
+        feedEl.innerHTML = '';
+        setStatus('Fetching recent upvotes and comments for @' + user + '...');
+
+        var skip = {};
+        getHistory(user).then(function (targets) {
+          if (!targets.length) throw new Error('No recent upvotes or comments found for @' + user + '.');
+          for (var i = 0; i < targets.length; i++) skip[targets[i].key] = true;
+          setStatus('Reading ' + targets.length + ' posts you interacted with...');
+          return Promise.all(targets.map(function (t) {
+            return getPost(t.author, t.permlink).catch(function () { return null; });
+          }));
+        }).then(function (posts) {
+          var all = [];
+          for (var i = 0; i < posts.length; i++) {
+            var p = posts[i];
+            if (p && (p.title || p.body)) {
+              var toks = tokenize((p.title || '') + ' ' + (p.body || ''));
+              for (var j = 0; j < toks.length; j++) all.push(toks[j]);
+            }
+          }
+          if (!all.length) throw new Error('Not enough text found in your recent activity.');
+          var profile = toVector(all);
+          setStatus('Comparing full text against recent Hive articles...');
+          return getCandidates().then(function (cands) {
+            var scored = [];
+            for (var i = 0; i < cands.length; i++) {
+              var c = cands[i];
+              var key = c.author + '/' + c.permlink;
+              if (c.author === user || skip[key]) continue;
+              var cToks = tokenize((c.title || '') + ' ' + (c.body || ''));
+              if (cToks.length < 25) continue;
+              var sim = similarity(profile, toVector(cToks));
+              if (sim.score > 0.02) scored.push({ post: c, score: sim.score, terms: sim.terms });
+            }
+            scored.sort(function (a, b) { return b.score - a.score; });
+            return scored.slice(0, 15);
+          });
+        }).then(function (recs) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Recommend';
+          if (!recs.length) {
+            setStatus('No strong matches found right now. Try again shortly.', false);
+            return;
+          }
+          setStatus('Found ' + recs.length + ' recommended articles for @' + user + '.', false);
+          var html = '';
+          for (var i = 0; i < recs.length; i++) {
+            var r = recs[i];
+            var p = r.post;
+            var url = 'https://peakd.com/@' + encodeURIComponent(p.author) + '/' + encodeURIComponent(p.permlink);
+            var snip = cleanText(p.body || '');
+            if (snip.length > 200) snip = snip.slice(0, 200) + '...';
+            html += '<div class="card">';
+            html += '<h3><a href="' + esc(url) + '" target="_blank">' + esc(p.title || '(Untitled)') + '<' + '/a><' + '/h3>';
+            html += '<div class="meta">by @' + esc(p.author) + ' &middot; Match: ' + Math.round(r.score * 100) + '%<' + '/div>';
+            html += '<div class="snippet">' + esc(snip) + '<' + '/div>';
+            if (r.terms.length) {
+              html += '<div class="keywords">Themes: ' + esc(r.terms.join(', ')) + '<' + '/div>';
+            }
+            html += '<' + '/div>';
+          }
+          feedEl.innerHTML = html;
+        }).catch(function (err) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Recommend';
+          setStatus(err && err.message ? err.message : 'Unexpected error.', true);
+        });
+      }
+
+      btnEl.addEventListener('click', run);
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); run(); }
+      });
+
+      var sBtns = document.querySelectorAll('.sample-btn');
+      for (var s = 0; s < sBtns.length; s++) {
+        sBtns[s].addEventListener('click', function () {
+          inputEl.value = this.getAttribute('data-user');
+          run();
+        });
+      }
+
+      function checkKc() {
         if (window.hive_keychain) {
           kcRowEl.style.display = 'flex';
-          var cached = safeGetStorage('nectarseeker_kc_user');
-          if (cached && !inputEl.value) {
-            inputEl.value = 
-cached;
-            kcLabelEl.textContent = 'Keychain ready (@' + cached + ')';
+          var saved = getStore('nectarseeker_kc_user');
+          if (saved && !inputEl.value) {
+            inputEl.value = saved;
+            kcLabelEl.textContent = 'Keychain ready (@' + saved + ')';
           }
           if (typeof window.hive_keychain.requestHandshake === 'function') {
-            try {
-              window.hive_keychain.requestHandshake(function () {});
-            } catch (e) {}
+            try { window.hive_keychain.requestHandshake(function () {}); } catch (e) {}
           }
         }
       }
 
-      kcBtnEl.addEventListener('click', function () 
-{
-        if (!window.hive_keychain) {
-          setStatus('Hive Keychain not detected.', true);
-          return;
-        }
-        var typed = stripLeadingAt(inputEl.value);
-        var cached = safeGetStorage('nectarseeker_kc_user');
-        var account = typed || cached || null;
-
-        setStatus(
-          account
-            ? 'Requesting Keychain signature for @' + account + '...'
-            : 'Opening Hive Keychain 
-account selector...',
-          false
-        );
-
+      kcBtnEl.addEventListener('click', function () {
+        if (!window.hive_keychain) { setStatus('Hive Keychain not detected.', true); return; }
+        var acct = cleanUser(inputEl.value) || getStore('nectarseeker_kc_user') || null;
+        setStatus(acct ? 'Requesting Keychain signature for @' + acct + '...' : 'Opening Keychain...', false);
         window.hive_keychain.requestSignBuffer(
-          account,
+          acct,
           'Login to Hive Content Recommender',
           'Posting',
           function (res) {
             if (res && res.success) {
-              var verifiedUser = (res.data && res.data.username) || account || '';
-              verifiedUser = stripLeadingAt(verifiedUser);
-              if (verifiedUser) 
-{
-                safeSetStorage('nectarseeker_kc_user', verifiedUser);
-                inputEl.value = verifiedUser;
-                kcLabelEl.textContent = 'Verified @' + verifiedUser;
-                runRecommender();
+              var u = cleanUser((res.data && res.data.username) || acct || '');
+              if (u) {
+                setStore('nectarseeker_kc_user', u);
+                inputEl.value = u;
+                kcLabelEl.textContent = 'Verified @' + u;
+                run();
               } else {
-                setStatus('Signed with Keychain, but username was not returned. Type your username above and tap Recommend.', true);
+                setStatus('Signed, but username missing. Type username above and tap Recommend.', true);
               }
             } else {
-              var msg = (res && res.message) ? res.message : 'Keychain request cancelled or 
-requires a username typed in the box above.';
-              setStatus(msg, true);
+              setStatus((res && res.message) || 'Keychain login cancelled.', true);
             }
           }
         );
       });
 
-      checkKeychain();
-      setTimeout(checkKeychain, 400);
-      setTimeout(checkKeychain, 1200);
-      setStatus('Ready. Enter a Hive username or tap a quick test account above.', false);
+      checkKc();
+      setTimeout(checkKc, 500);
+      setStatus('Ready. Enter a Hive username or tap a quick test account.', false);
     })();
   </script>
 </body>
-    </html>
+</html>
