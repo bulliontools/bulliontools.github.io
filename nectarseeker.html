@@ -29,10 +29,11 @@
     .controls {
       display: flex;
       gap: 0.5rem;
-      margin-bottom: 0.85rem;
+      margin-bottom: 0.65rem;
     }
     input {
       flex: 1;
+      min-width: 0;
       padding: 0.75rem 0.9rem;
       font-size: 1rem;
       border: 1px solid #ccd0d5;
@@ -50,9 +51,28 @@
       cursor: pointer;
       font-weight: 600;
       touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
     button:hover { background: var(--primary-hover); }
     button:disabled { background: #999; cursor: not-allowed; }
+    .samples {
+      margin-bottom: 0.85rem;
+      font-size: 0.84rem;
+      color: var(--muted);
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .sample-btn {
+      background: #e9ecef;
+      color: #1c1e21;
+      font-size: 0.82rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .sample-btn:hover { background: #dee2e6; }
     .kc-row {
       margin-bottom: 1rem;
       display: flex;
@@ -62,8 +82,8 @@
     }
     .kc-btn {
       background: #212529;
-      font-size: 0.88rem;
-      padding: 0.5rem 0.9rem;
+      font-size: 0.9rem;
+      padding: 0.6rem 1rem;
     }
     .kc-btn:hover { background: #000; }
     #status {
@@ -114,14 +134,22 @@
   </header>
 
   <div class="controls">
-    <input type="text" id="username" placeholder="Enter Hive username (e.g. blocktrades)" autocapitalize="none" autocorrect="off" />
-    <button type="button" 
-id="runBtn">Recommend</button>
+    <input type="text" id="username" placeholder="Enter Hive 
+username (e.g. blocktrades)" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" />
+    <button type="button" id="runBtn">Recommend</button>
+  </div>
+
+  <div class="samples">
+    <span>Quick test:</span>
+    <button type="button" class="sample-btn" data-user="blocktrades">@blocktrades</button>
+    <button type="button" class="sample-btn" data-user="theycallmedan">@theycallmedan<
+/button>
+    <button type="button" class="sample-btn" data-user="acidyo">@acidyo</button>
   </div>
 
   <div class="kc-row" id="kcRow" style="display:none;">
     <button type="button" class="kc-btn" id="keychainBtn">Use Hive Keychain Account</button>
-    <span style="font-size:0.84rem;color:#606770;">Keychain detected</span>
+    <span id="kcLabel" style="font-size:0.84rem;color:#606770;">Keychain detected</span>
   </div>
 
   <div id="status">Initializing...</div>
@@ -134,10 +162,10 @@ id="runBtn">Recommend</button>
         if (!status) return;
         var detail = event && event.message ? event.message : 'Unknown JavaScript error';
         if (event && (event.filename || event.lineno || event.colno)) {
-          detail += ' [' + (event.filename || 'inline script') + ':' + (event.lineno || '?') + ':' + (event.colno || '?') + ']';
+          detail += ' [' + (event.filename 
+|| 'inline script') + ':' + (event.lineno || '?') + ':' + (event.colno || '?') + ']';
         }
-        status.textContent = 'JavaScript 
-failed to start: ' + detail;
+        status.textContent = 'JavaScript failed to start: ' + detail;
         status.style.background = '#f8d7da';
         status.style.color = '#842029';
         status.style.borderColor = '#f5c2c7';
@@ -153,13 +181,14 @@ failed to start: ' + detail;
       var inputEl = document.getElementById('username');
       var kcRowEl = document.getElementById('kcRow');
       var kcBtnEl = document.getElementById('keychainBtn');
+      var kcLabelEl = document.getElementById('kcLabel');
 
-      function setStatus(msg, isError) {
+      function setStatus(msg, 
+isError) {
         statusEl.textContent = msg;
         statusEl.style.background = isError ? '#f8d7da' : '#e7f1ff';
         statusEl.style.color = isError ? '#842029' : '#084298';
-        statusEl.style.borderColor = isError ? '#f5c2c7' : 
-'#b6d4fe';
+        statusEl.style.borderColor = isError ? '#f5c2c7' : '#b6d4fe';
       }
 
       window.onerror = function (msg, url, line) {
@@ -168,7 +197,8 @@ failed to start: ' + detail;
 
       function safeGetStorage(key) {
         try {
-          return window.localStorage ? (window.localStorage.getItem(key) || '') : '';
+          return window.localStorage 
+? (window.localStorage.getItem(key) || '') : '';
         } catch (e) {
           return '';
         }
@@ -181,25 +211,25 @@ failed to start: ' + detail;
       }
 
       var HIVE_NODES = [
+        
+'https://api.hive.blog',
         'https://api.deathwing.me',
         'https://api.openhive.network',
-        'https://api.hive.blog',
         'https://techcoderx.com'
       ];
 
       var STOP_WORDS = {
-        
-the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
+        the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
         not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
         will:1,way:1,about:1,many:1,then:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
         thing:1,see:1,him:1,two:1,more:1,could:1,come:1,did:1,my:1,sound:1,most:1,people:1,over:1,
         know:1,water:1,than:1,call:1,first:1,who:1,may:1,down:1,side:1,been:1,now:1,find:1,any:1,
         new:1,work:1,part:1,take:1,get:1,place:1,made:1,live:1,where:1,after:1,back:1,little:1,
         only:1,round:1,man:1,year:1,came:1,show:1,every:1,good:1,give:1,our:1,under:1,very:1,
-        just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,cause:1,
-        same:1,mean:1,differ:1,move:1,right:1,boy:1,old:1,too:1,does:1,tell:1,sentence:1,set:1,
         
-three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
+just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,cause:1,
+        same:1,mean:1,differ:1,move:1,right:1,boy:1,old:1,too:1,does:1,tell:1,sentence:1,set:1,
+        three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
         large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
         ask:1,men:1,change:1,went:1,light:1,kind:1,off:1,need:1,house:1,picture:1,try:1,again:1,
         animal:1,point:1,mother:1,world:1,near:1,build:1,self:1,earth:1,father:1,http:1,https:1,
@@ -214,59 +244,91 @@ three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand
           .replace(/"/g, '&quot;');
       }
 
+      function postJson(url, payload, 
+timeoutMs) {
+        if (typeof window.fetch === 'function') {
+          return new Promise(function (resolve, reject) {
+            var done = false;
+            var timer = setTimeout(function () {
+              if (!done) {
+                done = true;
+                reject(new Error('Timeout on ' + url));
+              }
+            }, timeoutMs);
+
+            window.fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' 
+},
+              body: JSON.stringify(payload)
+            })
+              .then(function (res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status + ' from ' + url);
+                return res.json();
+              })
+              .then(function (data) {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                resolve(data);
+              })
+              .catch(function (err) {
+                if (done) return;
+                done = 
+true;
+                clearTimeout(timer);
+                reject(err);
+              });
+          });
+        }
+
+        return new Promise(function (resolve, reject) {
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', url, true);
+          xhr.timeout = timeoutMs;
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) 
+return;
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText));
+              } catch (e) {
+                reject(new Error('Invalid JSON from ' + url));
+              }
+            } else {
+              reject(new Error('HTTP ' + xhr.status + ' from ' + url));
+            }
+          };
+          xhr.ontimeout = function () { reject(new Error('Timeout on ' + url)); 
+};
+          xhr.onerror = function () { reject(new Error('Network error on ' + url)); };
+          xhr.send(JSON.stringify(payload));
+        });
+      }
+
       function hiveCall(method, params) {
         var index = 0;
         var lastError = '';
 
         function tryNextNode() {
           if (index >= HIVE_NODES.length) {
-            return Promise.reject(new 
-Error('All Hive RPC nodes failed (' + lastError + ').'));
+            return Promise.reject(new Error('All Hive RPC nodes failed (' 
++ lastError + ').'));
           }
           var node = HIVE_NODES[index++];
-          return new Promise(function (resolve, reject) {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', node, true);
-            xhr.timeout = 10000;
-            xhr.setRequestHeader('Content-Type', 'application/json');
-
-            xhr.onreadystatechange = function () {
-              if (xhr.readyState !== 4) 
-return;
-              if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                  var data = JSON.parse(xhr.responseText);
-                  if (data.error) {
-                    reject(new Error(data.error.message || 'RPC error'));
-                  } else {
-                    resolve(data.result);
-                  }
-                } catch (e) {
-                  reject(new Error('Invalid JSON from ' + node));
-                }
-              } else {
-                reject(new Error('HTTP ' 
-+ xhr.status + ' from ' + node));
-              }
-            };
-
-            xhr.ontimeout = function () {
-              reject(new Error('Timeout on ' + node));
-            };
-
-            xhr.onerror = function () {
-              reject(new Error('Network error on ' + node));
-            };
-
-            xhr.send(JSON.stringify({
-              jsonrpc: '2.0',
-              method: method,
-              params: params,
-              id: 
-1
-            }));
-          }).catch(function (err) {
-            lastError = err.message;
+          return postJson(node, {
+            jsonrpc: '2.0',
+            method: method,
+            params: params,
+            id: 1
+          }, 10000).then(function (data) {
+            if (!data) throw new Error('Empty response from ' + node);
+            if (data.error) throw new Error(data.error.message || 'RPC error');
+            return data.result;
+          }).catch(function (err) 
+{
+            lastError = err && err.message ? err.message : String(err);
             return tryNextNode();
           });
         }
@@ -343,73 +405,92 @@ b.norm),
         };
       }
 
+      function parseHistoryItems(history, username) {
+        var seen = {};
+        var targets = [];
+        for (var i = history.length - 1; i >= 0; i--) {
+          var entry = history[i];
+          var record = Array.isArray(entry) ? entry[1] : entry;
+          var op = record && record.op;
+          if (!op) continue;
+
+          var type = '';
+          var data = {};
+          if (Array.isArray(op)) {
+            type = op[0];
+            data = op[1] || {};
+          } else if (typeof op === 'object') {
+            type = String(op.type || '').replace(/_operation$/, '');
+            data = op.value || op;
+          }
+
+          var author = '';
+          var permlink = '';
+          if (type === 'vote' && data.voter === username && Number(data.weight) > 0 && data.author !== username) 
+{
+            author = data.author;
+            permlink = data.permlink;
+          } else if (type === 'comment' && data.author === username && data.parent_author && data.parent_author !== username) {
+            author = data.parent_author;
+            permlink = data.parent_permlink;
+          }
+
+          if (author && permlink) {
+            var key = author + '/' + permlink;
+            if (!seen[key]) {
+              seen[key] = true;
+              targets.push({ author: author, permlink: permlink, key: 
+key });
+              if (targets.length >= 12) break;
+            }
+          }
+        }
+        return targets;
+      }
+
       function getRecentInteractions(username) {
-        return hiveCall('condenser_api.get_account_history', [username, -1, 300]).then(function (history) {
-          if (!Array.isArray(history) || history.length === 0) {
-            throw new Error('Account not found or no recent activity.');
-          }
-          var seen = {};
-          var targets = [];
-          for (var i = history.length - 1; 
-i >= 0; i--) {
-            var entry = history[i];
-            var op = entry && entry[1] && entry[1].op;
-            if (!Array.isArray(op)) continue;
-            var type = op[0];
-            var data = op[1] || {};
-            var author = '';
-            var permlink = '';
-
-            if (type === 'vote' && data.voter === username && data.weight > 0 && data.author !== username) {
-              author = data.author;
-              permlink = data.permlink;
-            } else if (type === 'comment' && data.author === username && 
-data.parent_author && data.parent_author !== username) {
-              author = data.parent_author;
-              permlink = data.parent_permlink;
+        return hiveCall('condenser_api.get_account_history', [username, -1, 200, 3, 0])
+          .catch(function () {
+            return hiveCall('condenser_api.get_account_history', [username, -1, 400]);
+          
+})
+          .then(function (history) {
+            if (!Array.isArray(history) || history.length === 0) {
+              throw new Error('Account @' + username + ' not found or has no recent activity.');
             }
-
-            if (author && permlink) {
-              var key = author + '/' + permlink;
-              if (!seen[key]) {
-                seen[key] = true;
-                targets.push({ author: author, permlink: permlink, key: key });
-                if (targets.length >= 12) break;
-              
-}
-            }
-          }
-          return targets;
-        });
+            return parseHistoryItems(history, username);
+          });
       }
 
       function fetchPostContent(author, permlink) {
-        return hiveCall('bridge.get_post', { author: author, permlink: permlink })
+        return hiveCall('bridge.get_post', { 
+author: author, permlink: permlink })
           .catch(function () {
             return hiveCall('condenser_api.get_content', [author, permlink]);
           });
-      
-}
+      }
 
       function fetchCandidatePosts() {
         return Promise.all([
-          hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 45 }),
-          hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 45 })
+          hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '', limit: 20 }),
+          hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 20 }),
+          hiveCall('bridge.get_ranked_posts', 
+{ sort: 'hot', tag: '', limit: 20 })
         ]).then(function (results) {
           var combined = [];
           var seen = {};
           for (var r = 0; r < results.length; r++) {
             var list = results[r] || [];
             for (var i = 0; i < list.length; i++) {
-              var p = 
-list[i];
+              var p = list[i];
               if (!p || !p.author || !p.permlink) continue;
               var key = p.author + '/' + p.permlink;
               if (!seen[key]) {
                 seen[key] = true;
                 combined.push(p);
               }
-            }
+            
+}
           }
           return combined;
         });
@@ -417,14 +498,14 @@ list[i];
 
       function resetButton() {
         btnEl.disabled = false;
-        btnEl.textContent = 
-'Recommend';
+        btnEl.textContent = 'Recommend';
       }
 
       function runRecommender() {
         var username = inputEl.value.trim().toLowerCase().replace(/^@/, '');
         if (!username) {
-          setStatus('Please enter a Hive username.', true);
+          setStatus('Please enter a Hive username first.', 
+true);
           inputEl.focus();
           return;
         }
@@ -432,23 +513,23 @@ list[i];
         btnEl.disabled = true;
         btnEl.textContent = 'Working...';
         feedEl.innerHTML = '';
-        setStatus('Fetching recent upvotes and comments for @' + 
-username + '...');
+        setStatus('Fetching recent upvotes and comments for @' + username + '...');
 
         var interactedKeys = {};
 
         getRecentInteractions(username)
           .then(function (targets) {
             if (targets.length === 0) {
-              throw new Error('No recent upvotes or comments found for @' + username + '.');
+              throw new Error('No 
+recent upvotes or comments found for @' + username + '.');
             }
             for (var i = 0; i < targets.length; i++) {
               interactedKeys[targets[i].key] = true;
             }
-            setStatus('Reading full text 
-of ' + targets.length + ' posts you interacted with...');
+            setStatus('Reading full text of ' + targets.length + ' posts you interacted with...');
             return Promise.all(targets.map(function (t) {
-              return fetchPostContent(t.author, t.permlink).catch(function () { return null; });
+              return fetchPostContent(t.author, t.permlink).catch(function () { return null; 
+});
             }));
           })
           .then(function (seedPosts) {
@@ -456,37 +537,37 @@ of ' + targets.length + ' posts you interacted with...');
             var validCount = 0;
             for (var i = 0; i < seedPosts.length; i++) {
               var post = seedPosts[i];
-              if (post && (post.title || post.body)) 
-{
+              if (post && (post.title || post.body)) {
                 validCount++;
                 var text = (post.title || '') + ' ' + (post.body || '');
                 var tokens = tokenize(text);
                 for (var j = 0; j < tokens.length; j++) {
                   allTokens.push(tokens[j]);
-                }
+                
+}
               }
             }
             if (validCount === 0 || allTokens.length === 0) {
               throw new Error('Could not extract enough text from your interacted posts.');
             }
 
-            var profileVec = 
-buildTermVector(allTokens);
+            var profileVec = buildTermVector(allTokens);
             setStatus('Scanning recent Hive articles and comparing full-text similarity...');
 
-            return fetchCandidatePosts().then(function (candidates) {
+            return fetchCandidatePosts().then(function (candidates) 
+{
               var scored = [];
               for (var i = 0; i < candidates.length; i++) {
                 var c = candidates[i];
                 var key = c.author + '/' + c.permlink;
                 if (c.author === username || interactedKeys[key]) continue;
 
-                var fullText = (c.title || '') + ' ' + (c.body || 
-'');
+                var fullText = (c.title || '') + ' ' + (c.body || '');
                 var cTokens = tokenize(fullText);
                 if (cTokens.length < 25) continue;
 
-                var cVec = buildTermVector(cTokens);
+                var cVec = 
+buildTermVector(cTokens);
                 var sim = cosineSimilarity(profileVec, cVec);
                 if (sim.score > 0.02) {
                   scored.push({
@@ -495,100 +576,137 @@ buildTermVector(allTokens);
                     matchedTerms: sim.matchedTerms
                   });
                 }
-              
-}
+              }
 
               scored.sort(function (a, b) { return b.score - a.score; });
               return scored.slice(0, 15);
             });
           })
-          .then(function (recommendations) {
+          .then(function 
+(recommendations) {
             resetButton();
             if (recommendations.length === 0) {
               setStatus('No strong content matches found right now. Try again shortly.', false);
               return;
             }
 
-            setStatus('Found ' + 
-recommendations.length + ' recommended articles based on your reading and engagement history.', false);
+            setStatus('Found ' + recommendations.length + ' recommended articles for @' + username + '.', false);
             var html = '';
             for (var i = 0; i < recommendations.length; i++) {
-              var item = recommendations[i];
+              var item = 
+recommendations[i];
               var p = item.post;
               var url = 'https://peakd.com/@' + encodeURIComponent(p.author) + '/' + encodeURIComponent(p.permlink);
               var rawSnippet = cleanMarkdown(p.body || '');
-              var snippet = rawSnippet.length > 210 ? 
-rawSnippet.slice(0, 210) + '...' : rawSnippet;
+              var snippet = rawSnippet.length > 210 ? rawSnippet.slice(0, 210) + '...' : rawSnippet;
               var pct = Math.round(item.score * 100);
 
               html += '<div class="card">';
-              html += '<h3><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+              html += '<h3><a href="' + escapeHtml(url) + '" 
+target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
               html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong> &middot; Match score: ' + pct + '%</div>';
-              html += '<div class="snippet">' + escapeHtml(snippet) + 
-'</div>';
+              html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
               if (item.matchedTerms.length > 0) {
                 html += '<div class="keywords">Shared themes: ' + escapeHtml(item.matchedTerms.join(', ')) + '</div>';
-              }
+              
+}
               html += '</div>';
             }
             feedEl.innerHTML = html;
           })
           .catch(function (err) {
             resetButton();
-            setStatus(err.message || 'An unexpected error occurred.', true);
+            setStatus(err && err.message ? err.message : 'An unexpected error occurred.', true);
           });
-      
-}
+      }
 
       btnEl.addEventListener('click', runRecommender);
-      inputEl.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.keyCode === 13) runRecommender();
+
+      inputEl.addEventListener('keydown', function (e) 
+{
+        if (e.key === 'Enter' || e.keyCode === 13) {
+          e.preventDefault();
+          runRecommender();
+        }
       });
+
+      var sampleBtns = document.querySelectorAll('.sample-btn');
+      for (var s = 0; s < sampleBtns.length; s++) {
+        sampleBtns[s].addEventListener('click', function () {
+          var user = this.getAttribute('data-user');
+          if (user) 
+{
+            inputEl.value = user;
+            runRecommender();
+          }
+        });
+      }
 
       function checkKeychain() {
         if (window.hive_keychain) {
           kcRowEl.style.display = 'flex';
+          var cached = safeGetStorage('nectarseeker_kc_user');
+          if (cached && !inputEl.value) {
+            inputEl.value = cached;
+            kcLabelEl.textContent = 'Keychain ready (@' + cached + ')';
+          }
+          if (typeof 
+window.hive_keychain.requestHandshake === 'function') {
+            try {
+              window.hive_keychain.requestHandshake(function () {});
+            } catch (e) {}
+          }
         }
       }
 
-      
-kcBtnEl.addEventListener('click', function () {
+      kcBtnEl.addEventListener('click', function () {
         if (!window.hive_keychain) {
-          setStatus('Hive Keychain extension not detected in this browser.', true);
+          setStatus('Hive Keychain not detected.', true);
           return;
-        }
-        setStatus('Connecting to Hive Keychain...', false);
+        
+}
+        var typed = inputEl.value.trim().toLowerCase().replace(/^@/, '');
         var cached = safeGetStorage('nectarseeker_kc_user');
-        var account = prompt('Enter your Hive Keychain username to verify:', cached);
-        if (!account) {
-          setStatus('Hive Keychain login cancelled.', 
-false);
-          return;
-        }
-        account = account.trim().toLowerCase().replace(/^@/, '');
+        var account = typed || cached || null;
+
+        setStatus(
+          account
+            ? 'Requesting Keychain signature for @' + account + '...'
+            : 'Opening Hive Keychain account selector...',
+          false
+        );
+
         window.hive_keychain.requestSignBuffer(
           account,
           'Login to Hive Content Recommender',
           'Posting',
           function (res) {
             if (res && res.success) {
-              safeSetStorage('nectarseeker_kc_user', account);
-              inputEl.value = 
-account;
-              runRecommender();
+              var verifiedUser = (res.data && res.data.username) || account || '';
+              verifiedUser = verifiedUser.trim().toLowerCase().replace(/^@/, '');
+              if (verifiedUser) {
+                
+safeSetStorage('nectarseeker_kc_user', verifiedUser);
+                inputEl.value = verifiedUser;
+                kcLabelEl.textContent = 'Verified @' + verifiedUser;
+                runRecommender();
+              } else {
+                setStatus('Signed with Keychain, but username was not returned. Type your username above and tap Recommend.', true);
+              }
             } else {
-              setStatus('Hive Keychain verification cancelled or failed.', true);
+              var msg = (res && res.message) ? res.message : 'Keychain request cancelled or requires a username typed in the box 
+above.';
+              setStatus(msg, true);
             }
           }
         );
       });
 
       checkKeychain();
-      setTimeout(checkKeychain, 500);
-      setTimeout(checkKeychain, 1500);
-      setStatus('Ready. Enter a Hive username to generate recommendations.', 
-false);
+      setTimeout(checkKeychain, 400);
+      setTimeout(checkKeychain, 1200);
+      setStatus('Ready. Enter a Hive username or tap a quick test account above.', false);
     })();
   </script>
 </body>
-</html>
+    </html>
