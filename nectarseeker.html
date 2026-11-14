@@ -166,6 +166,20 @@ failed to start: ' + detail;
         setStatus('JS Error: ' + msg + ' (line ' + line + ')', true);
       };
 
+      function safeGetStorage(key) {
+        try {
+          return window.localStorage ? (window.localStorage.getItem(key) || '') : '';
+        } catch (e) {
+          return '';
+        }
+      }
+
+      function safeSetStorage(key, val) {
+        try {
+          if (window.localStorage) window.localStorage.setItem(key, val);
+        } catch (e) {}
+      }
+
       var HIVE_NODES = [
         'https://api.deathwing.me',
         'https://api.openhive.network',
@@ -306,7 +320,7 @@ return;
       }
 
       function cosineSimilarity(a, b) {
-        if (!a.norm || !b.norm) return 0;
+        if (!a.norm || !b.norm) return { score: 0, matchedTerms: [] };
         var dot = 0;
         var matched = [];
         for (var term in a.vec) {
@@ -401,33 +415,40 @@ list[i];
         });
       }
 
+      function resetButton() {
+        btnEl.disabled = false;
+        btnEl.textContent = 
+'Recommend';
+      }
+
       function runRecommender() {
-        var username = inputEl.value.trim().toLowerCase().replace(/^@/, 
-'');
+        var username = inputEl.value.trim().toLowerCase().replace(/^@/, '');
         if (!username) {
           setStatus('Please enter a Hive username.', true);
+          inputEl.focus();
           return;
         }
 
         btnEl.disabled = true;
+        btnEl.textContent = 'Working...';
         feedEl.innerHTML = '';
-        setStatus('Fetching recent upvotes and comments for @' + username + '...');
+        setStatus('Fetching recent upvotes and comments for @' + 
+username + '...');
 
         var interactedKeys = {};
 
         getRecentInteractions(username)
           .then(function (targets) {
-            if (targets.length === 0) 
-{
+            if (targets.length === 0) {
               throw new Error('No recent upvotes or comments found for @' + username + '.');
             }
             for (var i = 0; i < targets.length; i++) {
               interactedKeys[targets[i].key] = true;
             }
-            setStatus('Reading full text of ' + targets.length + ' posts you interacted with...');
+            setStatus('Reading full text 
+of ' + targets.length + ' posts you interacted with...');
             return Promise.all(targets.map(function (t) {
-              return fetchPostContent(t.author, 
-t.permlink).catch(function () { return null; });
+              return fetchPostContent(t.author, t.permlink).catch(function () { return null; });
             }));
           })
           .then(function (seedPosts) {
@@ -435,13 +456,13 @@ t.permlink).catch(function () { return null; });
             var validCount = 0;
             for (var i = 0; i < seedPosts.length; i++) {
               var post = seedPosts[i];
-              if (post && (post.title || post.body)) {
+              if (post && (post.title || post.body)) 
+{
                 validCount++;
                 var text = (post.title || '') + ' ' + (post.body || '');
                 var tokens = tokenize(text);
                 for (var j = 0; j < tokens.length; j++) {
-                  
-allTokens.push(tokens[j]);
+                  allTokens.push(tokens[j]);
                 }
               }
             }
@@ -449,23 +470,23 @@ allTokens.push(tokens[j]);
               throw new Error('Could not extract enough text from your interacted posts.');
             }
 
-            var profileVec = buildTermVector(allTokens);
+            var profileVec = 
+buildTermVector(allTokens);
             setStatus('Scanning recent Hive articles and comparing full-text similarity...');
 
-            return 
-fetchCandidatePosts().then(function (candidates) {
+            return fetchCandidatePosts().then(function (candidates) {
               var scored = [];
               for (var i = 0; i < candidates.length; i++) {
                 var c = candidates[i];
                 var key = c.author + '/' + c.permlink;
                 if (c.author === username || interactedKeys[key]) continue;
 
-                var fullText = (c.title || '') + ' ' + (c.body || '');
+                var fullText = (c.title || '') + ' ' + (c.body || 
+'');
                 var cTokens = tokenize(fullText);
                 if (cTokens.length < 25) continue;
 
-                var cVec = 
-buildTermVector(cTokens);
+                var cVec = buildTermVector(cTokens);
                 var sim = cosineSimilarity(profileVec, cVec);
                 if (sim.score > 0.02) {
                   scored.push({
@@ -474,55 +495,54 @@ buildTermVector(cTokens);
                     matchedTerms: sim.matchedTerms
                   });
                 }
-              }
+              
+}
 
               scored.sort(function (a, b) { return b.score - a.score; });
               return scored.slice(0, 15);
             });
           })
-          .then(function 
-(recommendations) {
+          .then(function (recommendations) {
+            resetButton();
             if (recommendations.length === 0) {
               setStatus('No strong content matches found right now. Try again shortly.', false);
               return;
             }
 
-            setStatus('Found ' + recommendations.length + ' recommended articles based on your reading and engagement history.', false);
+            setStatus('Found ' + 
+recommendations.length + ' recommended articles based on your reading and engagement history.', false);
             var html = '';
             for (var i = 0; i < recommendations.length; i++) {
-              var item = 
-recommendations[i];
+              var item = recommendations[i];
               var p = item.post;
               var url = 'https://peakd.com/@' + encodeURIComponent(p.author) + '/' + encodeURIComponent(p.permlink);
               var rawSnippet = cleanMarkdown(p.body || '');
-              var snippet = rawSnippet.length > 210 ? rawSnippet.slice(0, 210) + '...' : rawSnippet;
+              var snippet = rawSnippet.length > 210 ? 
+rawSnippet.slice(0, 210) + '...' : rawSnippet;
               var pct = Math.round(item.score * 100);
 
               html += '<div class="card">';
-              html += '<h3><a href="' + escapeHtml(url) + '" 
-target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+              html += '<h3><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
               html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong> &middot; Match score: ' + pct + '%</div>';
-              html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
+              html += '<div class="snippet">' + escapeHtml(snippet) + 
+'</div>';
               if (item.matchedTerms.length > 0) {
                 html += '<div class="keywords">Shared themes: ' + escapeHtml(item.matchedTerms.join(', ')) + '</div>';
-              
-}
+              }
               html += '</div>';
             }
             feedEl.innerHTML = html;
           })
           .catch(function (err) {
+            resetButton();
             setStatus(err.message || 'An unexpected error occurred.', true);
-          })
-          .finally(function () {
-            btnEl.disabled = false;
           });
-      }
+      
+}
 
       btnEl.addEventListener('click', runRecommender);
-      inputEl.addEventListener('keydown', function (e) 
-{
-        if (e.key === 'Enter') runRecommender();
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) runRecommender();
       });
 
       function checkKeychain() {
@@ -531,38 +551,43 @@ target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)'
         }
       }
 
-      kcBtnEl.addEventListener('click', function () {
-        if (!window.hive_keychain) return;
-        window.hive_keychain.requestHandshake(function () 
-{
-          var cached = localStorage.getItem('nectarseeker_kc_user') || '';
-          var account = prompt('Enter your Hive Keychain username to verify:', cached);
-          if (!account) return;
-          account = account.trim().toLowerCase().replace(/^@/, '');
-          window.hive_keychain.requestSignBuffer(
-            account,
-            'Login to Hive Content Recommender',
-            'Posting',
-            function (res) 
-{
-              if (res && res.success) {
-                localStorage.setItem('nectarseeker_kc_user', account);
-                inputEl.value = account;
-                runRecommender();
-              } else {
-                setStatus('Hive Keychain verification cancelled or failed.', true);
-              }
+      
+kcBtnEl.addEventListener('click', function () {
+        if (!window.hive_keychain) {
+          setStatus('Hive Keychain extension not detected in this browser.', true);
+          return;
+        }
+        setStatus('Connecting to Hive Keychain...', false);
+        var cached = safeGetStorage('nectarseeker_kc_user');
+        var account = prompt('Enter your Hive Keychain username to verify:', cached);
+        if (!account) {
+          setStatus('Hive Keychain login cancelled.', 
+false);
+          return;
+        }
+        account = account.trim().toLowerCase().replace(/^@/, '');
+        window.hive_keychain.requestSignBuffer(
+          account,
+          'Login to Hive Content Recommender',
+          'Posting',
+          function (res) {
+            if (res && res.success) {
+              safeSetStorage('nectarseeker_kc_user', account);
+              inputEl.value = 
+account;
+              runRecommender();
+            } else {
+              setStatus('Hive Keychain verification cancelled or failed.', true);
             }
-          );
-        });
+          }
+        );
       });
 
-      window.addEventListener('load', 
-function () {
-        checkKeychain();
-        setTimeout(checkKeychain, 600);
-        setStatus('Ready. Enter a Hive username to generate recommendations.', false);
-      });
+      checkKeychain();
+      setTimeout(checkKeychain, 500);
+      setTimeout(checkKeychain, 1500);
+      setStatus('Ready. Enter a Hive username to generate recommendations.', 
+false);
     })();
   </script>
 </body>
