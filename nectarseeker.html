@@ -49,16 +49,17 @@
       border-radius: 6px;
       cursor: pointer;
       font-weight: 600;
-      transition: background 0.15s ease;
     }
     button:hover { background: var(--primary-hover); }
     button:disabled { background: #999; cursor: not-allowed; }
     #status {
       margin-bottom: 1rem;
       font-size: 0.95rem;
-      color: var(--muted);
-      font-style: italic;
-      min-height: 1.4em;
+      color: #084298;
+      background: #e7f1ff;
+      padding: 0.65rem 0.9rem;
+      border-radius: 6px;
+      border: 1px solid #b6d4fe;
     }
     .card {
       background: var(--card-bg);
@@ -97,322 +98,383 @@
     <p class="subtitle">Builds a TF-IDF interest profile from the full text of posts you recently <strong>upvoted</strong> and <strong>commented on</strong>, ignoring tags completely.</p>
   </header>
 
-  <div class="controls">
-    <input type="text" id="username" placeholder="Enter public Hive username (e.g. blocktrades)" />
-    <button type="button" 
-id="runBtn">Recommend</button>
-  </div>
+  <form id="searchForm" class="controls" onsubmit="return false;">
+    <input type="text" id="username" placeholder="Enter public Hive 
+username (e.g. blocktrades)" />
+    <button type="submit" id="runBtn">Recommend</button>
+  </form>
 
-  <div id="status"></div>
+  <div id="status">Loading script...</div>
   <div id="feed"></div>
 
   <script>
-    window.onerror = function (msg, url, line) {
-      var st = document.getElementById('status');
-      if (st) st.textContent = 'Script Error: ' + msg + ' (Line ' + line + ')';
-    };
+    (function () {
+      var statusEl = document.getElementById('status');
+      var feedEl = document.getElementById('feed');
+      var btnEl = document.getElementById('runBtn');
+      var inputEl = document.getElem
+entById('username');
+      var formEl = document.getElementById('searchForm');
 
-    var HIVE_NODES = [
-      'https://api.deathwing.me',
-      'https://api.openhive.network',
-      'https://api.hive.blog',
-      'https://techcoderx.com'
-    ];
-
-    var STOP_WORDS = new Set([
-      'the','and','for','that','this','with','you','are','was','were','from','have','has','had',
-      'not','but','what','all','when','can','said','there','use','each','which','their','time',
-      'will','way','about','many','then','them','would','write','like','these','long','make',
-      
-'thing','see','him','two','more','could','come','did','my','sound','most','people','over',
-      'know','water','than','call','first','who','may','down','side','been','now','find','any',
-      'new','work','part','take','get','place','made','live','where','after','back','little',
-      'only','round','man','year','came','show','every','good','give','our','under','very',
-      'just','form','much','great','think','say','help','low','line','before','turn','cause',
-      'same','mean','differ','move','right','boy','old','too','does','tell','sentence','set',
-      'three','want','air','well','also','play','small','end','put','home','read','hand','port',
-      'large','spell','add','even','land','here','must','big','high','such','follow','act','why',
-      'ask','men','change','went','light','kind','off','need','house','picture','try','again',
-      'animal','point','mother','world','near','build','self','earth','father','http','h
-ttps',
-      'www','com','hive','peakd','ecency','post','blog','images','png','jpg','jpeg','webp'
-    ]);
-
-    function escapeHtml(str) {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
-    function hiveCall(method, params) {
-      var index = 0;
-      var lastError = 
-null;
-
-      function tryNextNode() {
-        if (index >= HIVE_NODES.length) {
-          return Promise.reject(new Error('All Hive RPC nodes failed (' + (lastError ? lastError.message : 'Network error') + ').'));
-        }
-        var node = HIVE_NODES[index++];
-        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        var timeoutId = controller ? setTimeout(function () { controller.abort(); }, 9000) : null;
-
-        var fetchOpts = {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 })
-        };
-        if (controller) fetchOpts.signal = controller.signal;
-
-        return fetch(node, fetchOpts)
-          .then(function (res) {
-            if (timeoutId) clearTimeout(timeoutId);
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return 
-res.json();
-          })
-          .then(function (data) {
-            if (data.error) throw new Error(data.error.message);
-            return data.result;
-          })
-          .catch(function (err) {
-            if (timeoutId) clearTimeout(timeoutId);
-            lastError = err;
-            return tryNextNode();
-          });
+      function setStatus(msg, isError) {
+        statusEl.textContent = msg;
+        statusEl.style.background = isError ? '#f8d7da' : '#e7f1ff';
+        statusEl.style.color = isError ? '#842029' : '#084298';
+        statusEl.style.borderColor = isError ? '#f5c2c7' : '#b6d4fe';
       }
 
-      return tryNextNode();
-    }
+      window.onerror = function (msg, url, line) {
+        setStatus('JavaScript Error: ' + 
+msg + ' (Line ' + line + ')', true);
+      };
 
-    function 
-cleanAndTokenize(title, body) {
-      var combined = ((title || '') + ' ' + (title || '') + ' ' + (body || ''))
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/https?:\/\/\S+/g, ' ')
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ');
+      var HIVE_NODES = [
+        'https://api.deathwing.me',
+        'https://api.openhive.network',
+        'https://api.hive.blog',
+        'https://techcoderx.com'
+      ];
 
-      return combined
-        .split(/\s+/)
-        .filter(function (w) {
-          return w.length > 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w);
-        });
-    
+      var STOP_WORDS = {
+        the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
+        not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
+        will:1,way:1,about:1,many:1,th
+en:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
+        thing:1,see:1,him:1,two:1,more:1,could:1,come:1,did:1,my:1,sound:1,most:1,people:1,over:1,
+        know:1,water:1,than:1,call:1,first:1,who:1,may:1,down:1,side:1,been:1,now:1,find:1,any:1,
+        new:1,work:1,part:1,take:1,get:1,place:1,made:1,live:1,where:1,after:1,back:1,little:1,
+        only:1,round:1,man:1,year:1,came:1,show:1,every:1,good:1,give:1,our:1,under:1,very:1,
+        
+just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,cause:1,
+        same:1,mean:1,differ:1,move:1,right:1,boy:1,old:1,too:1,does:1,tell:1,sentence:1,set:1,
+        three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
+        large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
+        ask:1,men:1,change:1,went:1,light:1,kind:1,off:1,need:1,house:1,picture:1,try:1,again:1,
+        animal:1,point:1,mother:1,world:1,near:1,build:1,self:1,earth:1,father:1,http:1,https:1,
+        www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,webp:1
+      };
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function hiveCall(method, 
+params) {
+        var index = 0;
+        var lastError = null;
+
+        function tryNextNode() {
+          if (index >= HIVE_NODES.length) {
+            return Promise.reject(new Error('All Hive RPC nodes failed (' + (lastError ? lastError.message : 'Network error') + ').'));
+          }
+          var node = HIVE_NODES[index++];
+          var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          var timeoutId = controller ? setTimeout(function () { 
+controller.abort(); }, 9000) : null;
+
+          var fetchOpts = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 })
+          };
+          if (controller) fetchOpts.signal = controller.signal;
+
+          return fetch(node, fetchOpts)
+            .then(function (res) {
+              if (timeoutId) clearTimeout(timeoutId);
+              if (!res.ok) throw new Error('HTTP ' + 
+res.status);
+              return res.json();
+            })
+            .then(function (data) {
+              if (data.error) throw new Error(data.error.message);
+              return data.result;
+            })
+            .catch(function (err) {
+              if (timeoutId) clearTimeout(timeoutId);
+              lastError = err;
+              return tryNextNode();
+            });
+        }
+
+        return tryNextNode();
+      }
+
+      function cleanAndTokenize(title, body) {
+        var combined = ((title || '') + ' ' + (title || '') + ' ' + (body || ''))
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/https?:\/\/\S+/g, ' ')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ');
+
+        var rawWords = combined.split(/\s+/);
+        var tokens = [];
+        for (var i = 0; i < rawWords.length; i++) {
+          var w = 
+rawWords[i];
+          if (w.length > 3 && !STOP_WORDS[w] && !/^\d+$/.test(w)) {
+            tokens.push(w);
+          }
+        }
+        return tokens;
+      }
+
+      function computeCosineSimilarity(vecA, vecB) {
+        var dot = 0;
+        var normA = 0;
+        var normB = 0;
+        var matchedTerms = [];
+
+        var keysA = 
+Object.keys(vecA);
+        for (var i = 0; i < keysA.length; i++) {
+          var term = keysA[i];
+          var valA = vecA[term];
+          normA += valA * valA;
+          if (vecB[term]) {
+            dot += valA * vecB[term];
+            matchedTerms.push({ term: term, weight: valA * vecB[term] });
+          }
+        }
+
+        var keysB = Object.keys(vecB);
+        for (var j = 0; j < keysB.length; j++) {
+          var valB = vecB[keysB[j]];
+          normB += valB * valB;
+        
 }
 
-    function computeCosineSimilarity(vecA, vecB) {
-      var dot = 0;
-      var normA = 0;
-      var normB = 0;
-      var matchedTerms = [];
+        if (normA === 0 || normB === 0) return { score: 0, topMatches: [] };
 
-      Object.keys(vecA).forEach(function (term) {
-        var valA = vecA[term];
-        normA += valA * valA;
-        if (vecB[term]) {
-          dot += valA * vecB[term];
-          matchedTerms.push({ term: term, weight: valA * vecB[term] 
-});
+        matchedTerms.sort(function (a, b) { return b.weight - a.weight; });
+        var top = [];
+        for (var k = 0; k < Math.min(4, matchedTerms.length); k++) {
+          top.push(matchedTerms[k].term);
         }
-      });
+        return {
+          score: dot / (Math.sqrt(normA) * Math.sqrt(normB)),
+          topMatches: top
+        };
+      
+}
 
-      Object.keys(vecB).forEach(function (term) {
-        var valB = vecB[term];
-        normB += valB * valB;
-      });
-
-      if (normA === 0 || normB === 0) return { score: 0, topMatches: [] };
-
-      matchedTerms.sort(function (a, b) { return b.weight - a.weight; });
-      return {
-        score: dot / (Math.sqrt(normA) * 
-Math.sqrt(normB)),
-        topMatches: matchedTerms.slice(0, 4).map(function (m) { return m.term; })
-      };
-    }
-
-    async function generateFeed() {
-      var inputEl = document.getElementById('username');
-      var status = document.getElementById('status');
-      var feed = document.getElementById('feed');
-      var btn = 
-document.getElementById('runBtn');
-
-      var user = inputEl.value.trim().replace(/^@/, '').toLowerCase();
-      if (!user) {
-        status.textContent = 'Please enter a Hive username first.';
-        inputEl.focus();
-        return;
-      }
-
-      btn.disabled = true;
-      feed.innerHTML = '';
-      status.textContent = 'Fetching upvotes and comments for @' + user + '...';
-
-      try {
-        var history = await hiveCall('condenser_api.get_account_history', [user, -1, 300]);
-        var interactedPosts = new Map();
-
-        for (var i = 0; i < history.length; i++) {
-          var item = history[i][1];
-          if (!item || !item.op) continue;
-          var opType = item.op[0];
-          var opData = item.op[1];
-
-          if (opType === 'vote' && opData.voter === user && opData.weight > 0 && opData.author !== user) 
-{
-            var vKey = opData.author + '/' + opData.permlink;
-            interactedPosts.set(vKey, Math.max(interactedPosts.get(vKey) || 0, 1));
-          }
-
-          if (opType === 'comment' && opData.author === user && opData.parent_author && opData.parent_author !== user) {
-            var cKey = opData.parent_author + '/' + opData.parent_permlink;
-            interactedPosts.set(cKey, 2);
-          }
-        }
-
-        var recentInteractions = Array.from(interactedPosts.entries()).slice(-15);
-        if (recentInteractions.length === 0) {
-          status.textContent = 'No recent upvotes or comments found for @' + user + '.';
-          btn.disabled = false;
+      function generateFeed() {
+        var user = inputEl.value.trim().replace(/^@/, '').toLowerCase();
+        if (!user) {
+          setStatus('Please enter a Hive username first (for example: blocktrades).', true);
+          inputEl.focus();
           return;
         }
 
-        status.textContent = 'Reading ' + recentInteractions.length + ' posts @' + user + ' upvoted or commented on...';
+        btnEl.disabled = true;
+        feedEl.innerHTML = '';
+        setStatus('Step 1/4: Fetching recent upvotes and comments for @' + user + '...', 
+false);
+
+        var interactedPosts = {};
+        var interactionOrder = [];
         var userTermFreq = {};
-        var seenKeys = new 
-Set();
+        var seenKeys = {};
 
-        for (var j = 0; j < recentInteractions.length; j++) {
-          var key = recentInteractions[j][0];
-          var interactionWeight = recentInteractions[j][1];
-          seenKeys.add(key);
+        hiveCall('condenser_api.get_account_history', [user, -1, 300])
+          .then(function (history) {
+            if (!Array.isArray(history)) throw new Error('Unexpected response from Hive RPC.');
 
-          var parts = key.split('/');
-          var post = await hiveCall('condenser_api.get_content', [parts[0], parts[1]]);
-          if (!post || !post.author) continue;
+            for (var i = 0; i < history.length; i++) {
+              var item = history[i][1];
+              if (!item || !item.op) 
+continue;
+              var opType = item.op[0];
+              var opData = item.op[1];
 
-          if (post.parent_author !== '') {
-            post = await 
-hiveCall('condenser_api.get_content', [post.root_author, post.root_permlink]);
-            if (!post || !post.author) continue;
-            seenKeys.add(post.author + '/' + post.permlink);
-          }
+              if (opType === 'vote' && opData.voter === user && opData.weight > 0 && opData.author !== user) {
+                var vKey = opData.author + '/' + opData.permlink;
+                if (!interactedPosts[vKey]) {
+                  interactionOrder.push(vKey);
+                  interactedPosts[vKey] = 1;
+                }
+              }
 
-          var tokens = cleanAndTokenize(post.title, post.body);
-          var docLength = Math.max(tokens.length, 1);
-          var localCounts = {};
-          tokens.forEach(function (t) { localCounts[t] = (localCounts[t] || 0) + 1; });
+              if (opType === 'comment' 
+&& opData.author === user && opData.parent_author && opData.parent_author !== user) {
+                var cKey = opData.parent_author + '/' + opData.parent_permlink;
+                if (!interactedPosts[cKey]) {
+                  interactionOrder.push(cKey);
+                }
+                interactedPosts[cKey] = 2;
+              }
+            }
 
-          Object.keys(localCounts).forEach(function (term) {
-            var tf = (localCounts[term] / docLength) * interactionWeight;
-            userTermFreq[term] = (userTermFreq[term] || 0) + tf;
+            var recentKeys = interactionOrder.slice(-15);
+            if (recentKeys.length === 0) {
+              throw new Error('No recent upvotes or comments found for @' + user + '.');
+            }
+
+            setStatus('Step 2/4: Reading ' + recentKeys.length + ' posts @' + user + ' upvoted or commented on...', false);
+
+            var postPromises = recentKeys.map(function (key) {
+              seenKeys[key] = true;
+              var weight = interactedPosts[key];
+              var parts = key.split('/');
+              return hiveCall('condenser_api.get_content', [parts[0], parts[1]])
+                .then(function (post) {
+                  if (!post || !post.author) 
+return null;
+                  if (post.parent_author !== '') {
+                    return hiveCall('condenser_api.get_content', [post.root_author, post.root_permlink]);
+                  }
+                  return post;
+                })
+                .then(function (rootPost) {
+                  if (!rootPost || !rootPost.author) return;
+                  seenKeys[rootPost.author + '/' + rootPost.permlink] = true;
+                  var tokens = cleanAndTokenize(rootPost.title, rootPost.body);
+                  var docLength = Math.max(tokens.length, 1);
+                  var localCounts = {};
+                  for (var t = 0; t < tokens.length; t++) {
+                    localCounts[tokens[t]] = (localCounts[tokens[t]] || 0) + 1;
+                  }
+                  var terms = Object.keys(localCounts);
+                  for (var m = 0; m < terms.length; m++) {
+                    var term = terms[m];
+                    var tf = (localCounts[term] / docLength) * weight;
+                    userTermFreq[term] = (userTermFreq[term] || 0) + tf;
+                  }
+                });
+            });
+
+            return Promise.all(postPromises);
+          })
+          .then(function () {
+            setStatus('Step 3/4: Scanning latest global Hive articles for content similarity...', false);
+            return Promise.all([
+              hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 50 }),
+              hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 50 })
+            ]);
+          })
+          .then(function (resultsPair) {
+            setStatus('Step 4/4: Scoring and ranking articles...', false);
+
+            var candidatesMap = {};
+            var candidates = [];
+            var combinedPosts = (resultsPair[0] || []).concat(resultsPair[1] || []);
+
+            for (var i = 0; i < combinedPosts.length; i++) {
+              var p = combinedPosts[i];
+              var pKey = p.author + '/' + p.permlink;
+              if (!seenKeys[pKey] && !
+candidatesMap[pKey] && p.author !== user && p.title && p.body) {
+                candidatesMap[pKey] = true;
+                candidates.push(p);
+              }
+            }
+
+            var docFreq = {};
+            var candidateTokensList = candidates.map(function (post) {
+              var tokens = cleanAndTokenize(post.title, post.body);
+              var unique = {};
+              for (var t = 0; t < tokens.length; t++) {
+                if (!unique[tokens[t]]) {
+                  unique[tokens[t]] = true;
+                  docFreq[tokens[t]] = (docFreq[tokens[t]] || 0) + 1;
+                }
+              }
+              return { post: post, tokens: tokens };
+            });
+
+            var totalDocs = Math.max(candidates.length, 1);
+            var userTfIdf = {};
+            var userTerms = Object.keys(userTermFreq);
+            for (var u = 0; u < userTerms.length; u++) {
+              var term = userTerms[u];
+              var idf = Math.log(1 + 
+totalDocs / (1 + (docFreq[term] || 0)));
+              userTfIdf[term] = userTermFreq[term] * idf;
+            }
+
+            var scored = candidateTokensList.map(function (item) {
+              var docLength = Math.max(item.tokens.length, 1);
+              var localCounts = {};
+              for (var t = 0; t < item.tokens.length; t++) {
+                localCounts[item.tokens[t]] = (localCounts[item.tokens[t]] || 0) + 1;
+              }
+
+              var docTfIdf = {};
+              var docTerms = Object.keys(localCounts);
+              for (var d = 0; d < docTerms.length; d++) {
+                var term = docTerms[d];
+                var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
+                docTfIdf[term] = (localCounts[term] / docLength) * idf;
+              }
+
+              var sim = computeCosineSimilarity(userTfIdf, docTfIdf);
+              return { post: item.post, score: sim.score, topMatches: sim.topMatches };
+            });
+
+            scored.sort(function (a, b) { return b.score - a.score; });
+
+            var topResults = [];
+            for (var r = 0; r < scored.length; r++) {
+              if (scored[r].score > 0) {
+                topResults.push(scored[r]);
+                if (topResults.length >= 15) break;
+              }
+            }
+
+            if (topResults.length === 0) {
+              setStatus('No strong text matches found in the latest 100 global posts.', false);
+              btnEl.disabled = false;
+              return;
+            }
+
+            setStatus('Top ' + topResults.length + ' content matches for @' + user + ':', false);
+            for (var c = 0; c < topResults.length; c++) {
+              var item = topResults[c];
+              var post = item.post;
+              var url = 'https://peakd.com/@' + post.author + '/' + post.permlink;
+              var preview = post.body
+                .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+                .replace(/[#*>`_\[\]]/g, '')
+                .replace(/<[^>]*>/g, '')
+                .slice(0, 180)
+                .trim() + '...';
+
+              var div = document.createElement('div');
+              div.className = 'card';
+              div.innerHTML =
+                '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' +
+                '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; 
+Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
+                '<div class="snippet">' + escapeHtml(preview) + '</div>' +
+                (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
+              feedEl.appendChild(div);
+            }
+            btnEl.disabled = false;
+          })
+          .catch(function (err) {
+            setStatus('Error: ' + err.message, true);
+            btnEl.disabled = false;
           });
-        }
-
-        status.textContent = 'Scanning latest global Hive articles for content similarity...';
-        var resultsPair = await Promise.all([
-          hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 50 
-}),
-          hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 50 })
-        ]);
-
-        var candidatesMap = new Map();
-        resultsPair[0].concat(resultsPair[1]).forEach(function (p) {
-          var pKey = p.author + '/' + p.permlink;
-          if (!seenKeys.has(pKey) && p.author !== user && p.title && p.body) {
-            candidatesMap.set(pKey, p);
-          }
-        
-});
-
-        var candidates = Array.from(candidatesMap.values());
-        var docFreq = {};
-        var candidateTokensList = candidates.map(function (post) {
-          var tokens = cleanAndTokenize(post.title, post.body);
-          var unique = new Set(tokens);
-          unique.forEach(function (t) { docFreq[t] = (docFreq[t] || 0) + 1; });
-          return { post: post, tokens: tokens };
-        });
-
-        var totalDocs = Math.max(candidates.length, 1);
-        var userTfIdf = {};
-        Object.keys(userTermFreq).forEach(function (term) {
-          var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
-          userTfIdf[term] = userTermFreq[term] * idf;
-        });
-
-        var scored = candidateTokensList.map(function (item) {
-          var docLength = Math.max(item.tokens.length, 
-1);
-          var localCounts = {};
-          item.tokens.forEach(function (t) { localCounts[t] = (localCounts[t] || 0) + 1; });
-
-          var docTfIdf = {};
-          Object.keys(localCounts).forEach(function (term) {
-            var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
-            docTfIdf[term] = (localCounts[term] / docLength) * idf;
-          });
-
-          var sim = 
-computeCosineSimilarity(userTfIdf, docTfIdf);
-          return { post: item.post, score: sim.score, topMatches: sim.topMatches };
-        });
-
-        scored.sort(function (a, b) { return b.score - a.score; });
-
-        var topResults = scored.filter(function (item) { return item.score > 0; }).slice(0, 15);
-        if (topResults.length === 0) {
-          status.textContent = 'No strong text matches found in the latest 100 global posts.';
-          btn.disabled = false;
-          
-return;
-        }
-
-        status.textContent = 'Top content matches for @' + user + ' (based on text of upvoted & commented posts):';
-        topResults.forEach(function (item) {
-          var post = item.post;
-          var url = 'https://peakd.com/@' + post.author + '/' + post.permlink;
-          var preview = post.body
-            .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-            .replace(/[#*>`_\[\]]/g, '')
-            .replace(/<[^>]*>/g, '')
-            .slice(0, 180)
-            .trim() + '...';
-
-          var div = document.createElement('div');
-          div.className = 'card';
-          div.innerHTML =
-            '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' +
-            '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
-            '<div class="snippet">' + escapeHtml(preview) + '</div>' +
-            (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + 
-escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
-          feed.appendChild(div);
-        });
-      } catch (err) {
-        status.textContent = 'Error: ' + err.message;
-      } finally {
-        btn.disabled = false;
       }
-    }
 
-    document.addEventListener('DOMContentLoaded', function () {
-      var btn = document.getElementById('runBtn');
-      var input = 
-document.getElementById('username');
-      if (btn) btn.addEventListener('click', generateFeed);
-      if (input) {
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') generateFeed();
-        });
-      }
-    });
+      formEl.addEventListener('submit', function (e) {
+        e.preventDefault();
+        generateFeed();
+      });
+
+      btnEl.addEventListener('click', function (e) {
+        e.preventDefault();
+        generateFeed();
+      });
+
+      setStatus('Ready. Enter a Hive username and click Recommend.', false);
+    })();
   </script>
 </body>
 </html>
