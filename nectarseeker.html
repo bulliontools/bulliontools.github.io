@@ -116,11 +116,11 @@
   <div class="controls">
     <input type="text" id="username" placeholder="Enter Hive username (e.g. blocktrades)" autocapitalize="none" autocorrect="off" />
     <button type="button" 
-id="runBtn" onclick="window.runRecommender()">Recommend</button>
+id="runBtn">Recommend</button>
   </div>
 
   <div class="kc-row" id="kcRow" style="display:none;">
-    <button type="button" class="kc-btn" onclick="window.loginWithKeychain()">Use Hive Keychain Account</button>
+    <button type="button" class="kc-btn" id="keychainBtn">Use Hive Keychain Account</button>
     <span style="font-size:0.84rem;color:#606770;">Keychain detected</span>
   </div>
 
@@ -449,9 +449,9 @@ commonly caps a single ranked-post request at 100 items.
                 return hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 100 });
               })
               .then(function (trendingPosts) {
-                combinedPosts = combinedPosts.concat(trendingPosts || []);
-                return 
-hiveCall('bridge.get_ranked_posts', { sort: 'hot', limit: 100 });
+                combinedPosts = combinedPosts.concat(trendingPosts || 
+[]);
+                return hiveCall('bridge.get_ranked_posts', { sort: 'hot', limit: 100 });
               })
               .then(function (hotPosts) {
                 return combinedPosts.concat(hotPosts || []);
@@ -463,8 +463,7 @@ hiveCall('bridge.get_ranked_posts', { sort: 'hot', limit: 100 });
             var candidatesMap = {};
             var candidates = [];
 
-            for (var i = 0; i < 
-combinedPosts.length; i++) {
+            for (var i = 0; i < combinedPosts.length; i++) {
               var p = combinedPosts[i];
               var pKey = p.author + '/' + p.permlink;
               if (!seenKeys[pKey] && !candidatesMap[pKey] && p.author !== user &&
@@ -474,9 +473,9 @@ combinedPosts.length; i++) {
               }
             }
 
-            var docFreq = {};
-            var candidateTokensList = 
-candidates.map(function (post) {
+            var docFreq = 
+{};
+            var candidateTokensList = candidates.map(function (post) {
               var tokens = cleanAndTokenize(post.title, post.body);
               var unique = {};
               for (var t = 0; t < tokens.length; t++) {
@@ -488,8 +487,7 @@ candidates.map(function (post) {
               return { post: post, tokens: tokens };
             });
 
-            var totalDocs = 
-Math.max(candidates.length, 1);
+            var totalDocs = Math.max(candidates.length, 1);
             var userTfIdf = {};
             var userTerms = Object.keys(userTermFreq);
             for (var u = 0; u < userTerms.length; u++) {
@@ -498,9 +496,9 @@ Math.max(candidates.length, 1);
               userTfIdf[term] = userTermFreq[term] * idf;
             }
 
-            var scored = candidateTokensList.map(function (item) {
-              var docLength = 
-Math.max(item.tokens.length, 1);
+            var scored = candidateTokensList.map(function (item) 
+{
+              var docLength = Math.max(item.tokens.length, 1);
               var localCounts = {};
               for (var t = 0; t < item.tokens.length; t++) {
                 localCounts[item.tokens[t]] = (localCounts[item.tokens[t]] || 0) + 1;
@@ -510,7 +508,8 @@ Math.max(item.tokens.length, 1);
               var docTerms = Object.keys(localCounts);
               for (var d = 0; d < docTerms.length; d++) {
                 var term = docTerms[d];
-                var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
+                var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 
+0)));
                 docTfIdf[term] = (localCounts[term] / docLength) * idf;
               }
 
@@ -535,7 +534,8 @@ scored.length; r++) {
               return;
             }
 
-            setStatus('Top ' + topResults.length + ' content matches for @' + user + ':', false);
+            setStatus('Top ' + topResults.length + ' content 
+matches for @' + user + ':', false);
             for (var c = 0; c < topResults.length; c++) {
               var item = topResults[c];
               var post = item.post;
@@ -551,8 +551,7 @@ scored.length; r++) {
                 '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' +
                 '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
                 '<div class="snippet">' + escapeHtml(preview) + '</div>' +
-                (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', 
-')) + '</div>' : '');
+                (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
               feedEl.appendChild(div);
             }
             btnEl.disabled = false;
@@ -563,11 +562,29 @@ scored.length; r++) {
           });
       };
 
+      // Bind controls programmatically instead of relying on inline onclick.
+      // This also makes it easier to diagnose a click that reaches the app.
+      btnEl.addEventListener('click', function () {
+        setStatus('Button clicked. Starting recommendations...', false);
+        window.runRecommender();
+      });
+
+      var keychainBtn = document.getElementById('keychainBtn');
+      if (keychainBtn) {
+        keychainBtn.addEventListener('click', window.loginWithKeychain);
+      }
+
       inputEl.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
           e.preventDefault();
           window.runRecommender();
         }
+      });
+
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event && event.reason;
+        setStatus('Request failed: ' + (reason && reason.message ? reason.message : String(reason || 'Unknown error')), true);
+        btnEl.disabled = false;
       });
 
       setTimeout(function () {
