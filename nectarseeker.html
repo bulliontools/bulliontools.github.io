@@ -957,7 +957,7 @@
 
       function fetchPage() {
         page++;
-        var initialLimit = (page === 1 && startSeq === -1) ? 100 : 1000;
+        var initialLimit = (page === 1 && startSeq === -1) ? 20 : 1000;
 
         return hiveCall('condenser_api.get_account_history', [username, startSeq, initialLimit, 3])
           .catch(function () {
@@ -1129,9 +1129,9 @@
 
     function fetchAllFrontendsPool(observer) {
       return Promise.all([
-        hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 100 }]).catch(function () { return []; }),
-        hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 100 }]).catch(function () { return []; }),
-        hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 100 }]).catch(function () { return []; }),
+        hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
+        hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
+        hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
         fetchPaginatedRanked('created', 5, observer),
         fetchPaginatedRanked('trending', 4, observer),
         fetchPaginatedRanked('hot', 3, observer)
@@ -1163,17 +1163,17 @@
       var startAuthor = '';
       var startPermlink = '';
       var page = 0;
-      var maxPages = 45;
+      var maxPages = 150;
 
       function fetchBatch() {
         page++;
-        var params = { sort: 'created', tag: '', limit: 100 };
+        var params = { sort: 'created', tag: '', limit: 20 };
         if (startAuthor && startPermlink) {
           params.start_author = startAuthor;
           params.start_permlink = startPermlink;
         }
         return hiveCall('bridge.get_ranked_posts', params).catch(function () {
-          return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 100, start_author: startAuthor, start_permlink: startPermlink }]);
+          return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 20, start_author: startAuthor, start_permlink: startPermlink }]);
         }).then(function (posts) {
           if (!Array.isArray(posts) || posts.length === 0) return collected;
 
@@ -1199,7 +1199,7 @@
           }
 
           var last = posts[posts.length - 1];
-          if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < 50 || page >= maxPages) {
+          if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < 10 || page >= maxPages) {
             return collected;
           }
           startAuthor = last.author;
@@ -1375,7 +1375,7 @@
 
       if (items.length === 0) {
         feedEl.innerHTML = '';
-        setStatus('No posts found for this user or account has no activity.', false);
+        setStatus('No posts found matching your criteria.', false);
         return;
       }
 
@@ -1438,9 +1438,9 @@
       }
       setStatus('Fetching posts and history for @' + username + '...');
 
-      var ownPostsPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 50 })
+      var ownPostsPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20 })
         .catch(function () {
-          return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 50 });
+          return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 20 });
         })
         .catch(function () { return []; });
 
