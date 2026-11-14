@@ -110,7 +110,7 @@
 
   <header>
     <h1>Hive Content Recommender</h1>
-    <p class="subtitle">Builds a TF-IDF interest profile from the full text of posts you recently <strong>upvoted</strong> and <strong>commented on</strong>, ignoring tags completely.</p>
+    <p class="subtitle">Learns from the full text of posts you recently <strong>upvoted</strong> and <strong>commented on</strong>, then finds similar Hive articles. Tags are not used.</p>
   </header>
 
   <div class="controls">
@@ -347,7 +347,7 @@ function () {
 
         btnEl.disabled = true;
         feedEl.innerHTML = '';
-        setStatus('Step 1/4: Fetching recent upvotes and comments for @' + user + '...', false);
+        setStatus('Step 1/4: Finding your newest upvotes and comments for @' + user + '...', false);
 
         var interactedPosts = 
 {};
@@ -359,35 +359,42 @@ function () {
           .then(function (history) {
             if (!Array.isArray(history)) throw new Error('Unexpected response from Hive RPC.');
 
+            // Hive account-history results are not assumed to be in chronological
+            // order. Sort by their sequence number so the newest activity is 
+used.
+            history.sort(function (a, b) {
+              return Number(b[0]) - Number(a[0]);
+            });
+
             for (var i = 0; i < history.length; i++) {
-              var item = history[i][1];
-              if (!item || !item.op) continue;
-              var opType = 
-item.op[0];
+              var item = history[i] && history[i][1];
+              if (!item || !item.op || !item.op[1]) continue;
+              var opType = item.op[0];
               var opData = item.op[1];
 
-              if (opType === 'vote' && opData.voter === user && opData.weight > 0 && opData.author !== user) {
+              if (opType === 'vote' && opData.voter === user && opData.weight > 0 && opData.author !== user) 
+{
                 var vKey = opData.author + '/' + opData.permlink;
                 if (!interactedPosts[vKey]) {
                   interactionOrder.push(vKey);
-                  interactedPosts[vKey] = 1;
+                  interactedPosts[vKey] = 1.5;
                 }
               }
 
-              if (opType === 'comment' && opData.author === user && 
-opData.parent_author && opData.parent_author !== user) {
-                var cKey = opData.parent_author + '/' + opData.parent_permlink;
-                if (!interactedPosts[cKey]) {
-                  interactionOrder.push(cKey);
-                }
-                interactedPosts[cKey] = 2;
+              if (opType === 'comment' && opData.author === user && opData.parent_author && opData.parent_author !== user) {
+                var cKey = opData.parent_author + '/' + 
+opData.parent_permlink;
+                if (!interactedPosts[cKey]) interactionOrder.push(cKey);
+                // A written comment is a stronger signal of interest than an upvote.
+                interactedPosts[cKey] = 2.5;
               }
             }
 
-            var recentKeys = interactionOrder.slice(-15);
+            // The history is now newest-first. Keep the newest 20 distinct posts.
+            var recentKeys = interactionOrder.slice(0, 20);
             if (recentKeys.length === 0) {
-              throw new Error('No recent upvotes or comments found for @' + user + 
-'.');
+              throw new Error('No recent upvotes or comments found for 
+@' + user + '.');
             }
 
             setStatus('Step 2/4: Reading ' + recentKeys.length + ' posts @' + user + ' upvoted or commented on...', false);
@@ -431,15 +438,23 @@ weight;
             return chain;
           })
           .then(function () {
-            setStatus('Step 3/4: Scanning latest global Hive articles for content similarity...', false);
+            setStatus('Step 3/4: Searching recent, trending, and hot Hive articles...', false);
             var combinedPosts = [];
-            return hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 50 })
+            // Pull separate discovery feeds to balance freshness and community interest.
+            // The Bridge API 
+commonly caps a single ranked-post request at 100 items.
+            return hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 100 })
               .then(function (createdPosts) {
                 combinedPosts = combinedPosts.concat(createdPosts || []);
-                return hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 50 });
+                return hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 100 });
               })
               .then(function (trendingPosts) {
-                return combinedPosts.concat(trendingPosts || []);
+                combinedPosts = combinedPosts.concat(trendingPosts || []);
+                return 
+hiveCall('bridge.get_ranked_posts', { sort: 'hot', limit: 100 });
+              })
+              .then(function (hotPosts) {
+                return combinedPosts.concat(hotPosts || []);
               });
           })
           .then(function (combinedPosts) {
@@ -448,17 +463,20 @@ weight;
             var candidatesMap = {};
             var candidates = [];
 
-            for (var i = 0; i < combinedPosts.length; i++) {
+            for (var i = 0; i < 
+combinedPosts.length; i++) {
               var p = combinedPosts[i];
               var pKey = p.author + '/' + p.permlink;
-              if (!seenKeys[pKey] && !candidatesMap[pKey] && p.author !== user && p.title && p.body) {
+              if (!seenKeys[pKey] && !candidatesMap[pKey] && p.author !== user &&
+                  (!p.parent_author || p.parent_author === '') && p.title && p.body) {
                 candidatesMap[pKey] = true;
                 candidates.push(p);
               }
             }
 
             var docFreq = {};
-            var candidateTokensList = candidates.map(function (post) {
+            var candidateTokensList = 
+candidates.map(function (post) {
               var tokens = cleanAndTokenize(post.title, post.body);
               var unique = {};
               for (var t = 0; t < tokens.length; t++) {
@@ -470,7 +488,8 @@ weight;
               return { post: post, tokens: tokens };
             });
 
-            var totalDocs = Math.max(candidates.length, 1);
+            var totalDocs = 
+Math.max(candidates.length, 1);
             var userTfIdf = {};
             var userTerms = Object.keys(userTermFreq);
             for (var u = 0; u < userTerms.length; u++) {
@@ -479,9 +498,9 @@ weight;
               userTfIdf[term] = userTermFreq[term] * idf;
             }
 
-            var scored = candidateTokensList.map(function 
-(item) {
-              var docLength = Math.max(item.tokens.length, 1);
+            var scored = candidateTokensList.map(function (item) {
+              var docLength = 
+Math.max(item.tokens.length, 1);
               var localCounts = {};
               for (var t = 0; t < item.tokens.length; t++) {
                 localCounts[item.tokens[t]] = (localCounts[item.tokens[t]] || 0) + 1;
@@ -491,8 +510,7 @@ weight;
               var docTerms = Object.keys(localCounts);
               for (var d = 0; d < docTerms.length; d++) {
                 var term = docTerms[d];
-                var idf = Math.log(1 + 
-totalDocs / (1 + (docFreq[term] || 0)));
+                var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
                 docTfIdf[term] = (localCounts[term] / docLength) * idf;
               }
 
@@ -503,7 +521,8 @@ totalDocs / (1 + (docFreq[term] || 0)));
             scored.sort(function (a, b) { return b.score - a.score; });
 
             var topResults = [];
-            for (var r = 0; r < scored.length; r++) {
+            for (var r = 0; r < 
+scored.length; r++) {
               if (scored[r].score > 0) {
                 topResults.push(scored[r]);
                 if (topResults.length >= 15) break;
@@ -511,7 +530,7 @@ totalDocs / (1 + (docFreq[term] || 0)));
             }
 
             if (topResults.length === 0) {
-              setStatus('No strong text matches found in the latest 100 global posts.', false);
+              setStatus('No text matches found in the recent, trending, and hot articles returned by Hive. Try again later when more posts are available.', false);
               btnEl.disabled = false;
               return;
             }
@@ -520,7 +539,7 @@ totalDocs / (1 + (docFreq[term] || 0)));
             for (var c = 0; c < topResults.length; c++) {
               var item = topResults[c];
               var post = item.post;
-              var url = 'https://peakd.com/@' + post.author + '/' + post.permlink;
+              var url = 'https://peakd.com/@' + encodeURIComponent(post.author) + '/' + encodeURIComponent(post.permlink);
               var preview = stripNoise(post.body)
                 .replace(/[#*>`_]/g, '')
                 .slice(0, 180)
@@ -532,7 +551,8 @@ totalDocs / (1 + (docFreq[term] || 0)));
                 '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' +
                 '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
                 '<div class="snippet">' + escapeHtml(preview) + '</div>' +
-                (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
+                (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', 
+')) + '</div>' : '');
               feedEl.appendChild(div);
             }
             btnEl.disabled = false;
