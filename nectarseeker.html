@@ -134,6 +134,10 @@ id="runBtn">Recommend</button>
       window.addEventListener('error', function (event) {
         if (!status) return;
         var detail = event && event.message ? event.message : 'Unknown JavaScript error';
+        if (event && (event.filename || event.lineno || event.colno)) {
+          detail += ' [' + (event.filename || 'inline script') + ':' + (event.lineno 
+|| '?') + ':' + (event.colno || '?') + ']';
+        }
         status.textContent = 'JavaScript failed to start: ' + detail;
         status.style.background = '#f8d7da';
         status.style.color = '#842029';
@@ -145,7 +149,8 @@ id="runBtn">Recommend</button>
   <script>
     (function () {
       var statusEl = document.getElementById('status');
-      var feedEl = document.getElementById('feed');
+      var feedEl = 
+document.getElementById('feed');
       var btnEl = document.getElementById('runBtn');
       var inputEl = document.getElementById('username');
 
@@ -156,7 +161,8 @@ id="runBtn">Recommend</button>
         statusEl.style.borderColor = isError ? '#f5c2c7' : '#b6d4fe';
       }
 
-      window.onerror = function (msg, url, line) {
+      window.onerror = function 
+(msg, url, line) {
         setStatus('JS Error: ' + msg + ' (line ' + line + ')', true);
       };
 
@@ -169,14 +175,15 @@ id="runBtn">Recommend</button>
 
       var STOP_WORDS = {
         the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
-        not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
+        not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,wh
+ich:1,their:1,time:1,
         will:1,way:1,about:1,many:1,then:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
         thing:1,see:1,him:1,two:1,more:1,could:1,come:1,did:1,my:1,sound:1,most:1,people:1,over:1,
         know:1,water:1,than:1,call:1,first:1,who:1,may:1,down:1,side:1,been:1,now:1,find:1,any:1,
         new:1,work:1,part:1,take:1,get:1,place:1,made:1,live:1,where:1,after:1,back:1,little:1,
-        only:1,round:1,man:1,year:1,came:1,show:1,every:1,good:1,give:1,our:1,under:1,very:1,
         
-just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,cause:1,
+only:1,round:1,man:1,year:1,came:1,show:1,every:1,good:1,give:1,our:1,under:1,very:1,
+        just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,cause:1,
         same:1,mean:1,differ:1,move:1,right:1,boy:1,old:1,too:1,does:1,tell:1,sentence:1,set:1,
         three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
         large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
@@ -189,12 +196,12 @@ just:1,form:1,much:1,great:1,think:1,say:1,help:1,low:1,line:1,before:1,turn:1,c
         return String(str)
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
+          .replace(/>/g, 
+'&gt;')
           .replace(/"/g, '&quot;');
       }
 
-      function hiveCall(method, 
-params) {
+      function hiveCall(method, params) {
         var index = 0;
         var lastError = '';
 
@@ -203,11 +210,11 @@ params) {
             return Promise.reject(new Error('All Hive RPC nodes failed (' + lastError + ').'));
           }
           var node = HIVE_NODES[index++];
-          return new Promise(function (resolve, reject) {
+          return new 
+Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
             xhr.open('POST', node, true);
-            xhr.timeout = 
-10000;
+            xhr.timeout = 10000;
             xhr.setRequestHeader('Content-Type', 'application/json');
 
             xhr.onreadystatechange = function () {
@@ -215,10 +222,10 @@ params) {
               if (xhr.status >= 200 && xhr.status < 300) {
                 try {
                   var data = JSON.parse(xhr.responseText);
-                  if (data.error) {
-                    reject(new Error(data.error.message || 'RPC error'));
-                  } else 
+                  if (data.error) 
 {
+                    reject(new Error(data.error.message || 'RPC error'));
+                  } else {
                     resolve(data.result);
                   }
                 } catch (e) {
@@ -230,11 +237,11 @@ params) {
             };
 
             xhr.ontimeout = function () {
-              reject(new Error('Timeout on ' + node));
+              reject(new Error('Timeout 
+on ' + node));
             };
 
-            xhr.onerror = function () 
-{
+            xhr.onerror = function () {
               reject(new Error('Network error on ' + node));
             };
 
@@ -246,11 +253,11 @@ params) {
           }).catch(function (err) {
             lastError = err.message;
             return tryNextNode();
-          });
+          
+});
         }
 
-        return 
-tryNextNode();
+        return tryNextNode();
       }
 
       function stripNoise(text) {
@@ -260,10 +267,10 @@ tryNextNode();
           var imgStart = out.indexOf('![');
           var imgMid = out.indexOf('](', imgStart);
           var imgEnd = imgMid !== -1 ? out.indexOf(')', imgMid) : -1;
-          if (imgMid !== -1 && imgEnd !== -1) {
-            out = out.slice(0, imgStart) + ' ' + out.slice(imgEnd + 1);
-          } else 
+          if (imgMid !== -1 && imgEnd !== -1) 
 {
+            out = out.slice(0, imgStart) + ' ' + out.slice(imgEnd + 1);
+          } else {
             break;
           }
         }
@@ -275,10 +282,10 @@ tryNextNode();
       }
 
       function cleanAndTokenize(title, body) {
-        var combined = stripNoise((title || '') + ' ' + (title || '') + ' ' + (body || ''))
+        var combined = stripNoise((title || '') + ' ' + (title || 
+'') + ' ' + (body || ''))
           .toLowerCase()
-          .replace(/[^a-z0-9\s]/g, ' 
-');
+          .replace(/[^a-z0-9\s]/g, ' ');
 
         var rawWords = combined.split(/\s+/);
         var tokens = [];
@@ -291,8 +298,7 @@ tryNextNode();
         return tokens;
       }
 
-      function computeCosineSimilarity(vecA, 
-vecB) {
+      function computeCosineSimilarity(vecA, vecB) {
         var dot = 0;
         var normA = 0;
         var normB = 0;
@@ -305,7 +311,8 @@ vecB) {
           normA += valA * valA;
           if (vecB[term]) {
             dot += valA * vecB[term];
-            matchedTerms.push({ term: term, weight: valA * vecB[term] });
+            matchedTerms.push({ term: term, weight: valA * vecB[term] 
+});
           }
         }
 
@@ -319,10 +326,10 @@ vecB) {
 
         matchedTerms.sort(function (a, b) { return b.weight - a.weight; });
         var top = [];
-        for (var k = 0; k < Math.min(4, matchedTerms.length); k++) {
+        for (var k = 0; k < Math.min(4, matchedTerms.length); k++) 
+{
           top.push(matchedTerms[k].term);
-        
-}
+        }
         return {
           score: dot / (Math.sqrt(normA) * Math.sqrt(normB)),
           topMatches: top
@@ -333,9 +340,9 @@ vecB) {
         if (!window.hive_keychain) {
           setStatus('Hive Keychain extension/browser not detected.', true);
           return;
-        }
-        var suggested = inputEl.value.trim().replace(/^@/, 
-'').toLowerCase();
+        
+}
+        var suggested = inputEl.value.trim().replace(/^@/, '').toLowerCase();
         window.hive_keychain.requestSignBuffer(
           suggested || null,
           'Verify Hive account for recommendations',
@@ -344,9 +351,9 @@ vecB) {
             if (res && res.success && res.data && res.data.username) {
               inputEl.value = res.data.username;
               window.runRecommender();
-            } else {
-              setStatus('Keychain verification cancelled or failed.', 
-true);
+            } else 
+{
+              setStatus('Keychain verification cancelled or failed.', true);
             }
           }
         );
@@ -356,7 +363,8 @@ true);
         var user = inputEl.value.trim().replace(/^@/, '').toLowerCase();
         if (!user) {
           setStatus('Please enter a Hive username first (for example: blocktrades).', true);
-          inputEl.focus();
+          
+inputEl.focus();
           return;
         }
 
@@ -370,9 +378,9 @@ true);
         var seenKeys = {};
 
         hiveCall('condenser_api.get_account_history', [user, -1, 300])
-          .then(function (history) {
-            if (!Array.isArray(history)) throw new Error('Unexpected response from Hive 
-RPC.');
+          .then(function (history) 
+{
+            if (!Array.isArray(history)) throw new Error('Unexpected response from Hive RPC.');
 
             // Hive account-history results are not assumed to be in chronological
             // order. Sort by their sequence number so the newest activity is used.
@@ -381,9 +389,9 @@ RPC.');
             });
 
             for (var i = 0; i < history.length; i++) {
-              var item = history[i] && history[i][1];
-              if (!item || !item.op || !item.op[1]) 
-continue;
+              var item = history[i] && 
+history[i][1];
+              if (!item || !item.op || !item.op[1]) continue;
               var opType = item.op[0];
               var opData = item.op[1];
 
@@ -392,7 +400,8 @@ continue;
                 if (!interactedPosts[vKey]) {
                   interactionOrder.push(vKey);
                   interactedPosts[vKey] = 1.5;
-                }
+                
+}
               }
 
               if (opType === 'comment' && opData.author === user && opData.parent_author && opData.parent_author !== user) {
@@ -401,10 +410,10 @@ continue;
                 // A written comment is a stronger signal of interest than an upvote.
                 interactedPosts[cKey] = 2.5;
               }
-            }
+            
+}
 
-            // The history is now 
-newest-first. Keep the newest 20 distinct posts.
+            // The history is now newest-first. Keep the newest 20 distinct posts.
             var recentKeys = interactionOrder.slice(0, 20);
             if (recentKeys.length === 0) {
               throw new Error('No recent upvotes or comments found for @' + user + '.');
@@ -412,9 +421,9 @@ newest-first. Keep the newest 20 distinct posts.
 
             setStatus('Step 2/4: Reading ' + recentKeys.length + ' posts @' + user + ' upvoted or commented on...', false);
 
-            var chain = Promise.resolve();
-            recentKeys.forEach(function (key) 
-{
+            var chain = 
+Promise.resolve();
+            recentKeys.forEach(function (key) {
               chain = chain.then(function () {
                 seenKeys[key] = true;
                 var weight = interactedPosts[key];
@@ -423,8 +432,8 @@ newest-first. Keep the newest 20 distinct posts.
                   .then(function (post) {
                     if (!post || !post.author) return null;
                     if (post.parent_author !== '') {
-                      return hiveCall('condenser_api.get_content', [post.root_author, 
-post.root_permlink]);
+                      return 
+hiveCall('condenser_api.get_content', [post.root_author, post.root_permlink]);
                     }
                     return post;
                   })
@@ -434,9 +443,9 @@ post.root_permlink]);
                     var tokens = cleanAndTokenize(rootPost.title, rootPost.body);
                     var docLength = Math.max(tokens.length, 1);
                     var localCounts = {};
-                    for (var t = 0; t < tokens.length; t++) {
-                      localCounts[tokens[t]] 
-= (localCounts[tokens[t]] || 0) + 1;
+                    for (var t = 0; t < 
+tokens.length; t++) {
+                      localCounts[tokens[t]] = (localCounts[tokens[t]] || 0) + 1;
                     }
                     var terms = Object.keys(localCounts);
                     for (var m = 0; m < terms.length; m++) {
@@ -449,17 +458,16 @@ post.root_permlink]);
             });
 
             return chain;
-          
-})
+          })
           .then(function () {
             setStatus('Step 3/4: Searching recent, trending, and hot Hive articles...', false);
             var combinedPosts = [];
             // Pull separate discovery feeds to balance freshness and community interest.
             // The Bridge API commonly caps a single ranked-post request at 100 items.
             return hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 100 })
-              .then(function (createdPosts) {
-                combinedPosts = 
-combinedPosts.concat(createdPosts || []);
+              .then(function (createdPosts) 
+{
+                combinedPosts = combinedPosts.concat(createdPosts || []);
                 return hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 100 });
               })
               .then(function (trendingPosts) {
@@ -467,8 +475,8 @@ combinedPosts.concat(createdPosts || []);
                 return hiveCall('bridge.get_ranked_posts', { sort: 'hot', limit: 100 });
               })
               .then(function (hotPosts) {
-                return combinedPosts.concat(hotPosts || 
-[]);
+                return 
+combinedPosts.concat(hotPosts || []);
               });
           })
           .then(function (combinedPosts) {
@@ -480,8 +488,7 @@ combinedPosts.concat(createdPosts || []);
             for (var i = 0; i < combinedPosts.length; i++) {
               var p = combinedPosts[i];
               var pKey = p.author + '/' + p.permlink;
-              if (!seenKeys[pKey] && !candidatesMap[pKey] && p.author !== user 
-&&
+              if (!seenKeys[pKey] && !candidatesMap[pKey] && p.author !== user &&
                   (!p.parent_author || p.parent_author === '') && p.title && p.body) {
                 candidatesMap[pKey] = true;
                 candidates.push(p);
@@ -492,8 +499,7 @@ combinedPosts.concat(createdPosts || []);
             var candidateTokensList = candidates.map(function (post) {
               var tokens = cleanAndTokenize(post.title, post.body);
               var unique = {};
-              for (var t = 0; t < tokens.length; t++) 
-{
+              for (var t = 0; t < tokens.length; t++) {
                 if (!unique[tokens[t]]) {
                   unique[tokens[t]] = true;
                   docFreq[tokens[t]] = (docFreq[tokens[t]] || 0) + 1;
@@ -506,8 +512,7 @@ combinedPosts.concat(createdPosts || []);
             var userTfIdf = {};
             var userTerms = Object.keys(userTermFreq);
             for (var u = 0; u < userTerms.length; u++) {
-              var term = 
-userTerms[u];
+              var term = userTerms[u];
               var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
               userTfIdf[term] = userTermFreq[term] * idf;
             }
@@ -516,8 +521,7 @@ userTerms[u];
               var docLength = Math.max(item.tokens.length, 1);
               var localCounts = {};
               for (var t = 0; t < item.tokens.length; t++) {
-                localCounts[item.tokens[t]] = (localCounts[item.tokens[t]] || 0) + 
-1;
+                localCounts[item.tokens[t]] = (localCounts[item.tokens[t]] || 0) + 1;
               }
 
               var docTfIdf = {};
@@ -528,8 +532,8 @@ userTerms[u];
                 docTfIdf[term] = (localCounts[term] / docLength) * idf;
               }
 
-              var sim = 
-computeCosineSimilarity(userTfIdf, docTfIdf);
+              var sim = computeCosineSimilarity(userTfIdf, 
+docTfIdf);
               return { post: item.post, score: sim.score, topMatches: sim.topMatches };
             });
 
@@ -541,8 +545,7 @@ computeCosineSimilarity(userTfIdf, docTfIdf);
                 topResults.push(scored[r]);
                 if (topResults.length >= 15) break;
               }
-            
-}
+            }
 
             if (topResults.length === 0) {
               setStatus('No text matches found in the recent, trending, and hot articles returned by Hive. Try again later when more posts are available.', false);
@@ -553,8 +556,7 @@ computeCosineSimilarity(userTfIdf, docTfIdf);
             setStatus('Top ' + topResults.length + ' content matches for @' + user + ':', false);
             for (var c = 0; c < topResults.length; c++) {
               var item = topResults[c];
-              var post = 
-item.post;
+              var post = item.post;
               var url = 'https://peakd.com/@' + encodeURIComponent(post.author) + '/' + encodeURIComponent(post.permlink);
               var preview = stripNoise(post.body)
                 .replace(/[#*>`_]/g, '')
@@ -564,8 +566,8 @@ item.post;
               var div = document.createElement('div');
               div.className = 'card';
               div.innerHTML =
-                '<h3><a href="' + url + '" target="_blank" rel="noopener">' 
-+ escapeHtml(post.title) + '</a></h3>' +
+                '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' 
++
                 '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
                 '<div class="snippet">' + escapeHtml(preview) + '</div>' +
                 (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
@@ -587,8 +589,7 @@ err.message, true);
         window.runRecommender();
       });
 
-      var keychainBtn = 
-document.getElementById('keychainBtn');
+      var keychainBtn = document.getElementById('keychainBtn');
       if (keychainBtn) {
         keychainBtn.addEventListener('click', window.loginWithKeychain);
       }
@@ -600,8 +601,8 @@ document.getElementById('keychainBtn');
         }
       });
 
-      
-window.addEventListener('unhandledrejection', function (event) {
+      window.addEventListener('unh
+andledrejection', function (event) {
         var reason = event && event.reason;
         setStatus('Request failed: ' + (reason && reason.message ? reason.message : String(reason || 'Unknown error')), true);
         btnEl.disabled = false;
