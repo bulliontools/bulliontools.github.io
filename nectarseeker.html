@@ -196,6 +196,13 @@
       gap: 10px;
       align-items: center;
       flex-wrap: wrap;
+      justify-content: space-between;
+    }
+    .kc-left {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
     }
     .kc-btn {
       background-color: #1e293b;
@@ -206,6 +213,31 @@
       padding: 8px 14px;
       border-radius: 7px;
       cursor: pointer;
+    }
+    .kc-btn:hover {
+      background-color: #26354d;
+    }
+    .kc-badge {
+      font-size: 12px;
+      font-weight: 700;
+      color: #34d399;
+      background-color: rgba(16, 185, 129, 0.14);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .kc-disconnect {
+      background: transparent;
+      color: #94a3b8;
+      border: 1px solid #2a3447;
+      padding: 4px 9px;
+      border-radius: 5px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .kc-disconnect:hover {
+      color: #f8fafc;
+      border-color: #64748b;
     }
     .taste-bar {
       display: flex;
@@ -308,6 +340,8 @@
       gap: 6px;
       align-items: center;
       flex-shrink: 0;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .dapp-tag {
       font-size: 12px;
@@ -317,6 +351,27 @@
       border: 1px solid #254e6b;
       padding: 3px 8px;
       border-radius: 5px;
+    }
+    .vote-status-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+    .vote-status-badge.voted {
+      color: #34d399;
+      background-color: rgba(16, 185, 129, 0.16);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+    .vote-status-badge.downvoted {
+      color: #fb7185;
+      background-color: rgba(244, 63, 94, 0.16);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+    }
+    .vote-status-badge.unvoted {
+      color: #94a3b8;
+      background-color: #1c2331;
+      border: 1px solid #2a3447;
     }
     .ai-badge {
       font-size: 11px;
@@ -446,6 +501,7 @@
         <div class="hive-hex" style="background-color:#e31337;color:#ffffff;width:34px;height:34px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;">H</div>
         <h1 style="margin:0;color:#ffffff;">NectarSeeker</h1>
       </div>
+      <div id="headerKcStatus"></div>
     </div>
     <p class="subtitle" style="margin:6px 0 0 0;color:#cbd5e1;">Find content relevant to you based on what you like! Want to mix it up? Enter a username or search term and find more great content on Hive!</p>
   </header>
@@ -478,8 +534,13 @@
     </div>
 
     <div class="kc-row" id="kcRow" style="display:none;">
-      <button type="button" class="kc-btn" id="keychainBtn" onclick="loginKeychain()">Connect Hive Keychain</button>
-      <span style="font-size:13px;color:#94a3b8;">Hive Keychain detected</span>
+      <div class="kc-left">
+        <button type="button" class="kc-btn" id="keychainBtn" onclick="loginKeychain()">Connect Hive Keychain</button>
+        <span id="kcHint" style="font-size:13px;color:#94a3b8;">Connect to see your vote status on every post</span>
+      </div>
+      <div id="kcConnectedActions" style="display:none;">
+        <button type="button" class="kc-disconnect" onclick="disconnectKeychain()">Disconnect</button>
+      </div>
     </div>
   </div>
 
@@ -500,10 +561,10 @@
         <strong style="color:#38bdf8;">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:#38bdf8;">More / Less Feedback:</strong> Click 'More' or 'Less' on any article card to instantly train your taste model weights and re-rank future recommendations.
+        <strong style="color:#38bdf8;">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
       </div>
       <div>
-        <strong style="color:#38bdf8;">AI Probability Badge:</strong> Analyzes lexical diversity and sentence structure uniformity using local heuristics to estimate the likelihood that a post is AI-assisted.
+        <strong style="color:#38bdf8;">More / Less &amp; AI Badge:</strong> Click 'More' or 'Less' on cards to train your taste model weights, and view local heuristic estimates for AI-assisted text.
       </div>
     </div>
   </details>
@@ -557,10 +618,79 @@
       mode: 'feed',
       sort: 'relevant',
       results: [],
-      isRunning: false
+      isRunning: false,
+      kcUser: ''
     };
 
     var TASTE_KEY = 'nectarseeker_taste_v1';
+    var KC_USER_KEY = 'nectarseeker_kc_user';
+
+    function getConnectedUser() {
+      if (appState.kcUser) return appState.kcUser;
+      try {
+        var stored = localStorage.getItem(KC_USER_KEY) || '';
+        if (stored) {
+          appState.kcUser = stripLeadingAt(stored);
+          return appState.kcUser;
+        }
+      } catch (e) {}
+      return '';
+    }
+
+    function updateKeychainUI() {
+      var user = getConnectedUser();
+      var headerStatus = document.getElementById('headerKcStatus');
+      var kcBtn = document.getElementById('keychainBtn');
+      var kcHint = document.getElementById('kcHint');
+      var kcDisconnectWrap = document.getElementById('kcConnectedActions');
+      var kcRow = document.getElementById('kcRow');
+
+      if (user) {
+        if (kcRow) kcRow.style.display = 'flex';
+        if (headerStatus) {
+          headerStatus.innerHTML = '<span class="kc-badge">&#128273; Connected: @' + escapeHtml(user) + '</span>';
+        }
+        if (kcBtn) {
+          kcBtn.textContent = 'Switch Keychain Account (@' + user + ')';
+        }
+        if (kcHint) {
+          kcHint.textContent = 'Showing vote status for @' + user;
+        }
+        if (kcDisconnectWrap) {
+          kcDisconnectWrap.style.display = 'block';
+        }
+      } else {
+        if (headerStatus) headerStatus.innerHTML = '';
+        if (kcBtn) kcBtn.textContent = 'Connect Hive Keychain';
+        if (kcHint) kcHint.textContent = 'Connect to see your vote status on every post';
+        if (kcDisconnectWrap) kcDisconnectWrap.style.display = 'none';
+      }
+    }
+
+    function disconnectKeychain() {
+      appState.kcUser = '';
+      try { localStorage.removeItem(KC_USER_KEY); } catch (e) {}
+      updateKeychainUI();
+      if (appState.results.length > 0) {
+        renderCards(appState.results.slice(0, 100));
+      }
+      setStatus('Disconnected Hive Keychain account.', false);
+    }
+
+    function getUserVoteInfo(post, username) {
+      if (!username || !post || !Array.isArray(post.active_votes)) return null;
+      var target = stripLeadingAt(username);
+      for (var i = 0; i < post.active_votes.length; i++) {
+        var v = post.active_votes[i];
+        if (v && stripLeadingAt(v.voter) === target) {
+          var rawWeight = typeof v.percent === 'number' ? v.percent : (typeof v.weight === 'number' ? v.weight : 0);
+          if (rawWeight === 0) return { voted: false, percent: 0 };
+          var pct = Math.round(rawWeight / 100);
+          return { voted: true, percent: pct };
+        }
+      }
+      return { voted: false, percent: 0 };
+    }
 
     function analyzeAI(text) {
       if (!text || text.length < 60) return { score: 10, label: 'AI Prob: 10%', className: 'ai-badge' };
@@ -899,7 +1029,7 @@
       if (input) {
         if (m === 'user') input.placeholder = 'Enter Hive username (e.g. hive3)';
         else if (m === 'feed') input.placeholder = 'Enter your Hive username for personal feed';
-        else if (m === 'search') input.placeholder = 'Enter search keywords (e.g. splinterlands strategy)';
+        else if (m === 'search') input.placeholder = 'Enter search keywords (e.g. painting)';
         else if (m === 'newusers') input.placeholder = 'Optional: Enter keyword or leave blank for all new users';
       }
     }
@@ -917,8 +1047,7 @@
 
     function resolveQueryMode(rawInput) {
       var trimmed = String(rawInput || '').trim();
-      var cachedKc = '';
-      try { cachedKc = localStorage.getItem('nectarseeker_kc_user') || ''; } catch (e) {}
+      var cachedKc = getConnectedUser();
 
       if (appState.mode === 'feed') {
         var u = stripLeadingAt(trimmed) || cachedKc;
@@ -1128,13 +1257,14 @@
     }
 
     function fetchAllFrontendsPool(observer) {
+      var obs = observer || getConnectedUser();
       return Promise.all([
         hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
         hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
         hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
-        fetchPaginatedRanked('created', 5, observer),
-        fetchPaginatedRanked('trending', 4, observer),
-        fetchPaginatedRanked('hot', 3, observer)
+        fetchPaginatedRanked('created', 5, obs),
+        fetchPaginatedRanked('trending', 4, obs),
+        fetchPaginatedRanked('hot', 3, obs)
       ]).then(function (groups) {
         var map = {};
         var list = [];
@@ -1164,10 +1294,12 @@
       var startPermlink = '';
       var page = 0;
       var maxPages = 150;
+      var obs = getConnectedUser();
 
       function fetchBatch() {
         page++;
         var params = { sort: 'created', tag: '', limit: 20 };
+        if (obs) params.observer = obs;
         if (startAuthor && startPermlink) {
           params.start_author = startAuthor;
           params.start_permlink = startPermlink;
@@ -1379,6 +1511,7 @@
         return;
       }
 
+      var connectedUser = getConnectedUser();
       var html = '';
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
@@ -1397,11 +1530,25 @@
         var age = formatAge(p.created);
         
         var aiRes = analyzeAI((p.title || '') + ' ' + (p.body || ''));
+        var voteBadgeHtml = '';
+        if (connectedUser) {
+          var vInfo = getUserVoteInfo(p, connectedUser);
+          if (vInfo && vInfo.voted) {
+            if (vInfo.percent > 0) {
+              voteBadgeHtml = '<span class="vote-status-badge voted">&#10003; Voted (' + vInfo.percent + '%)</span>';
+            } else {
+              voteBadgeHtml = '<span class="vote-status-badge downvoted">&#9660; Downvoted (' + vInfo.percent + '%)</span>';
+            }
+          } else {
+            voteBadgeHtml = '<span class="vote-status-badge unvoted">Not Voted</span>';
+          }
+        }
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
         html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="' + escapeHtml(mainUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
         html += '<div class="badge-group">';
+        html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
@@ -1437,10 +1584,11 @@
         return Promise.reject(new Error('Please enter a valid Hive username.'));
       }
       setStatus('Fetching posts and history for @' + username + '...');
+      var obs = getConnectedUser() || username;
 
-      var ownPostsPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20 })
+      var ownPostsPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20, observer: obs })
         .catch(function () {
-          return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 20 });
+          return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 20, observer: obs });
         })
         .catch(function () { return []; });
 
@@ -1481,7 +1629,7 @@
             }
 
             var profileVec = allTokens.length > 0 ? buildVector(allTokens, weightsMap) : null;
-            return fetchAllFrontendsPool(username).then(function (candidates) {
+            return fetchAllFrontendsPool(obs).then(function (candidates) {
               return { ownPosts: ownPosts, candidates: candidates, profileVec: profileVec, skipKeys: skipKeys };
             });
           });
@@ -1806,8 +1954,7 @@
       }
       var input = document.getElementById('queryInput');
       var typed = input ? stripLeadingAt(input.value) : '';
-      var cached = '';
-      try { cached = localStorage.getItem('nectarseeker_kc_user') || ''; } catch (e) {}
+      var cached = getConnectedUser();
       var targetAccount = typed || cached || null;
 
       window.hive_keychain.requestSignBuffer(
@@ -1816,12 +1963,19 @@
         'Posting',
         function (res) {
           if (res && res.success) {
-            var verifiedUser = (res.data && res.data.username) ? res.data.username : targetAccount;
+            var verifiedUser = (res.data && res.data.username) ? stripLeadingAt(res.data.username) : targetAccount;
             if (verifiedUser) {
-              try { localStorage.setItem('nectarseeker_kc_user', verifiedUser); } catch (e) {}
-              setMode('feed');
-              if (input) input.value = '@' + verifiedUser;
-              startApp();
+              appState.kcUser = verifiedUser;
+              try { localStorage.setItem(KC_USER_KEY, verifiedUser); } catch (e) {}
+              updateKeychainUI();
+              setStatus('Connected as @' + verifiedUser + '. Vote status badges are now active.', false);
+              if (appState.results.length > 0) {
+                renderCards(appState.results.slice(0, 100));
+              } else {
+                setMode('feed');
+                if (input && !input.value.trim()) input.value = '@' + verifiedUser;
+                startApp();
+              }
             }
           } else {
             setStatus('Hive Keychain sign-in was cancelled or failed.', true);
@@ -1831,6 +1985,7 @@
     }
 
     function detectKeychain() {
+      updateKeychainUI();
       if (window.hive_keychain) {
         var row = document.getElementById('kcRow');
         if (row) row.style.display = 'flex';
