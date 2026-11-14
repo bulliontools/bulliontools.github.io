@@ -405,10 +405,10 @@
   <div class="panel" style="background-color:#151a24;border:1px solid #2a3447;border-radius:12px;padding:16px;margin-bottom:16px;">
     <div class="toolbar-row">
       <div class="segmented" id="modeGroup">
-        <button type="button" class="seg-btn active" data-mode="auto" onclick="setMode('auto')">Auto</button>
+        <button type="button" class="seg-btn active" data-mode="feed" onclick="setMode('feed')">Feed</button>
         <button type="button" class="seg-btn" data-mode="user" onclick="setMode('user')">Username</button>
-        <button type="button" class="seg-btn" data-mode="feed" onclick="setMode('feed')">Feed</button>
         <button type="button" class="seg-btn" data-mode="search" onclick="setMode('search')">Search Term</button>
+        <button type="button" class="seg-btn" data-mode="newusers" onclick="setMode('newusers')">New Hive Users</button>
       </div>
 
       <div class="segmented" id="sortGroup">
@@ -419,7 +419,7 @@
     </div>
 
     <div class="controls">
-      <input type="text" id="queryInput" placeholder="Enter your Hive username (e.g. yourname) or connect Keychain" autocapitalize="none" autocorrect="off" />
+      <input type="text" id="queryInput" placeholder="Enter your Hive username for personal feed" autocapitalize="none" autocorrect="off" />
       <button type="button" class="primary-btn" id="runBtn" onclick="startApp()">Discover</button>
     </div>
 
@@ -475,7 +475,7 @@
     };
 
     var appState = {
-      mode: 'auto',
+      mode: 'feed',
       sort: 'relevant',
       results: [],
       isRunning: false
@@ -766,7 +766,7 @@
         if (m === 'user') input.placeholder = 'Enter Hive username (e.g. blocktrades)';
         else if (m === 'feed') input.placeholder = 'Enter your Hive username for personal feed';
         else if (m === 'search') input.placeholder = 'Enter search keywords (e.g. splinterlands strategy)';
-        else input.placeholder = 'Enter your Hive username or search term';
+        else if (m === 'newusers') input.placeholder = 'Optional: Enter keyword or leave blank for all new users';
       }
     }
 
@@ -806,15 +806,10 @@
         }
         return Promise.resolve({ type: 'search', value: trimmed });
       }
-      
-      var u = stripLeadingAt(trimmed) || cachedKc;
-      if (u) {
-        return Promise.resolve({ type: 'user', value: u });
+      if (appState.mode === 'newusers') {
+        return Promise.resolve({ type: 'newusers', value: trimmed });
       }
-      if (trimmed) {
-        return Promise.resolve({ type: 'search', value: trimmed });
-      }
-      return Promise.reject(new Error('Please enter your Hive username or connect Keychain for your personal feed.'));
+      return Promise.reject(new Error('Please select a mode and enter your input.'));
     }
 
     function getAccountHistory(username, months) {
@@ -1066,6 +1061,45 @@
       }
 
       return fetchBatch();
+    }
+
+    function fetchAccountsCreation(usernames) {
+      var unique = [];
+      var map = {};
+      for (var i = 0; i < usernames.length; i++) {
+        if (!map[usernames[i]]) {
+          map[usernames[i]] = true;
+          unique.push(usernames[i]);
+        }
+      }
+      var results = {};
+      var idx = 0;
+      var batchSize = 50;
+
+      function nextBatch() {
+        if (idx >= unique.length) return Promise.resolve(results);
+        var slice = unique.slice(idx, idx + batchSize);
+        idx += batchSize;
+        setStatus('Checking account creation dates (' + Math.min(idx, unique.length) + '/' + unique.length + ')...');
+
+        return hiveCall('condenser_api.get_accounts', [slice])
+          .then(function (accounts) {
+            if (Array.isArray(accounts)) {
+              for (var j = 0; j < accounts.length; j++) {
+                var acc = accounts[j];
+                if (acc && acc.name && acc.created) {
+                  results[acc.name] = acc.created;
+                }
+              }
+            }
+            return nextBatch();
+          })
+          .catch(function () {
+            return nextBatch();
+          });
+      }
+
+      return nextBatch();
     }
 
     function hasVoted(post, username) {
@@ -1442,6 +1476,83 @@
       });
     }
 
+    function runNewUsersWorkflow(query) {
+      var twelveMonthsMs = 12 * 30.5 * 24 * 60 * 60 * 1000;
+      var cutoff = Date.now() - twelveMonthsMs;
+      var cleanQuery = String(query || '').trim().toLowerCase();
+
+      return fetchAllFrontendsPool('').then(function (candidates) {
+        if (!candidates || candidates.length === 0) {
+          throw new Error('No candidate posts found.');
+        }
+
+        var authorSet = [];
+        for (var i = 0; i < candidates.length; i++) {
+          if (candidates[i] && candidates[i].author) {
+            authorSet.push(candidates[i].author);
+          }
+        }
+
+        return fetchAccountsCreation(authorSet).then(function (creationMap) {
+          var taste = loadTaste();
+          var scored = [];
+
+          for (var j = 0; j < candidates.length; j++) {
+            var c = candidates[j];
+            var key = c.author + '/' + c.permlink;
+            if (taste.disliked[key]) continue;
+
+            var createdStr = creationMap[c.author];
+            if (!createdStr) continue;
+
+            var ts = Date.parse(createdStr + 'Z');
+            if (isNaN(ts) || ts < cutoff) {
+              continue;
+            }
+
+            var titleStr = String(c.title || '');
+            var bodyStr = String(c.body || '');
+            var score = 1.0;
+            var matchedTerms = [];
+
+            if (cleanQuery) {
+              var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
+              var titleLower = titleStr.toLowerCase();
+              if (titleLower.indexOf(cleanQuery) !== -1) {
+                score += 0.5;
+                matchedTerms.push(cleanQuery);
+              } else if (fullLower.indexOf(cleanQuery) !== -1) {
+                score += 0.25;
+                matchedTerms.push(cleanQuery);
+              } else {
+                continue;
+              }
+            }
+
+            var cTokens = tokenize(titleStr + ' ' + bodyStr);
+            var postTs = Date.parse((c.created || '') + 'Z') || 0;
+            scored.push({
+              post: c,
+              baseScore: score,
+              finalScore: score,
+              matched: matchedTerms,
+              tokens: cTokens,
+              timestamp: postTs,
+              isLiked: !!taste.liked[key]
+            });
+          }
+
+          appState.results = scored;
+          rerankAndRender();
+          var shown = Math.min(100, appState.results.length);
+          var msg = cleanQuery ?
+            'Found ' + shown + ' posts from new Hive users matching "' + cleanQuery + '".' :
+            'Found ' + shown + ' posts from Hive users who joined in the last 12 months.';
+          setStatus(msg, false);
+        });
+      });
+    }
+
     function startApp() {
       if (appState.isRunning) return;
       var input = document.getElementById('queryInput');
@@ -1464,7 +1575,12 @@
           if (resolved.type === 'user') {
             return runUsernameWorkflow(resolved.value);
           }
-          return runSearchWorkflow(resolved.value);
+          if (resolved.type === 'search') {
+            return runSearchWorkflow(resolved.value);
+          }
+          if (resolved.type === 'newusers') {
+            return runNewUsersWorkflow(resolved.value);
+          }
         })
         .catch(function (err) {
           setStatus((err && err.message) ? err.message : 'An unexpected error occurred.', true);
