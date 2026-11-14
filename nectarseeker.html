@@ -58,6 +58,7 @@
       font-size: 0.95rem;
       color: var(--muted);
       font-style: italic;
+      min-height: 1.4em;
     }
     .card {
       background: var(--card-bg);
@@ -98,280 +99,44 @@
 
   <div class="controls">
     <input type="text" id="username" placeholder="Enter public Hive username (e.g. blocktrades)" />
-    <button id="runBtn" onclick="generateFeed()">Recommend</
-button>
+    <button type="button" 
+id="runBtn">Recommend</button>
   </div>
 
   <div id="status"></div>
   <div id="feed"></div>
 
   <script>
-    const HIVE_NODES = [
+    window.onerror = function (msg, url, line) {
+      var st = document.getElementById('status');
+      if (st) st.textContent = 'Script Error: ' + msg + ' (Line ' + line + ')';
+    };
+
+    var HIVE_NODES = [
       'https://api.deathwing.me',
       'https://api.openhive.network',
       'https://api.hive.blog',
       'https://techcoderx.com'
     ];
 
-    const STOP_WORDS = new Set([
+    var STOP_WORDS = new Set([
       'the','and','for','that','this','with','you','are','was','were','from','have','has','had',
       'not','but','what','all','when','can','said','there','use','each','which','their','time',
       'will','way','about','many','then','them','would','write','like','these','long','make',
-      'thing','see','him','two','more','could','come','did','my','sound','most','people','over',
+      
+'thing','see','him','two','more','could','come','did','my','sound','most','people','over',
       'know','water','than','call','first','who','may','down','side','been','now','find','any',
-      'new','work','part','take','get','place','made','live','where','after','back','littl
-e',
+      'new','work','part','take','get','place','made','live','where','after','back','little',
       'only','round','man','year','came','show','every','good','give','our','under','very',
       'just','form','much','great','think','say','help','low','line','before','turn','cause',
       'same','mean','differ','move','right','boy','old','too','does','tell','sentence','set',
       'three','want','air','well','also','play','small','end','put','home','read','hand','port',
-      
-'large','spell','add','even','land','here','must','big','high','such','follow','act','why',
+      'large','spell','add','even','land','here','must','big','high','such','follow','act','why',
       'ask','men','change','went','light','kind','off','need','house','picture','try','again',
-      'animal','point','mother','world','near','build','self','earth','father','http','https',
+      'animal','point','mother','world','near','build','self','earth','father','http','h
+ttps',
       'www','com','hive','peakd','ecency','post','blog','images','png','jpg','jpeg','webp'
     ]);
-
-    
-document.getElementById('username').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') generateFeed();
-    });
-
-    async function hiveCall(method, params) {
-      let lastError;
-      for (const node of HIVE_NODES) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 9000);
-          const res = await fetch(node, 
-{
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
-          if (data.error) throw new Error(data.error.message);
-          return data.result;
-        } catch (err) {
-          lastError = err;
-        
-}
-      }
-      throw new Error(`All Hive RPC nodes failed (${lastError ? lastError.message : 'Network error'}).`);
-    }
-
-    function cleanAndTokenize(title, body) {
-      const combined = `${title || ''} ${title || ''} ${body || ''}`
-        .replace(/!\[.*?\]\(.*?\)/g, ' ')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/https?:\/\/\S+/g, ' ')
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' 
-');
-
-      return combined
-        .split(/\s+/)
-        .filter(w => w.length > 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
-    }
-
-    function computeCosineSimilarity(vecA, vecB) {
-      let dot = 0;
-      let normA = 0;
-      let normB = 0;
-      const matchedTerms = [];
-
-      for (const [term, valA] of Object.entries(vecA)) 
-{
-        normA += valA * valA;
-        if (vecB[term]) {
-          dot += valA * vecB[term];
-          matchedTerms.push({ term, weight: valA * vecB[term] });
-        }
-      }
-      for (const valB of Object.values(vecB)) {
-        normB += valB * valB;
-      }
-      if (normA === 0 || normB === 0) return { score: 0, topMatches: [] };
-
-      matchedTerms.sort((a, b) => b.weight - a.weight);
-      return {
-        score: dot / 
-(Math.sqrt(normA) * Math.sqrt(normB)),
-        topMatches: matchedTerms.slice(0, 4).map(m => m.term)
-      };
-    }
-
-    async function generateFeed() {
-      const user = document.getElementById('username').value.trim().replace(/^@/, '').toLowerCase();
-      const status = document.getElementById('status');
-      const feed = document.getElementById('feed');
-      const btn = 
-document.getElementById('runBtn');
-      if (!user) return;
-
-      btn.disabled = true;
-      feed.innerHTML = '';
-      status.textContent = `Fetching upvotes and comments for @${user}...`;
-
-      try {
-        // 1. Fetch account history (votes = 1x weight, comments = 2x weight)
-        const history = await hiveCall('condenser_api.get_account_history', [user, -1, 300]);
-        const interactedPosts = new 
-Map();
-
-        for (const entry of history) {
-          const item = entry[1];
-          if (!item || !item.op) continue;
-          const opType = item.op[0];
-          const opData = item.op[1];
-
-          if (opType === 'vote' && opData.voter === user && opData.weight > 0 && opData.author !== user) {
-            const key = `${opData.author}/${opData.permlink}`;
-            interactedPosts.set(key, Math.max(interactedPosts.get(key) || 0, 1));
-          
-}
-
-          if (opType === 'comment' && opData.author === user && opData.parent_author && opData.parent_author !== user) {
-            const key = `${opData.parent_author}/${opData.parent_permlink}`;
-            interactedPosts.set(key, 2);
-          }
-        }
-
-        const recentInteractions = Array.from(interactedPosts.entries()).slice(-15);
-        if (recentInteractions.length === 0) {
-          status.textContent = `No 
-recent upvotes or comments found for @${user}.`;
-          btn.disabled = false;
-          return;
-        }
-
-        // 2. Read the full text of interacted posts
-        status.textContent = `Reading ${recentInteractions.length} posts @${user} upvoted or commented on...`;
-        const userTermFreq = {};
-        const seenKeys = new Set();
-
-        for (const [key, interactionWeight] of recentInteractions) {
-          
-seenKeys.add(key);
-          const [author, permlink] = key.split('/');
-          let post = await hiveCall('condenser_api.get_content', [author, permlink]);
-          if (!post || !post.author) continue;
-
-          // Trace back to the main article if the user replied to a nested comment
-          if (post.parent_author !== '') {
-            post = await hiveCall('condenser_api.get_content', [post.root_author, post.root_permlink]);
-            if (!post || !post.author) 
-continue;
-            seenKeys.add(`${post.author}/${post.permlink}`);
-          }
-
-          const tokens = cleanAndTokenize(post.title, post.body);
-          const docLength = Math.max(tokens.length, 1);
-          const localCounts = {};
-          tokens.forEach(t => { localCounts[t] = (localCounts[t] || 0) + 1; });
-
-          for (const [term, count] of Object.entries(localCounts)) {
-            const tf = (count / 
-docLength) * interactionWeight;
-            userTermFreq[term] = (userTermFreq[term] || 0) + tf;
-          }
-        }
-
-        // 3. Pull fresh global Hive posts (created + trending)
-        status.textContent = 'Scanning latest global Hive articles for content similarity...';
-        const [latestPosts, trendingPosts] = await Promise.all([
-          hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 50 }),
-          hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 50 
-})
-        ]);
-
-        const candidatesMap = new Map();
-        [...latestPosts, ...trendingPosts].forEach(p => {
-          const key = `${p.author}/${p.permlink}`;
-          if (!seenKeys.has(key) && p.author !== user && p.title && p.body) {
-            candidatesMap.set(key, p);
-          }
-        });
-
-        const candidates = 
-Array.from(candidatesMap.values());
-
-        // 4. Compute TF-IDF vectors and Cosine Similarity
-        const docFreq = {};
-        const candidateTokensList = candidates.map(post => {
-          const tokens = cleanAndTokenize(post.title, post.body);
-          const unique = new Set(tokens);
-          unique.forEach(t => { docFreq[t] = (docFreq[t] || 0) + 1; });
-          return { post, tokens };
-        });
-
-        const totalDocs = Math.max(candidates.length, 1);
-        const userTfIdf = {};
-        for (const [term, tf] of Object.entries(userTermFreq)) {
-          const idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
-          userTfIdf[term] = tf * idf;
-        }
-
-        const scored = candidateTokensList.map(({ post, tokens }) => {
-          const docLength = Math.max(tokens.length, 1);
-          const localCounts = {};
-          tokens.forEach(t => { 
-localCounts[t] = (localCounts[t] || 0) + 1; });
-
-          const docTfIdf = {};
-          for (const [term, count] of Object.entries(localCounts)) {
-            const idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
-            docTfIdf[term] = (count / docLength) * idf;
-          }
-
-          const { score, topMatches } = computeCosineSimilarity(userTfIdf, docTfIdf);
-          return { post, score, topMatches };
-        
-});
-
-        scored.sort((a, b) => b.score - a.score);
-
-        // 5. Render top 15 results
-        const results = scored.filter(item => item.score > 0).slice(0, 15);
-        if (results.length === 0) {
-          status.textContent = 'No strong text matches found in the latest 100 global posts.';
-          btn.disabled = false;
-          return;
-        }
-
-        status.textContent = `Top content matches for @${user} 
-(based on text of upvoted & commented posts):`;
-        results.forEach(({ post, score, topMatches }) => {
-          const url = `https://peakd.com/@${post.author}/${post.permlink}`;
-          const preview = post.body
-            .replace(/!\[.*?\]\(.*?\)/g, '')
-            .replace(/[#*>`_\[\]]/g, '')
-            .replace(/<[^>]*>/g, '')
-            .slice(0, 180)
-            .trim() + '...';
-
-          const div = document.createElement('div');
-          div.className = 'card';
-          div.innerHTML = `
-            <h3><a href="${url}" 
-target="_blank" rel="noopener">${escapeHtml(post.title)}</a></h3>
-            <div class="meta">By @${escapeHtml(post.author)} • Content Similarity: ${(score * 100).toFixed(1)}%</div>
-            <div class="snippet">${escapeHtml(preview)}</div>
-            ${topMatches.length ? `<div class="keywords">Matched concepts: ${escapeHtml(topMatches.join(', '))}</div>` : ''}
-          `;
-          feed.appendChild(div);
-        });
-      } catch (err) 
-{
-        status.textContent = `Error: ${err.message}`;
-      } finally {
-        btn.disabled = false;
-      }
-    }
 
     function escapeHtml(str) {
       return String(str)
@@ -380,6 +145,274 @@ target="_blank" rel="noopener">${escapeHtml(post.title)}</a></h3>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
     }
+
+    function hiveCall(method, params) {
+      var index = 0;
+      var lastError = 
+null;
+
+      function tryNextNode() {
+        if (index >= HIVE_NODES.length) {
+          return Promise.reject(new Error('All Hive RPC nodes failed (' + (lastError ? lastError.message : 'Network error') + ').'));
+        }
+        var node = HIVE_NODES[index++];
+        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timeoutId = controller ? setTimeout(function () { controller.abort(); }, 9000) : null;
+
+        var fetchOpts = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 })
+        };
+        if (controller) fetchOpts.signal = controller.signal;
+
+        return fetch(node, fetchOpts)
+          .then(function (res) {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return 
+res.json();
+          })
+          .then(function (data) {
+            if (data.error) throw new Error(data.error.message);
+            return data.result;
+          })
+          .catch(function (err) {
+            if (timeoutId) clearTimeout(timeoutId);
+            lastError = err;
+            return tryNextNode();
+          });
+      }
+
+      return tryNextNode();
+    }
+
+    function 
+cleanAndTokenize(title, body) {
+      var combined = ((title || '') + ' ' + (title || '') + ' ' + (body || ''))
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/https?:\/\/\S+/g, ' ')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ');
+
+      return combined
+        .split(/\s+/)
+        .filter(function (w) {
+          return w.length > 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w);
+        });
+    
+}
+
+    function computeCosineSimilarity(vecA, vecB) {
+      var dot = 0;
+      var normA = 0;
+      var normB = 0;
+      var matchedTerms = [];
+
+      Object.keys(vecA).forEach(function (term) {
+        var valA = vecA[term];
+        normA += valA * valA;
+        if (vecB[term]) {
+          dot += valA * vecB[term];
+          matchedTerms.push({ term: term, weight: valA * vecB[term] 
+});
+        }
+      });
+
+      Object.keys(vecB).forEach(function (term) {
+        var valB = vecB[term];
+        normB += valB * valB;
+      });
+
+      if (normA === 0 || normB === 0) return { score: 0, topMatches: [] };
+
+      matchedTerms.sort(function (a, b) { return b.weight - a.weight; });
+      return {
+        score: dot / (Math.sqrt(normA) * 
+Math.sqrt(normB)),
+        topMatches: matchedTerms.slice(0, 4).map(function (m) { return m.term; })
+      };
+    }
+
+    async function generateFeed() {
+      var inputEl = document.getElementById('username');
+      var status = document.getElementById('status');
+      var feed = document.getElementById('feed');
+      var btn = 
+document.getElementById('runBtn');
+
+      var user = inputEl.value.trim().replace(/^@/, '').toLowerCase();
+      if (!user) {
+        status.textContent = 'Please enter a Hive username first.';
+        inputEl.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      feed.innerHTML = '';
+      status.textContent = 'Fetching upvotes and comments for @' + user + '...';
+
+      try {
+        var history = await hiveCall('condenser_api.get_account_history', [user, -1, 300]);
+        var interactedPosts = new Map();
+
+        for (var i = 0; i < history.length; i++) {
+          var item = history[i][1];
+          if (!item || !item.op) continue;
+          var opType = item.op[0];
+          var opData = item.op[1];
+
+          if (opType === 'vote' && opData.voter === user && opData.weight > 0 && opData.author !== user) 
+{
+            var vKey = opData.author + '/' + opData.permlink;
+            interactedPosts.set(vKey, Math.max(interactedPosts.get(vKey) || 0, 1));
+          }
+
+          if (opType === 'comment' && opData.author === user && opData.parent_author && opData.parent_author !== user) {
+            var cKey = opData.parent_author + '/' + opData.parent_permlink;
+            interactedPosts.set(cKey, 2);
+          }
+        }
+
+        var recentInteractions = Array.from(interactedPosts.entries()).slice(-15);
+        if (recentInteractions.length === 0) {
+          status.textContent = 'No recent upvotes or comments found for @' + user + '.';
+          btn.disabled = false;
+          return;
+        }
+
+        status.textContent = 'Reading ' + recentInteractions.length + ' posts @' + user + ' upvoted or commented on...';
+        var userTermFreq = {};
+        var seenKeys = new 
+Set();
+
+        for (var j = 0; j < recentInteractions.length; j++) {
+          var key = recentInteractions[j][0];
+          var interactionWeight = recentInteractions[j][1];
+          seenKeys.add(key);
+
+          var parts = key.split('/');
+          var post = await hiveCall('condenser_api.get_content', [parts[0], parts[1]]);
+          if (!post || !post.author) continue;
+
+          if (post.parent_author !== '') {
+            post = await 
+hiveCall('condenser_api.get_content', [post.root_author, post.root_permlink]);
+            if (!post || !post.author) continue;
+            seenKeys.add(post.author + '/' + post.permlink);
+          }
+
+          var tokens = cleanAndTokenize(post.title, post.body);
+          var docLength = Math.max(tokens.length, 1);
+          var localCounts = {};
+          tokens.forEach(function (t) { localCounts[t] = (localCounts[t] || 0) + 1; });
+
+          Object.keys(localCounts).forEach(function (term) {
+            var tf = (localCounts[term] / docLength) * interactionWeight;
+            userTermFreq[term] = (userTermFreq[term] || 0) + tf;
+          });
+        }
+
+        status.textContent = 'Scanning latest global Hive articles for content similarity...';
+        var resultsPair = await Promise.all([
+          hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 50 
+}),
+          hiveCall('bridge.get_ranked_posts', { sort: 'trending', limit: 50 })
+        ]);
+
+        var candidatesMap = new Map();
+        resultsPair[0].concat(resultsPair[1]).forEach(function (p) {
+          var pKey = p.author + '/' + p.permlink;
+          if (!seenKeys.has(pKey) && p.author !== user && p.title && p.body) {
+            candidatesMap.set(pKey, p);
+          }
+        
+});
+
+        var candidates = Array.from(candidatesMap.values());
+        var docFreq = {};
+        var candidateTokensList = candidates.map(function (post) {
+          var tokens = cleanAndTokenize(post.title, post.body);
+          var unique = new Set(tokens);
+          unique.forEach(function (t) { docFreq[t] = (docFreq[t] || 0) + 1; });
+          return { post: post, tokens: tokens };
+        });
+
+        var totalDocs = Math.max(candidates.length, 1);
+        var userTfIdf = {};
+        Object.keys(userTermFreq).forEach(function (term) {
+          var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
+          userTfIdf[term] = userTermFreq[term] * idf;
+        });
+
+        var scored = candidateTokensList.map(function (item) {
+          var docLength = Math.max(item.tokens.length, 
+1);
+          var localCounts = {};
+          item.tokens.forEach(function (t) { localCounts[t] = (localCounts[t] || 0) + 1; });
+
+          var docTfIdf = {};
+          Object.keys(localCounts).forEach(function (term) {
+            var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
+            docTfIdf[term] = (localCounts[term] / docLength) * idf;
+          });
+
+          var sim = 
+computeCosineSimilarity(userTfIdf, docTfIdf);
+          return { post: item.post, score: sim.score, topMatches: sim.topMatches };
+        });
+
+        scored.sort(function (a, b) { return b.score - a.score; });
+
+        var topResults = scored.filter(function (item) { return item.score > 0; }).slice(0, 15);
+        if (topResults.length === 0) {
+          status.textContent = 'No strong text matches found in the latest 100 global posts.';
+          btn.disabled = false;
+          
+return;
+        }
+
+        status.textContent = 'Top content matches for @' + user + ' (based on text of upvoted & commented posts):';
+        topResults.forEach(function (item) {
+          var post = item.post;
+          var url = 'https://peakd.com/@' + post.author + '/' + post.permlink;
+          var preview = post.body
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+            .replace(/[#*>`_\[\]]/g, '')
+            .replace(/<[^>]*>/g, '')
+            .slice(0, 180)
+            .trim() + '...';
+
+          var div = document.createElement('div');
+          div.className = 'card';
+          div.innerHTML =
+            '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' +
+            '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
+            '<div class="snippet">' + escapeHtml(preview) + '</div>' +
+            (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + 
+escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
+          feed.appendChild(div);
+        });
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      var btn = document.getElementById('runBtn');
+      var input = 
+document.getElementById('username');
+      if (btn) btn.addEventListener('click', generateFeed);
+      if (input) {
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') generateFeed();
+        });
+      }
+    });
   </script>
 </body>
 </html>
