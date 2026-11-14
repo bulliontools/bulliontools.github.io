@@ -455,6 +455,31 @@
     </div>
   </div>
 
+  <!-- HOW IT WORKS SECTION -->
+  <div class="panel" style="background-color:#151a24;border:1px solid #2a3447;border-radius:12px;padding:16px;margin-bottom:16px;">
+    <h2 style="margin-top:0;font-size:18px;color:#f8fafc;border-bottom:1px solid #2a3447;padding-bottom:8px;margin-bottom:12px;">How It Works</h2>
+    <div style="font-size:14px;color:#cbd5e1;display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;">
+      <div>
+        <strong style="color:#38bdf8;">Feed Mode:</strong> Scans your past 24 months of upvotes, comments, and posts to construct a personal taste vector, recommending unread articles tailored to your interests.
+      </div>
+      <div>
+        <strong style="color:#38bdf8;">Username Mode:</strong> Looks up any Hive user to display their authored posts at the top, alongside personalized content recommendations based on their activity.
+      </div>
+      <div>
+        <strong style="color:#38bdf8;">Search Term Mode:</strong> Indexes and searches 24 months of Hive content to score and rank articles matching your exact keywords or phrases.
+      </div>
+      <div>
+        <strong style="color:#38bdf8;">New Hive Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
+      </div>
+      <div>
+        <strong style="color:#38bdf8;">More / Less Feedback:</strong> Click 'More' or 'Less' on any article card to instantly train your taste model weights and re-rank future recommendations.
+      </div>
+      <div>
+        <strong style="color:#38bdf8;">AI Probability Badge:</strong> Analyzes lexical diversity and sentence structure uniformity to estimate the likelihood that a post is AI-assisted.
+      </div>
+    </div>
+  </div>
+
   <div class="taste-bar" id="tasteBar" style="background-color:#1c2331;border:1px solid #2a3447;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
     <div class="taste-tags" id="tasteSummary">Taste model ready. Use More or Less on cards to train your feed.</div>
     <button type="button" class="reset-btn" onclick="resetTaste()">Reset Learning</button>
@@ -844,7 +869,7 @@
       }
       var input = document.getElementById('queryInput');
       if (input) {
-        if (m === 'user') input.placeholder = 'Enter Hive username (e.g. blocktrades)';
+        if (m === 'user') input.placeholder = 'Enter Hive username (e.g. hive3)';
         else if (m === 'feed') input.placeholder = 'Enter your Hive username for personal feed';
         else if (m === 'search') input.placeholder = 'Enter search keywords (e.g. splinterlands strategy)';
         else if (m === 'newusers') input.placeholder = 'Optional: Enter keyword or leave blank for all new users';
@@ -904,8 +929,6 @@
 
       function fetchPage() {
         page++;
-        setStatus('Scanning ' + months + ' months of posts, upvotes & comments for @' + username + ' (batch ' + page + ')...');
-        
         var initialLimit = (page === 1 && startSeq === -1) ? 100 : 1000;
 
         return hiveCall('condenser_api.get_account_history', [username, startSeq, initialLimit, 3])
@@ -969,7 +992,6 @@
                   if (opData.permlink) {
                     skipKeys[username + '/' + opData.permlink] = true;
                   }
-                  // Include user's own published posts (root comments) as profile seeds
                   if (!opData.parent_author || opData.parent_author === '') {
                     var selfKey = username + '/' + opData.permlink;
                     if (!weightedSeeds[selfKey]) {
@@ -1020,7 +1042,6 @@
         if (idx >= seeds.length) return Promise.resolve(results);
         var slice = seeds.slice(idx, idx + batchSize);
         idx += batchSize;
-        setStatus('Reading full text of engaged posts & user articles (' + Math.min(idx, seeds.length) + '/' + seeds.length + ')...');
 
         return Promise.all(slice.map(function (item) {
           return hiveCall('bridge.get_post', { author: item.author, permlink: item.permlink })
@@ -1079,7 +1100,6 @@
     }
 
     function fetchAllFrontendsPool(observer) {
-      setStatus('Scanning posts across all Hive front ends...');
       return Promise.all([
         hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 100 }]).catch(function () { return []; }),
         hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 100 }]).catch(function () { return []; }),
@@ -1119,7 +1139,6 @@
 
       function fetchBatch() {
         page++;
-        setStatus('Scanning search content from the last 24 months (batch ' + page + ')...');
         var params = { sort: 'created', tag: '', limit: 100 };
         if (startAuthor && startPermlink) {
           params.start_author = startAuthor;
@@ -1181,7 +1200,6 @@
         if (idx >= unique.length) return Promise.resolve(results);
         var slice = unique.slice(idx, idx + batchSize);
         idx += batchSize;
-        setStatus('Checking account creation dates (' + Math.min(idx, unique.length) + '/' + unique.length + ')...');
 
         return hiveCall('condenser_api.get_accounts', [slice])
           .then(function (accounts) {
@@ -1329,7 +1347,7 @@
 
       if (items.length === 0) {
         feedEl.innerHTML = '';
-        setStatus('No matching articles found or account has no activity history.', false);
+        setStatus('No posts found for this user or account has no activity.', false);
         return;
       }
 
@@ -1390,60 +1408,114 @@
       if (!username) {
         return Promise.reject(new Error('Please enter a valid Hive username.'));
       }
-      var skipKeys = {};
-      var profileVec = null;
+      setStatus('Fetching posts and history for @' + username + '...');
 
-      return getAccountHistory(username, 6)
-        .then(function (hist) {
-          skipKeys = hist.skipKeys;
-          if (!hist.seeds || hist.seeds.length === 0) {
-            throw new Error('No posts, upvotes, or comments found for @' + username + ' (account may be new or have zero history).');
-          }
-          return fetchSeedPosts(hist.seeds, skipKeys);
+      var ownPostsPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 50 })
+        .catch(function () {
+          return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 50 });
         })
-        .then(function (seedData) {
-          var allTokens = [];
-          var weightsMap = {};
-          for (var i = 0; i < seedData.length; i++) {
-            var entry = seedData[i];
-            if (!entry || !entry.post) continue;
-            var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
-            var toks = tokenize(text);
-            for (var j = 0; j < toks.length; j++) {
-              allTokens.push(toks[j]);
-              weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + entry.weight;
+        .catch(function () { return []; });
+
+      var historyPromise = getAccountHistory(username, 6).catch(function () { return { seeds: [], skipKeys: {} }; });
+
+      return Promise.all([ownPostsPromise, historyPromise])
+        .then(function (res) {
+          var ownPosts = res[0] || [];
+          var hist = res[1] || { seeds: [], skipKeys: {} };
+          var skipKeys = hist.skipKeys || {};
+
+          var seedPromises = (hist.seeds && hist.seeds.length > 0) ? fetchSeedPosts(hist.seeds, skipKeys) : Promise.resolve([]);
+          return seedPromises.then(function (seedData) {
+            var allTokens = [];
+            var weightsMap = {};
+            for (var i = 0; i < seedData.length; i++) {
+              var entry = seedData[i];
+              if (!entry || !entry.post) continue;
+              var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
+              var toks = tokenize(text);
+              for (var j = 0; j < toks.length; j++) {
+                allTokens.push(toks[j]);
+                weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + entry.weight;
+              }
             }
-          }
-          if (allTokens.length === 0) {
-            throw new Error('Could not extract enough text from @' + username + ' history.');
-          }
-          profileVec = buildVector(allTokens, weightsMap);
-          return fetchAllFrontendsPool(username);
+
+            for (var i = 0; i < ownPosts.length; i++) {
+              var p = ownPosts[i];
+              if (p && p.author === username) {
+                skipKeys[username + '/' + p.permlink] = true;
+                var text = (p.title || '') + ' ' + (p.body || '');
+                var toks = tokenize(text);
+                for (var j = 0; j < toks.length; j++) {
+                  allTokens.push(toks[j]);
+                  weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + 2.0;
+                }
+              }
+            }
+
+            var profileVec = allTokens.length > 0 ? buildVector(allTokens, weightsMap) : null;
+            return fetchAllFrontendsPool(username).then(function (candidates) {
+              return { ownPosts: ownPosts, candidates: candidates, profileVec: profileVec, skipKeys: skipKeys };
+            });
+          });
         })
-        .then(function (candidates) {
+        .then(function (data) {
+          var ownPosts = data.ownPosts;
+          var candidates = data.candidates;
+          var profileVec = data.profileVec;
+          var skipKeys = data.skipKeys;
           var taste = loadTaste();
           var scored = [];
+          var addedKeys = {};
+
+          for (var i = 0; i < ownPosts.length; i++) {
+            var p = ownPosts[i];
+            if (!p || p.author !== username) continue;
+            var key = p.author + '/' + p.permlink;
+            if (taste.disliked[key]) continue;
+            addedKeys[key] = true;
+
+            var fullText = (p.title || '') + ' ' + (p.body || '');
+            var cTokens = tokenize(fullText);
+            var ts = Date.parse((p.created || '') + 'Z') || 0;
+
+            scored.push({
+              post: p,
+              baseScore: 1.5,
+              finalScore: 1.5,
+              matched: ['Author Post'],
+              tokens: cTokens,
+              timestamp: ts,
+              isLiked: !!taste.liked[key]
+            });
+          }
 
           for (var i = 0; i < candidates.length; i++) {
             var c = candidates[i];
             var key = c.author + '/' + c.permlink;
-            if (c.author === username) continue;
+            if (addedKeys[key]) continue;
             if (skipKeys[key] || taste.disliked[key]) continue;
             if (hasVoted(c, username)) continue;
 
             var fullText = (c.title || '') + ' ' + (c.body || '');
             var cTokens = tokenize(fullText);
-            if (cTokens.length < 20) continue;
+            if (cTokens.length < 20 && profileVec) continue;
 
-            var cVec = buildVector(cTokens, null);
-            var sim = cosineSim(profileVec, cVec);
-            if (sim.score > 0.005) {
+            var score = 0.1;
+            var matched = [];
+            if (profileVec) {
+              var cVec = buildVector(cTokens, null);
+              var sim = cosineSim(profileVec, cVec);
+              score = sim.score;
+              matched = sim.matched;
+            }
+
+            if (score > 0.005 || !profileVec) {
               var ts = Date.parse((c.created || '') + 'Z') || 0;
               scored.push({
                 post: c,
-                baseScore: sim.score,
-                finalScore: sim.score,
-                matched: sim.matched,
+                baseScore: score,
+                finalScore: score,
+                matched: matched,
                 tokens: cTokens,
                 timestamp: ts,
                 isLiked: !!taste.liked[key]
@@ -1454,7 +1526,7 @@
           appState.results = scored;
           rerankAndRender();
           var shown = Math.min(100, appState.results.length);
-          setStatus('Showing top ' + shown + ' unread recommendations for @' + username + ' across all Hive front ends.', false);
+          setStatus('Showing ' + ownPosts.length + ' posts by @' + username + ' and ' + Math.max(0, shown - ownPosts.length) + ' recommendations.', false);
         });
     }
 
@@ -1468,9 +1540,6 @@
       return getAccountHistory(username, 24)
         .then(function (hist) {
           skipKeys = hist.skipKeys;
-          if (!hist.seeds || hist.seeds.length === 0) {
-            throw new Error('No posts, upvotes, or comments found for @' + username + ' (account may be new or have zero history).');
-          }
           return fetchSeedPosts(hist.seeds, skipKeys);
         })
         .then(function (seedData) {
