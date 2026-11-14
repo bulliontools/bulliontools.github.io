@@ -17,6 +17,8 @@
       --text-muted: #94a3b8;
       --accent-cyan: #38bdf8;
       --accent-green: #10b981;
+      --accent-warn: #f59e0b;
+      --accent-danger: #ef4444;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -273,8 +275,13 @@
       color: #ff6b84;
       text-decoration: underline;
     }
-    .dapp-tag {
+    .badge-group {
+      display: flex;
+      gap: 6px;
+      align-items: center;
       flex-shrink: 0;
+    }
+    .dapp-tag {
       font-size: 12px;
       font-weight: 600;
       color: #38bdf8;
@@ -282,6 +289,25 @@
       border: 1px solid #254e6b;
       padding: 3px 8px;
       border-radius: 5px;
+    }
+    .ai-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #34d399;
+      background-color: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 3px 7px;
+      border-radius: 5px;
+    }
+    .ai-badge.warning {
+      color: #fbbf24;
+      background-color: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+    .ai-badge.danger {
+      color: #f87171;
+      background-color: rgba(239, 68, 68, 0.18);
+      border: 1px solid rgba(239, 68, 68, 0.4);
     }
     .meta {
       font-size: 13px;
@@ -482,6 +508,64 @@
     };
 
     var TASTE_KEY = 'nectarseeker_taste_v1';
+
+    // Client-side heuristic AI Content Detector
+    function analyzeAI(text) {
+      if (!text || text.length < 60) return { score: 10, label: 'AI Prob: 10%', className: 'ai-badge' };
+      
+      var aiWords = [
+        'delve', 'tapestry', 'beacon', 'testament', 'paramount', 'meticulously', 
+        'furthermore', 'conclusion', 'noteworthy', 'realm', 'nexus', 'revolutionize', 
+        'multifaceted', 'leverage', 'robust', 'seamlessly', 'holistic', 'embark', 
+        'paradigm', 'synergy', 'crucial', 'vital', 'testament to', 'in summary'
+      ];
+      
+      var lower = text.toLowerCase();
+      var words = lower.split(/\s+/);
+      var wordCount = words.length;
+      if (wordCount === 0) return { score: 10, label: 'AI Prob: 10%', className: 'ai-badge' };
+
+      var matchCount = 0;
+      for (var i = 0; i < aiWords.length; i++) {
+        var regex = new RegExp('\\b' + aiWords[i] + '\\b', 'g');
+        var matches = lower.match(regex);
+        if (matches) {
+          matchCount += matches.length;
+        }
+      }
+
+      var wordFreqRatio = (matchCount / wordCount) * 100;
+      
+      // Burstiness / Sentence length uniformity check
+      var sentences = text.split(/[.!?]+/).filter(function(s) { return s.trim().length > 0; });
+      var totalScore = 15;
+      
+      if (sentences.length > 3) {
+        var lengths = sentences.map(function(s) { return s.trim().split(/\s+/).length; });
+        var mean = lengths.reduce(function(a,b){return a+b;},0) / lengths.length;
+        var variance = lengths.reduce(function(a,b){return a + Math.pow(b - mean, 2);},0) / lengths.length;
+        var stdDev = Math.sqrt(variance);
+        var cv = mean > 0 ? stdDev / mean : 1; 
+        
+        var uniformityScore = Math.max(0, (0.45 - cv) * 140);
+        var keywordScore = Math.min(65, wordFreqRatio * 45);
+        totalScore = Math.min(98, Math.max(8, Math.round(keywordScore + uniformityScore)));
+      } else {
+        totalScore = Math.min(90, Math.max(10, Math.round(wordFreqRatio * 55)));
+      }
+
+      var badgeClass = 'ai-badge';
+      var label = 'AI Prob: ' + totalScore + '%';
+      if (totalScore >= 75) {
+        badgeClass = 'ai-badge danger';
+        label = '⚠️ AI Prob: ' + totalScore + '%';
+      } else if (totalScore >= 50) {
+        badgeClass = 'ai-badge warning';
+        label = '⚠️ AI Prob: ' + totalScore + '%';
+      }
+
+      return { score: totalScore, label: label, className: badgeClass };
+    }
 
     function loadTaste() {
       try {
@@ -1248,11 +1332,16 @@
         var snippet = rawBody.length > 220 ? rawBody.slice(0, 220) + '...' : rawBody;
         var pct = Math.min(99, Math.max(1, Math.round(item.finalScore * 100)));
         var age = formatAge(p.created);
+        
+        var aiRes = analyzeAI((p.title || '') + ' ' + (p.body || ''));
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
         html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="' + escapeHtml(mainUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+        html += '<div class="badge-group">';
+        html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
+        html += '</div>';
         html += '</div>';
 
         html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong>';
