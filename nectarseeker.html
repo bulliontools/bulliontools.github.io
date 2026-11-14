@@ -116,7 +116,7 @@
     <h1>Hive Content Recommender</h1>
     <p class="subtitle">Learns from up to <strong>6 months</strong> of posts
       you <strong>upvoted</strong> and <strong>commented on</strong>, then
-      finds up to 100 similar Hive articles. Tags are not used.</p>
+      finds up to 100 unread similar Hive articles. Tags are not used.</p>
   </header>
 
   <div class="controls">
@@ -166,7 +166,7 @@
       var kcLabelEl = document.getElementById('kcLabel');
 
       var SIX_MONTHS_MS = 183 * 24 * 60 * 60 * 1000;
-      var MAX_HISTORY_PAGES = 15;
+      var MAX_HISTORY_PAGES = 30;
       var MAX_SEED_POSTS = 75;
 
       function setStatus(msg, isError) {
@@ -335,6 +335,18 @@
         return isNaN(ms) ? 0 : ms;
       }
 
+      function hasUserVotedOnPost(post, user) {
+        var votes = post && post.active_votes;
+        if (!Array.isArray(votes)) return false;
+        for (var i = 0; i < votes.length; i++) {
+          var v = votes[i];
+          if (v && String(v.voter || '').toLowerCase() === user) {
+            return true;
+          }
+        }
+        return false;
+      }
+
       function getHistory6Months(user) {
         var cutoff = Date.now() - SIX_MONTHS_MS;
         var start = -1;
@@ -398,25 +410,37 @@
                 var a = '';
                 var p = '';
                 var wBoost = 1;
+                var isPositive = true;
 
-                if (type === 'vote' && val.voter === user && Number(val.weight) > 0 && val.author !== user) {
+                if (type === 'vote' && val.voter === user) {
                   a = val.author;
                   p = val.permlink;
+                  if (Number(val.weight) <= 0 || a === user) {
+                    isPositive = false;
+                  }
                   wBoost = 1;
-                } else if (type === 'comment' && val.author === user && val.parent_author && val.parent_author !== user) {
+                } else if (type === 'comment' && val.author === user && val.parent_author) {
                   a = val.parent_author;
                   p = val.parent_permlink;
+                  if (a === user) isPositive = false;
                   wBoost = 1.5;
                 }
 
                 if (a && p) {
                   var key = a + '/' + p;
                   if (!targetMap[key]) {
-                    var obj = { author: a, permlink: p, key: key, weight: wBoost };
+                    var obj = {
+                      author: a,
+                      permlink: p,
+                      key: key,
+                      weight: isPositive ? wBoost : 0,
+                      useAsSeed: isPositive
+                    };
                     targetMap[key] = obj;
                     ordered.push(obj);
-                  } else {
+                  } else if (isPositive) {
                     targetMap[key].weight += wBoost;
+                    targetMap[key].useAsSeed = true;
                   }
                 }
               }
@@ -439,7 +463,7 @@
           });
       }
 
-      function fetchPostsInBatches(targets, batchSize) {
+      function fetchPostsInBatches(targets, batchSize, skipMap) {
         var results = [];
         var idx = 0;
 
@@ -453,7 +477,12 @@
           );
           return Promise.all(slice.map(function (t) {
             return getPost(t.author, t.permlink)
-              .then(function (p) { return { post: p, weight: t.weight }; })
+              .then(function (p) {
+                if (p && p.root_author && p.root_permlink) {
+                  skipMap[p.root_author + '/' + p.root_permlink] = true;
+                }
+                return { post: p, weight: t.weight };
+              })
               .catch(function () { return null; });
           })).then(function (batchRes) {
             for (var i = 0; i < batchRes.length; i++) {
@@ -465,7 +494,7 @@
         return nextBatch();
       }
 
-      function fetchSortPages(sort, pages) {
+      function fetchSortPages(sort, pages, observer) {
         var collected = [];
         var page = 0;
         var startAuthor = '';
@@ -474,7 +503,7 @@
         function step() {
           if (page >= pages) return Promise.resolve(collected);
           page++;
-          var q = { sort: sort, tag: '', limit: 20 };
+          var q = { sort: sort, tag: '', limit: 20, observer: observer };
           if (startAuthor && startPermlink) {
             q.start_author = startAuthor;
             q.start_permlink = startPermlink;
@@ -494,11 +523,11 @@
         return step();
       }
 
-      function getCandidates() {
+      function getCandidates(user) {
         return Promise.all([
-          fetchSortPages('trending', 3),
-          fetchSortPages('created', 4),
-          fetchSortPages('hot', 3)
+          fetchSortPages('trending', 3, user),
+          fetchSortPages('created', 4, user),
+          fetchSortPages('hot', 3, user)
         ]).then(function (res) {
           var out = [];
           var seen = {};
@@ -530,18 +559,21 @@
         var totalFound6Mo = 0;
 
         getHistory6Months(user).then(function (targets) {
-          if (!targets.length) {
+          var seeds = [];
+          for (var i = 0; i < targets.length; i++) {
+            skip[targets[i].key] = true;
+            if (targets[i].useAsSeed) seeds.push(targets[i]);
+          }
+          if (!seeds.length) {
             throw new Error('No upvotes or comments found in the last 6 months for @' + user + '.');
           }
-          totalFound6Mo = targets.length;
-          for (var i = 0; i < targets.length; i++) skip[targets[i].key] = true;
+          totalFound6Mo = seeds.length;
 
-          // Prioritize highest-engagement & most recent posts up to MAX_SEED_POSTS
-          var sortedTargets = targets.slice().sort(function (a, b) {
+          var sortedTargets = seeds.slice().sort(function (a, b) {
             return b.weight - a.weight;
           }).slice(0, MAX_SEED_POSTS);
 
-          return fetchPostsInBatches(sortedTargets, 15);
+          return fetchPostsInBatches(sortedTargets, 15, skip);
         }).then(function (weightedPosts) {
           var termWeights = {};
           var hasTerms = false;
@@ -559,13 +591,16 @@
           }
           if (!hasTerms) throw new Error('Not enough text found in your 6-month activity.');
           var profile = toVectorFromWeights(termWeights);
-          setStatus('Comparing 6-month interest profile against ~180 Hive articles...');
-          return getCandidates().then(function (cands) {
+          setStatus('Comparing 6-month profile & filtering out already-voted/commented posts...');
+          return getCandidates(user).then(function (cands) {
             var scored = [];
             for (var i = 0; i < cands.length; i++) {
               var c = cands[i];
               var key = c.author + '/' + c.permlink;
-              if (c.author === user || skip[key]) continue;
+              if (c.author === user) continue;
+              if (c.parent_author) continue;
+              if (skip[key]) continue;
+              if (hasUserVotedOnPost(c, user)) continue;
               var cToks = tokenize((c.title || '') + ' ' + (c.body || ''));
               if (cToks.length < 20) continue;
               var sim = similarity(profile, toVector(cToks));
@@ -580,12 +615,12 @@
           btnEl.disabled = false;
           btnEl.textContent = 'Recommend';
           if (!recs.length) {
-            setStatus('No strong matches found right now. Try again shortly.', false);
+            setStatus('No unread matching posts found right now. Try again shortly.', false);
             return;
           }
           setStatus(
-            'Found ' + recs.length + ' recommended articles for @' + user +
-            ' (learned from ' + totalFound6Mo + ' interactions over 6 months).',
+            'Found ' + recs.length + ' unread articles for @' + user +
+            ' (excluding already voted/commented posts across ' + totalFound6Mo + ' interactions).',
             false
           );
           var html = '';
