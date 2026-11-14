@@ -337,15 +337,38 @@ return;
       }
 
       function cleanMarkdown(text) {
-        return String(text || '')
-          .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, ' $1 ')
-          .replace(/https?:\/\/\S+/g, ' ')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/[^a-zA-Z0-9\s]/g, ' 
-')
-          .replace(/\s+/g, ' ')
-          .trim();
+        var src = String(text || '');
+        var noTags = '';
+        var inTag = false;
+        for (var i = 0; i < src.length; i++) {
+          var ch = src.charAt(i);
+          if (ch === '<') 
+{
+            inTag = true;
+            noTags += ' ';
+          } else if (ch === '>') {
+            inTag = false;
+            noTags += ' ';
+          } else if (!inTag) {
+            noTags += ch;
+          }
+        }
+
+        var parts = noTags.split(' ');
+        var filtered = [];
+        for (var p = 0; p < parts.length; p++) {
+          var part = parts[p];
+          if (part.indexOf('http://') === 0 || part.indexOf('https://') === 0) 
+continue;
+          var cleanPart = '';
+          for (var c = 0; c < part.length; c++) {
+            var code = part.charCodeAt(c);
+            var isAlphaNum = (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+            cleanPart += isAlphaNum ? part.charAt(c) : ' ';
+          }
+          if (cleanPart.trim()) filtered.push(cleanPart.trim());
+        }
+        return filtered.join(' ');
       }
 
       function tokenize(text) {
@@ -356,8 +379,7 @@ return;
           var w = raw[i];
           if (w.length >= 3 && !STOP_WORDS[w] && isNaN(Number(w))) {
             tokens.push(w);
-          
-}
+          }
         }
         return tokens;
       }
@@ -371,11 +393,11 @@ return;
         }
         var vec = {};
         for (var term in counts) {
-          if (Object.prototype.hasOwnProperty.call(counts, term)) 
-{
+          if (Object.prototype.hasOwnProperty.call(counts, term)) {
             var tf = 1 + Math.log(counts[term]);
             vec[term] = tf;
-            normSq += tf * tf;
+            normSq += tf * 
+tf;
           }
         }
         return { vec: vec, norm: Math.sqrt(normSq) };
@@ -386,10 +408,10 @@ return;
         var dot = 0;
         var matched = [];
         for (var term in a.vec) {
-          if 
-(Object.prototype.hasOwnProperty.call(a.vec, term) && b.vec[term]) {
+          if (Object.prototype.hasOwnProperty.call(a.vec, term) && b.vec[term]) {
             var prod = a.vec[term] * b.vec[term];
-            dot += prod;
+            dot += 
+prod;
             matched.push({ term: term, weight: prod });
           }
         }
@@ -399,8 +421,7 @@ return;
           topTerms.push(matched[i].term);
         }
         return {
-          score: dot / (a.norm * 
-b.norm),
+          score: dot / (a.norm * b.norm),
           matchedTerms: topTerms
         };
       }
@@ -417,20 +438,21 @@ b.norm),
           var type = '';
           var data = {};
           if (Array.isArray(op)) {
-            type = op[0];
+            type = 
+op[0];
             data = op[1] || {};
           } else if (typeof op === 'object') {
-            type = String(op.type || '').replace(/_operation$/, '');
+            type = String(op.type || '').replace('_operation', '');
             data = op.value || op;
           }
 
           var author = '';
           var permlink = '';
-          if (type === 'vote' && data.voter === username && Number(data.weight) > 0 && data.author !== username) 
-{
+          if (type === 'vote' && data.voter === username && Number(data.weight) > 0 && data.author !== username) {
             author = data.author;
             permlink = data.permlink;
-          } else if (type === 'comment' && data.author === username && data.parent_author && data.parent_author !== username) {
+          } else if (type === 'comment' && data.author === username && 
+data.parent_author && data.parent_author !== username) {
             author = data.parent_author;
             permlink = data.parent_permlink;
           }
@@ -439,11 +461,11 @@ b.norm),
             var key = author + '/' + permlink;
             if (!seen[key]) {
               seen[key] = true;
-              targets.push({ author: author, permlink: permlink, key: 
-key });
+              targets.push({ author: author, permlink: permlink, key: key });
               if (targets.length >= 12) break;
             }
-          }
+          
+}
         }
         return targets;
       }
@@ -452,21 +474,21 @@ key });
         return hiveCall('condenser_api.get_account_history', [username, -1, 200, 3, 0])
           .catch(function () {
             return hiveCall('condenser_api.get_account_history', [username, -1, 400]);
-          
-})
+          })
           .then(function (history) {
             if (!Array.isArray(history) || history.length === 0) {
-              throw new Error('Account @' + username + ' not found or has no recent activity.');
+              throw new 
+Error('Account @' + username + ' not found or has no recent activity.');
             }
             return parseHistoryItems(history, username);
           });
       }
 
       function fetchPostContent(author, permlink) {
-        return hiveCall('bridge.get_post', { 
-author: author, permlink: permlink })
+        return hiveCall('bridge.get_post', { author: author, permlink: permlink })
           .catch(function () {
-            return hiveCall('condenser_api.get_content', [author, permlink]);
+            return 
+hiveCall('condenser_api.get_content', [author, permlink]);
           });
       }
 
@@ -474,11 +496,11 @@ author: author, permlink: permlink })
         return Promise.all([
           hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '', limit: 20 }),
           hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 20 }),
-          hiveCall('bridge.get_ranked_posts', 
-{ sort: 'hot', tag: '', limit: 20 })
+          hiveCall('bridge.get_ranked_posts', { sort: 'hot', tag: '', limit: 20 })
         ]).then(function (results) {
           var combined = [];
-          var seen = {};
+          var seen = 
+{};
           for (var r = 0; r < results.length; r++) {
             var list = results[r] || [];
             for (var i = 0; i < list.length; i++) {
@@ -489,11 +511,11 @@ author: author, permlink: permlink })
                 seen[key] = true;
                 combined.push(p);
               }
-            
-}
+            }
           }
           return combined;
-        });
+        
+});
       }
 
       function resetButton() {
@@ -501,11 +523,19 @@ author: author, permlink: permlink })
         btnEl.textContent = 'Recommend';
       }
 
-      function runRecommender() {
-        var username = inputEl.value.trim().toLowerCase().replace(/^@/, '');
+      function stripLeadingAt(str) {
+        var s = String(str || '').trim().toLowerCase();
+        while (s.charAt(0) === '@') {
+          s = s.slice(1);
+        }
+        return s;
+      }
+
+      function runRecommender() 
+{
+        var username = stripLeadingAt(inputEl.value);
         if (!username) {
-          setStatus('Please enter a Hive username first.', 
-true);
+          setStatus('Please enter a Hive username first.', true);
           inputEl.focus();
           return;
         }
@@ -520,16 +550,15 @@ true);
         getRecentInteractions(username)
           .then(function (targets) {
             if (targets.length === 0) {
-              throw new Error('No 
-recent upvotes or comments found for @' + username + '.');
+              throw new Error('No recent upvotes or comments found for @' + username + '.');
             }
             for (var i = 0; i < targets.length; i++) {
               interactedKeys[targets[i].key] = true;
             }
             setStatus('Reading full text of ' + targets.length + ' posts you interacted with...');
-            return Promise.all(targets.map(function (t) {
-              return fetchPostContent(t.author, t.permlink).catch(function () { return null; 
-});
+            return 
+Promise.all(targets.map(function (t) {
+              return fetchPostContent(t.author, t.permlink).catch(function () { return null; });
             }));
           })
           .then(function (seedPosts) {
@@ -539,12 +568,12 @@ recent upvotes or comments found for @' + username + '.');
               var post = seedPosts[i];
               if (post && (post.title || post.body)) {
                 validCount++;
-                var text = (post.title || '') + ' ' + (post.body || '');
+                var text = (post.title || '') + ' ' + (post.body || 
+'');
                 var tokens = tokenize(text);
                 for (var j = 0; j < tokens.length; j++) {
                   allTokens.push(tokens[j]);
-                
-}
+                }
               }
             }
             if (validCount === 0 || allTokens.length === 0) {
@@ -552,10 +581,10 @@ recent upvotes or comments found for @' + username + '.');
             }
 
             var profileVec = buildTermVector(allTokens);
-            setStatus('Scanning recent Hive articles and comparing full-text similarity...');
+            setStatus('Scanning recent Hive articles and comparing 
+full-text similarity...');
 
-            return fetchCandidatePosts().then(function (candidates) 
-{
+            return fetchCandidatePosts().then(function (candidates) {
               var scored = [];
               for (var i = 0; i < candidates.length; i++) {
                 var c = candidates[i];
@@ -564,10 +593,10 @@ recent upvotes or comments found for @' + username + '.');
 
                 var fullText = (c.title || '') + ' ' + (c.body || '');
                 var cTokens = tokenize(fullText);
-                if (cTokens.length < 25) continue;
+                if (cTokens.length < 25) 
+continue;
 
-                var cVec = 
-buildTermVector(cTokens);
+                var cVec = buildTermVector(cTokens);
                 var sim = cosineSimilarity(profileVec, cVec);
                 if (sim.score > 0.02) {
                   scored.push({
@@ -579,11 +608,11 @@ buildTermVector(cTokens);
               }
 
               scored.sort(function (a, b) { return b.score - a.score; });
-              return scored.slice(0, 15);
+              return scored.slice(0, 
+15);
             });
           })
-          .then(function 
-(recommendations) {
+          .then(function (recommendations) {
             resetButton();
             if (recommendations.length === 0) {
               setStatus('No strong content matches found right now. Try again shortly.', false);
@@ -591,25 +620,25 @@ buildTermVector(cTokens);
             }
 
             setStatus('Found ' + recommendations.length + ' recommended articles for @' + username + '.', false);
-            var html = '';
+            var html = 
+'';
             for (var i = 0; i < recommendations.length; i++) {
-              var item = 
-recommendations[i];
+              var item = recommendations[i];
               var p = item.post;
               var url = 'https://peakd.com/@' + encodeURIComponent(p.author) + '/' + encodeURIComponent(p.permlink);
               var rawSnippet = cleanMarkdown(p.body || '');
               var snippet = rawSnippet.length > 210 ? rawSnippet.slice(0, 210) + '...' : rawSnippet;
-              var pct = Math.round(item.score * 100);
+              var pct = Math.round(item.score * 
+100);
 
               html += '<div class="card">';
-              html += '<h3><a href="' + escapeHtml(url) + '" 
-target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+              html += '<h3><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
               html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong> &middot; Match score: ' + pct + '%</div>';
               html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
               if (item.matchedTerms.length > 0) {
-                html += '<div class="keywords">Shared themes: ' + escapeHtml(item.matchedTerms.join(', ')) + '</div>';
-              
-}
+                html += '<div 
+class="keywords">Shared themes: ' + escapeHtml(item.matchedTerms.join(', ')) + '</div>';
+              }
               html += '</div>';
             }
             feedEl.innerHTML = html;
@@ -620,10 +649,10 @@ target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)'
           });
       }
 
-      btnEl.addEventListener('click', runRecommender);
+      btnEl.addEventListener('click', 
+runRecommender);
 
-      inputEl.addEventListener('keydown', function (e) 
-{
+      inputEl.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.keyCode === 13) {
           e.preventDefault();
           runRecommender();
@@ -632,10 +661,10 @@ target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)'
 
       var sampleBtns = document.querySelectorAll('.sample-btn');
       for (var s = 0; s < sampleBtns.length; s++) {
-        sampleBtns[s].addEventListener('click', function () {
+        
+sampleBtns[s].addEventListener('click', function () {
           var user = this.getAttribute('data-user');
-          if (user) 
-{
+          if (user) {
             inputEl.value = user;
             runRecommender();
           }
@@ -647,11 +676,11 @@ target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)'
           kcRowEl.style.display = 'flex';
           var cached = safeGetStorage('nectarseeker_kc_user');
           if (cached && !inputEl.value) {
-            inputEl.value = cached;
+            inputEl.value = 
+cached;
             kcLabelEl.textContent = 'Keychain ready (@' + cached + ')';
           }
-          if (typeof 
-window.hive_keychain.requestHandshake === 'function') {
+          if (typeof window.hive_keychain.requestHandshake === 'function') {
             try {
               window.hive_keychain.requestHandshake(function () {});
             } catch (e) {}
@@ -659,20 +688,21 @@ window.hive_keychain.requestHandshake === 'function') {
         }
       }
 
-      kcBtnEl.addEventListener('click', function () {
+      kcBtnEl.addEventListener('click', function () 
+{
         if (!window.hive_keychain) {
           setStatus('Hive Keychain not detected.', true);
           return;
-        
-}
-        var typed = inputEl.value.trim().toLowerCase().replace(/^@/, '');
+        }
+        var typed = stripLeadingAt(inputEl.value);
         var cached = safeGetStorage('nectarseeker_kc_user');
         var account = typed || cached || null;
 
         setStatus(
           account
             ? 'Requesting Keychain signature for @' + account + '...'
-            : 'Opening Hive Keychain account selector...',
+            : 'Opening Hive Keychain 
+account selector...',
           false
         );
 
@@ -683,10 +713,10 @@ window.hive_keychain.requestHandshake === 'function') {
           function (res) {
             if (res && res.success) {
               var verifiedUser = (res.data && res.data.username) || account || '';
-              verifiedUser = verifiedUser.trim().toLowerCase().replace(/^@/, '');
-              if (verifiedUser) {
-                
-safeSetStorage('nectarseeker_kc_user', verifiedUser);
+              verifiedUser = stripLeadingAt(verifiedUser);
+              if (verifiedUser) 
+{
+                safeSetStorage('nectarseeker_kc_user', verifiedUser);
                 inputEl.value = verifiedUser;
                 kcLabelEl.textContent = 'Verified @' + verifiedUser;
                 runRecommender();
@@ -694,8 +724,8 @@ safeSetStorage('nectarseeker_kc_user', verifiedUser);
                 setStatus('Signed with Keychain, but username was not returned. Type your username above and tap Recommend.', true);
               }
             } else {
-              var msg = (res && res.message) ? res.message : 'Keychain request cancelled or requires a username typed in the box 
-above.';
+              var msg = (res && res.message) ? res.message : 'Keychain request cancelled or 
+requires a username typed in the box above.';
               setStatus(msg, true);
             }
           }
