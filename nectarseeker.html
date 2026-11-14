@@ -179,13 +179,12 @@ www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,we
           .replace(/"/g, '&quot;');
       }
 
-      // Uses XMLHttpRequest instead of fetch() for maximum compatibility inside Keychain Mobile WebView
-      function hiveCall(method, params) 
-{
+      function hiveCall(method, params) {
         var index = 0;
         var lastError = '';
 
-        function tryNextNode() {
+        function tryNextNode() 
+{
           if (index >= HIVE_NODES.length) {
             return Promise.reject(new Error('All Hive RPC nodes failed (' + lastError + ').'));
           }
@@ -193,8 +192,7 @@ www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,we
           return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
             xhr.open('POST', node, true);
-            xhr.timeout = 
-10000;
+            xhr.timeout = 10000;
             xhr.setRequestHeader('Content-Type', 'application/json');
 
             xhr.onreadystatechange = function () {
@@ -204,12 +202,12 @@ www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,we
                   var data = JSON.parse(xhr.responseText);
                   if (data.error) {
                     reject(new Error(data.error.message || 'RPC error'));
-                  } else 
-{
+                  } else {
                     resolve(data.result);
                   }
                 } catch (e) {
-                  reject(new Error('Invalid JSON from ' + node));
+                  reject(new 
+Error('Invalid JSON from ' + node));
                 }
               } else {
                 reject(new Error('HTTP ' + xhr.status + ' from ' + node));
@@ -220,12 +218,12 @@ www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,we
               reject(new Error('Timeout on ' + node));
             };
 
-            xhr.onerror = function () 
-{
+            xhr.onerror = function () {
               reject(new Error('Network error on ' + node));
             };
 
-            try {
+            try 
+{
               xhr.send(JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 }));
             } catch (e) {
               reject(e);
@@ -236,23 +234,40 @@ www:1,com:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,we
           });
         }
 
-        return 
-tryNextNode();
+        return tryNextNode();
+      }
+
+      function stripNoise(text) {
+        var out = String(text || '');
+        // Remove markdown images 
+![alt](url) without complex regexes
+        while (out.indexOf('![') !== -1) {
+          var imgStart = out.indexOf('![');
+          var imgMid = out.indexOf('](', imgStart);
+          var imgEnd = imgMid !== -1 ? out.indexOf(')', imgMid) : -1;
+          if (imgMid !== -1 && imgEnd !== -1) {
+            out = out.slice(0, imgStart) + ' ' + out.slice(imgEnd + 1);
+          } else {
+            break;
+          }
+        }
+        // Strip HTML tags safely
+        out = out.replace(/<[^>]+>/g, ' ');
+        // Strip URLs 
+safely
+        out = out.replace(/https?:\/\/[^\s)]+/g, ' ');
+        return out;
       }
 
       function cleanAndTokenize(title, body) {
-        var combined = ((title || '') + ' ' + (title || '') + ' ' + (body || ''))
-          .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-          .replace(/<[^>]*>/g, ' ')
-          .replace(/https?:\/\/\S+/g, ' ')
+        var combined = stripNoise((title || '') + ' ' + (title || '') + ' ' + (body || ''))
           .toLowerCase()
           .replace(/[^a-z0-9\s]/g, ' ');
 
         var rawWords = combined.split(/\s+/);
         var tokens = [];
-        for (var i = 0; i < 
-rawWords.length; i++) {
+        for (var i = 0; i < rawWords.length; i++) 
+{
           var w = rawWords[i];
           if (w.length > 3 && !STOP_WORDS[w] && !/^\d+$/.test(w)) {
             tokens.push(w);
@@ -377,15 +392,14 @@ opData.parent_author && opData.parent_author !== user) {
 
             setStatus('Step 2/4: Reading ' + recentKeys.length + ' posts @' + user + ' upvoted or commented on...', false);
 
-            // Sequential chain instead of Promise.all to avoid mobile WebView connection throttling
             var chain = Promise.resolve();
             recentKeys.forEach(function (key) {
               chain = chain.then(function () {
                 seenKeys[key] = true;
-                var weight = 
-interactedPosts[key];
+                var weight = interactedPosts[key];
                 var parts = key.split('/');
-                return hiveCall('condenser_api.get_content', [parts[0], parts[1]])
+                return 
+hiveCall('condenser_api.get_content', [parts[0], parts[1]])
                   .then(function (post) {
                     if (!post || !post.author) return null;
                     if (post.parent_author !== '') {
@@ -394,9 +408,9 @@ interactedPosts[key];
                     return post;
                   })
                   .then(function (rootPost) {
-                    if (!rootPost || 
-!rootPost.author) return;
-                    seenKeys[rootPost.author + '/' + rootPost.permlink] = true;
+                    if (!rootPost || !rootPost.author) return;
+                    seenKeys[rootPost.author + '/' + 
+rootPost.permlink] = true;
                     var tokens = cleanAndTokenize(rootPost.title, rootPost.body);
                     var docLength = Math.max(tokens.length, 1);
                     var localCounts = {};
@@ -404,10 +418,10 @@ interactedPosts[key];
                       localCounts[tokens[t]] = (localCounts[tokens[t]] || 0) + 1;
                     }
                     var terms = Object.keys(localCounts);
-                    for (var m = 0; m < terms.length; m++) 
-{
+                    for (var m = 0; m < terms.length; m++) {
                       var term = terms[m];
-                      var tf = (localCounts[term] / docLength) * weight;
+                      var tf = (localCounts[term] / docLength) * 
+weight;
                       userTermFreq[term] = (userTermFreq[term] || 0) + tf;
                     }
                   });
@@ -418,8 +432,7 @@ interactedPosts[key];
           })
           .then(function () {
             setStatus('Step 3/4: Scanning latest global Hive articles for content similarity...', false);
-            var combinedPosts = 
-[];
+            var combinedPosts = [];
             return hiveCall('bridge.get_ranked_posts', { sort: 'created', limit: 50 })
               .then(function (createdPosts) {
                 combinedPosts = combinedPosts.concat(createdPosts || []);
@@ -427,8 +440,7 @@ interactedPosts[key];
               })
               .then(function (trendingPosts) {
                 return combinedPosts.concat(trendingPosts || []);
-              
-});
+              });
           })
           .then(function (combinedPosts) {
             setStatus('Step 4/4: Scoring and ranking articles...', false);
@@ -440,8 +452,7 @@ interactedPosts[key];
               var p = combinedPosts[i];
               var pKey = p.author + '/' + p.permlink;
               if (!seenKeys[pKey] && !candidatesMap[pKey] && p.author !== user && p.title && p.body) {
-                candidatesMap[pKey] = 
-true;
+                candidatesMap[pKey] = true;
                 candidates.push(p);
               }
             }
@@ -454,8 +465,7 @@ true;
                 if (!unique[tokens[t]]) {
                   unique[tokens[t]] = true;
                   docFreq[tokens[t]] = (docFreq[tokens[t]] || 0) + 1;
-                
-}
+                }
               }
               return { post: post, tokens: tokens };
             });
@@ -466,11 +476,11 @@ true;
             for (var u = 0; u < userTerms.length; u++) {
               var term = userTerms[u];
               var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
-              userTfIdf[term] = userTermFreq[term] * 
-idf;
+              userTfIdf[term] = userTermFreq[term] * idf;
             }
 
-            var scored = candidateTokensList.map(function (item) {
+            var scored = candidateTokensList.map(function 
+(item) {
               var docLength = Math.max(item.tokens.length, 1);
               var localCounts = {};
               for (var t = 0; t < item.tokens.length; t++) {
@@ -478,18 +488,17 @@ idf;
               }
 
               var docTfIdf = {};
-              var docTerms = 
-Object.keys(localCounts);
+              var docTerms = Object.keys(localCounts);
               for (var d = 0; d < docTerms.length; d++) {
                 var term = docTerms[d];
-                var idf = Math.log(1 + totalDocs / (1 + (docFreq[term] || 0)));
+                var idf = Math.log(1 + 
+totalDocs / (1 + (docFreq[term] || 0)));
                 docTfIdf[term] = (localCounts[term] / docLength) * idf;
               }
 
               var sim = computeCosineSimilarity(userTfIdf, docTfIdf);
               return { post: item.post, score: sim.score, topMatches: sim.topMatches };
-            
-});
+            });
 
             scored.sort(function (a, b) { return b.score - a.score; });
 
@@ -502,8 +511,7 @@ Object.keys(localCounts);
             }
 
             if (topResults.length === 0) {
-              setStatus('No strong text matches found in the latest 100 global posts.', 
-false);
+              setStatus('No strong text matches found in the latest 100 global posts.', false);
               btnEl.disabled = false;
               return;
             }
@@ -513,11 +521,8 @@ false);
               var item = topResults[c];
               var post = item.post;
               var url = 'https://peakd.com/@' + post.author + '/' + post.permlink;
-              var preview = post.body
-                .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-                .replace(/[#*>`_\[\]]/g, 
-'')
-                .replace(/<[^>]*>/g, '')
+              var preview = stripNoise(post.body)
+                .replace(/[#*>`_]/g, '')
                 .slice(0, 180)
                 .trim() + '...';
 
@@ -526,8 +531,7 @@ false);
               div.innerHTML =
                 '<h3><a href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(post.title) + '</a></h3>' +
                 '<div class="meta">By @' + escapeHtml(post.author) + ' &bull; Content Similarity: ' + (item.score * 100).toFixed(1) + '%</div>' +
-                '<div class="snippet">' + escapeHtml(preview) + '</div>' 
-+
+                '<div class="snippet">' + escapeHtml(preview) + '</div>' +
                 (item.topMatches.length ? '<div class="keywords">Matched concepts: ' + escapeHtml(item.topMatches.join(', ')) + '</div>' : '');
               feedEl.appendChild(div);
             }
@@ -539,8 +543,7 @@ false);
           });
       };
 
-      
-inputEl.addEventListener('keydown', function (e) {
+      inputEl.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
           e.preventDefault();
           window.runRecommender();
@@ -553,8 +556,7 @@ inputEl.addEventListener('keydown', function (e) {
         }
       }, 600);
 
-      setStatus('Ready. Enter a Hive username and tap Recommend.', 
-false);
+      setStatus('Ready. Enter a Hive username and tap Recommend.', false);
     })();
   </script>
 </body>
