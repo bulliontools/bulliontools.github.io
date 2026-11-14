@@ -509,7 +509,6 @@
 
     var TASTE_KEY = 'nectarseeker_taste_v1';
 
-    // Client-side heuristic AI Content Detector
     function analyzeAI(text) {
       if (!text || text.length < 60) return { score: 10, label: 'AI Prob: 10%', className: 'ai-badge' };
       
@@ -535,8 +534,6 @@
       }
 
       var wordFreqRatio = (matchCount / wordCount) * 100;
-      
-      // Burstiness / Sentence length uniformity check
       var sentences = text.split(/[.!?]+/).filter(function(s) { return s.trim().length > 0; });
       var totalScore = 15;
       
@@ -907,10 +904,25 @@
 
       function fetchPage() {
         page++;
-        setStatus('Scanning ' + months + ' months of upvotes & comments for @' + username + ' (batch ' + page + ')...');
-        return hiveCall('condenser_api.get_account_history', [username, startSeq, 1000, 3])
+        setStatus('Scanning ' + months + ' months of posts, upvotes & comments for @' + username + ' (batch ' + page + ')...');
+        
+        var initialLimit = (page === 1 && startSeq === -1) ? 100 : 1000;
+
+        return hiveCall('condenser_api.get_account_history', [username, startSeq, initialLimit, 3])
           .catch(function () {
-            return hiveCall('condenser_api.get_account_history', [username, startSeq, 500]);
+            return hiveCall('condenser_api.get_account_history', [username, startSeq, initialLimit]);
+          })
+          .catch(function () {
+            if (page === 1 && startSeq === -1) {
+              return hiveCall('condenser_api.get_account_history', [username, startSeq, 10, 3])
+                .catch(function () {
+                  return hiveCall('condenser_api.get_account_history', [username, startSeq, 10]);
+                });
+            }
+            throw new Error('Account history query failed');
+          })
+          .catch(function () {
+            return [];
           })
           .then(function (entries) {
             if (!Array.isArray(entries) || entries.length === 0) {
@@ -947,7 +959,7 @@
                   skipKeys[vKey] = true;
                   if (opData.weight > 0 && opData.author !== username) {
                     if (!weightedSeeds[vKey]) {
-                      weightedSeeds[vKey] = { author: opData.author, permlink: opData.permlink, weight: 0 };
+                      weightedSeeds[vKey] = { author: opData.author, permlink: opData.permlink, weight: 1.0 };
                     }
                     weightedSeeds[vKey].weight += 1.0;
                   }
@@ -957,13 +969,18 @@
                   if (opData.permlink) {
                     skipKeys[username + '/' + opData.permlink] = true;
                   }
-                  if (opData.parent_author && opData.parent_permlink && opData.parent_author !== username) {
+                  // Include user's own published posts (root comments) as profile seeds
+                  if (!opData.parent_author || opData.parent_author === '') {
+                    var selfKey = username + '/' + opData.permlink;
+                    if (!weightedSeeds[selfKey]) {
+                      weightedSeeds[selfKey] = { author: username, permlink: opData.permlink, weight: 2.0 };
+                    }
+                  } else if (opData.parent_author !== username) {
                     var cKey = opData.parent_author + '/' + opData.parent_permlink;
                     skipKeys[cKey] = true;
                     if (!weightedSeeds[cKey]) {
-                      weightedSeeds[cKey] = { author: opData.parent_author, permlink: opData.parent_permlink, weight: 0 };
+                      weightedSeeds[cKey] = { author: opData.parent_author, permlink: opData.parent_permlink, weight: 1.5 };
                     }
-                    weightedSeeds[cKey].weight += 1.5;
                   }
                 }
               }
@@ -1003,7 +1020,7 @@
         if (idx >= seeds.length) return Promise.resolve(results);
         var slice = seeds.slice(idx, idx + batchSize);
         idx += batchSize;
-        setStatus('Reading full text of engaged posts (' + Math.min(idx, seeds.length) + '/' + seeds.length + ')...');
+        setStatus('Reading full text of engaged posts & user articles (' + Math.min(idx, seeds.length) + '/' + seeds.length + ')...');
 
         return Promise.all(slice.map(function (item) {
           return hiveCall('bridge.get_post', { author: item.author, permlink: item.permlink })
@@ -1312,7 +1329,7 @@
 
       if (items.length === 0) {
         feedEl.innerHTML = '';
-        setStatus('No matching articles found. Try a broader search term or another username.', false);
+        setStatus('No matching articles found or account has no activity history.', false);
         return;
       }
 
@@ -1379,8 +1396,8 @@
       return getAccountHistory(username, 6)
         .then(function (hist) {
           skipKeys = hist.skipKeys;
-          if (hist.seeds.length === 0) {
-            throw new Error('No upvotes or comments found in the last 6 months for @' + username + '.');
+          if (!hist.seeds || hist.seeds.length === 0) {
+            throw new Error('No posts, upvotes, or comments found for @' + username + ' (account may be new or have zero history).');
           }
           return fetchSeedPosts(hist.seeds, skipKeys);
         })
@@ -1389,6 +1406,7 @@
           var weightsMap = {};
           for (var i = 0; i < seedData.length; i++) {
             var entry = seedData[i];
+            if (!entry || !entry.post) continue;
             var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
             var toks = tokenize(text);
             for (var j = 0; j < toks.length; j++) {
@@ -1450,8 +1468,8 @@
       return getAccountHistory(username, 24)
         .then(function (hist) {
           skipKeys = hist.skipKeys;
-          if (hist.seeds.length === 0) {
-            throw new Error('No upvotes or comments found in the last 24 months for @' + username + '.');
+          if (!hist.seeds || hist.seeds.length === 0) {
+            throw new Error('No posts, upvotes, or comments found for @' + username + ' (account may be new or have zero history).');
           }
           return fetchSeedPosts(hist.seeds, skipKeys);
         })
@@ -1460,6 +1478,7 @@
           var weightsMap = {};
           for (var i = 0; i < seedData.length; i++) {
             var entry = seedData[i];
+            if (!entry || !entry.post) continue;
             var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
             var toks = tokenize(text);
             for (var j = 0; j < toks.length; j++) {
@@ -1468,7 +1487,7 @@
             }
           }
           if (allTokens.length === 0) {
-            throw new Error('Could not extract enough text from your 24-month history.');
+            throw new Error('Could not extract enough text from your history.');
           }
           profileVec = buildVector(allTokens, weightsMap);
           return fetchAllFrontendsPool(username);
@@ -1507,7 +1526,7 @@
           appState.results = scored;
           rerankAndRender();
           var shown = Math.min(100, appState.results.length);
-          setStatus('Showing your top ' + shown + ' personal feed recommendations from your 24-month upvote & comment history.', false);
+          setStatus('Showing your top ' + shown + ' personal feed recommendations.', false);
         });
     }
 
@@ -1561,7 +1580,7 @@
         appState.results = scored;
         rerankAndRender();
         var shown = Math.min(100, appState.results.length);
-        setStatus('Found ' + shown + ' relevant Hive articles from the last 24 months for "' + cleanQuery + '".', false);
+        setStatus('Found ' + shown + ' relevant Hive articles for "' + cleanQuery + '".', false);
       });
     }
 
