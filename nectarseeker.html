@@ -897,7 +897,7 @@
     };
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
-    var searchCache = {}; // Optimization: Smart session caching for search results
+    var searchCache = {};
     var TASTE_KEY = 'nectarseeker_taste_v1';
     var KC_USER_KEY = 'nectarseeker_kc_user';
     var THEME_KEY = 'nectarseeker_theme';
@@ -1302,7 +1302,7 @@
 
         if (window.fetch) {
           var controller = window.AbortController ? new AbortController() : null;
-          var timer = controller ? setTimeout(function () { controller.abort(); }, 7000) : null; // Optimization: Reduced timeout from 11000 to 7000ms for faster node failover
+          var timer = controller ? setTimeout(function () { controller.abort(); }, 7000) : null;
           return fetch(node, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1325,7 +1325,7 @@
         return new Promise(function (resolve, reject) {
           var xhr = new XMLHttpRequest();
           xhr.open('POST', node, true);
-          xhr.timeout = 7000; // Optimization: Reduced timeout from 11000 to 7000ms
+          xhr.timeout = 7000;
           xhr.setRequestHeader('Content-Type', 'application/json');
           xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) return;
@@ -1650,7 +1650,6 @@
     }
 
     function fetchSearchPool24Months() {
-      // Optimization: Smart session caching for instant repeat searches
       var cachedKey = 'global_search_pool_v1';
       if (searchCache[cachedKey]) {
         return Promise.resolve(searchCache[cachedKey]);
@@ -1663,7 +1662,7 @@
       var startAuthor = '';
       var startPermlink = '';
       var page = 0;
-      var maxPages = 35; // Optimization: Reduced from 150 to 35 pages for ultra-fast loading under 15s without losing quality
+      var maxPages = 35;
       var obs = getConnectedUser();
 
       function fetchBatch() {
@@ -1702,7 +1701,7 @@
 
           var last = posts[posts.length - 1];
           if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < 10 || page >= maxPages) {
-            searchCache[cachedKey] = collected; // Save search pool to cache
+            searchCache[cachedKey] = collected;
             return collected;
           }
           startAuthor = last.author;
@@ -1917,6 +1916,11 @@
       if (contentEl) {
         var rawBody = p.body || '';
         
+        // Fix raw HTML img tags that have line breaks inside them
+        rawBody = rawBody.replace(/<img\s+[^>]*?>/gis, function(match) {
+          return match.replace(/[\r\n]+/g, ' ');
+        });
+
         var escaped = escapeHtml(rawBody);
 
         escaped = escaped.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
@@ -1925,6 +1929,15 @@
 
         escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
           return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
+        });
+
+        // Handle escaped HTML img tags (e.g. &lt;img src="..."&gt;)
+        escaped = escaped.replace(/&lt;img\s+([^&]+)&gt;/gi, function(match, inner) {
+          var srcMatch = inner.match(/src="([^"]+)"/i);
+          if (srcMatch && srcMatch[1]) {
+            return '<br><img src="' + escapeHtml(srcMatch[1]) + '" alt="Post Image"><br>';
+          }
+          return match;
         });
 
         var formatted = escaped.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
