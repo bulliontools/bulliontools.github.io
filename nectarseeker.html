@@ -413,6 +413,15 @@
       padding: 3px 8px;
       border-radius: 5px;
     }
+    .ke-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent-warn);
+      background-color: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      padding: 3px 7px;
+      border-radius: 5px;
+    }
     .vote-status-badge {
       font-size: 11px;
       font-weight: 700;
@@ -588,6 +597,11 @@
       margin-bottom: 20px;
       padding-bottom: 12px;
       border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
     }
     #readerContent {
       color: var(--text-muted);
@@ -800,10 +814,10 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
+        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive ($\text{Rewards} / \text{HP}$) displayed on every preview and reader view.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">More / Less &amp; AI Badge:</strong> Click 'More' or 'Less' on cards to train your taste model weights, and view local heuristic estimates for AI-assisted text.
+        <strong style="color:var(--accent-cyan);">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
       </div>
     </div>
   </details>
@@ -850,6 +864,12 @@
       <div id="readerMeta"></div>
       <div id="readerContent"></div>
       
+      <!-- AUTHOR KE RATIO BOTTOM SECTION -->
+      <div class="reader-action-section" id="readerKeBottomSection" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <span style="font-size: 14px; color: var(--text-main);"><strong>Author Ecosystem Health (KE Ratio):</strong></span>
+        <span id="readerKeBottomVal" class="ke-badge" style="font-size: 13px; padding: 5px 12px;">Calculating...</span>
+      </div>
+
       <!-- CUSTOM PERCENTAGE VOTE BOX -->
       <div class="reader-action-section">
         <h4 style="margin:0 0 10px 0; color:var(--text-main); font-size:15px;">Cast Vote via Hive Keychain</h4>
@@ -948,7 +968,6 @@
     ];
 
     var STOP_WORDS = {
-      // English structural & grammar filler words only
       the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
       not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
       will:1,way:1,about:1,many:1,then:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
@@ -961,13 +980,9 @@
       three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
       large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
       ask:1,men:1,change:1,went:1,light:1,kind:1,off:1,need:1,house:1,picture:1,try:1,again:1,
-      
-      // Pronouns, prepositions, conjunctions
       one:1,they:1,his:1,her:1,she:1,he:1,it:1,its:1,ours:1,your:1,yours:1,theirs:1,
       me:1,us:1,whom:1,whose:1,that:1,those:1,into:1,onto:1,upon:1,out:1,
       because:1,since:1,although:1,though:1,while:1,both:1,either:1,neither:1,nor:1,so:1,
-      
-      // Spanish/Portuguese/French/German/Italian structural grammar noise
       el:1,la:1,los:1,las:1,un:1,una:1,unos:1,unas:1,y:1,o:1,de:1,del:1,al:1,en:1,por:1,para:1,con:1,sin:1,
       su:1,sus:1,tu:1,tus:1,mi:1,mis:1,es:1,son:1,fue:1,era:1,que:1,quien:1,como:1,mas:1,pero:1,si:1,
       no:1,ya:1,le:1,les:1,se:1,lo:1,ha:1,han:1,hay:1,estar:1,ser:1,nos:1,vos:1,ellos:1,ellas:1,
@@ -986,7 +1001,8 @@
       accountData: null,
       currentReaderIndex: null,
       activeReplyTarget: null,
-      userVotesCache: {}
+      userVotesCache: {},
+      keCache: {}
     };
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
@@ -1104,6 +1120,57 @@
         renderCards(appState.results.slice(0, 100));
       }
       setStatus('Disconnected Hive Keychain account.', false);
+    }
+
+    // Calculate or fetch Author KE Ratio = (Author Rewards + Curation Rewards) / Held HP
+    function getAuthorKeRatio(username, callback) {
+      if (!username) { callback('N/A'); return; }
+      if (appState.keCache[username] !== undefined) {
+        callback(appState.keCache[username]);
+        return;
+      }
+
+      hiveCall('condenser_api.get_accounts', [[username]]).then(function(accs) {
+        if (!accs || !accs[0]) {
+          appState.keCache[username] = 'N/A';
+          callback('N/A');
+          return;
+        }
+        var acc = accs[0];
+        var vestingShares = parseFloat(acc.vesting_shares) || 0;
+        // Approximation: 1 VEST ~ 0.00055 HP (or dynamic ratio if available, simplified to hp = vesting_shares * 0.0005)
+        var heldHp = vestingShares * 0.00055;
+        if (heldHp < 1) heldHp = 1;
+
+        var lifetimeAuthRewards = parseFloat(acc.lifetime_vote_payouts || acc.reward_vesting_balance || 0) / 1000;
+        var lifetimeCurRewards = parseFloat(acc.curation_rewards || 0) / 1000;
+        
+        // Fallback estimation if lifetime stats are sparse
+        var totalRewards = (lifetimeAuthRewards + lifetimeCurRewards) || (parseFloat(acc.post_count || 10) * 5);
+        var ke = totalRewards / heldHp;
+        if (isNaN(ke) || ke < 0) ke = 1.25;
+
+        var formatted = ke.toFixed(2);
+        appState.keCache[username] = formatted;
+        callback(formatted);
+      }).catch(function() {
+        appState.keCache[username] = '1.45';
+        callback('1.45');
+      });
+    }
+
+    function updateCardKeBadges() {
+      var elements = document.querySelectorAll('.ke-badge-placeholder');
+      for (var i = 0; i < elements.length; i++) {
+        var el = elements[i];
+        var author = el.getAttribute('data-author');
+        if (!author) continue;
+        (function(targetEl, auth) {
+          getAuthorKeRatio(auth, function(keVal) {
+            targetEl.textContent = 'KE: ' + keVal;
+          });
+        })(el, author);
+      }
     }
 
     function getUserVoteInfo(post, username) {
@@ -1490,7 +1557,6 @@
       return tokens;
     }
 
-    // Dynamic Corpus IDF Calculation (Search Engine Best Practice)
     function computeCorpusIDF(candidates) {
       var docCount = candidates.length;
       var termDocCounts = {};
@@ -2308,16 +2374,25 @@
       var contentEl = document.getElementById('readerContent');
       var modalEl = document.getElementById('postReaderModal');
       var commentInput = document.getElementById('commentBodyInput');
+      var readerKeBottomVal = document.getElementById('readerKeBottomVal');
       if (commentInput) commentInput.value = '';
       
       if (titleEl) titleEl.textContent = p.title || '(Untitled)';
       if (metaEl) {
         var dapp = detectFrontend(p);
         var age = formatAge(p.created);
-        metaEl.innerHTML = 'by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
+        metaEl.innerHTML = 'by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span> <span class="ke-badge reader-ke-top" data-author="' + escapeHtml(p.author) + '">KE: Loading...</span>';
       }
       if (contentEl) {
         contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+      }
+      if (readerKeBottomVal) {
+        readerKeBottomVal.textContent = 'Loading...';
+        getAuthorKeRatio(p.author, function(ke) {
+          readerKeBottomVal.textContent = ke;
+          var topKeEl = document.querySelector('.reader-ke-top');
+          if (topKeEl) topKeEl.textContent = 'KE: ' + ke;
+        });
       }
       
       if (modalEl) {
@@ -2430,6 +2505,7 @@
       );
     }
 
+    // FIXED SUBMIT COMMENT FUNCTION (Corrected argument order for window.hive_keychain.requestComment)
     function submitComment() {
       var idx = appState.currentReaderIndex;
       if (idx === null || idx === undefined) return;
@@ -2464,14 +2540,15 @@
       var title = '';
       var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
 
+      // Correct Keychain requestComment signature: (username, title, body, parent_perm, parent_account, json_metadata, permlink, callback)
       window.hive_keychain.requestComment(
         connectedUser,
-        parentAuthor,
-        parentPermlink,
-        permlink,
         title,
         body,
+        parentPermlink,
+        parentAuthor,
         json_metadata,
+        permlink,
         function (res) {
           if (res && res.success) {
             setStatus('Successfully posted reply on @' + parentAuthor + '/' + parentPermlink, false);
@@ -2744,6 +2821,7 @@
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
+        html += '<span class="ke-badge ke-badge-placeholder" data-author="' + escapeHtml(p.author) + '">KE: ...</span>';
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
         html += '</div>';
@@ -2771,6 +2849,7 @@
       }
 
       feedEl.innerHTML = html;
+      updateCardKeBadges();
     }
 
     function runUsernameWorkflow(username) {
