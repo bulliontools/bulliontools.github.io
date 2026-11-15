@@ -823,7 +823,7 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive ($\text{Rewards} / \text{HP}$) displayed on every preview and reader view.
+        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive ($Rewards / HP$) displayed on every preview and reader view.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
@@ -1457,14 +1457,17 @@
         var parts = inner.trim().split(/\s+/);
         var url = parts[0].replace(/^["'<]|["'>]$/g, '');
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
-        if (!cleanUrl.startsWith('http')) return match;
-        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="' + cleanAlt + '" onerror="this.style.display=\'none\'" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        if (!cleanUrl) return match;
+        if (cleanUrl.startsWith('//')) cleanUrl = 'https:' + cleanUrl;
+        if (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('ipfs://')) return match;
+        
+        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="' + cleanAlt + '" onerror="this.onerror=null; this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'20px\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
       // Raw Image URLs not already inside HTML tags or markdown links
       body = body.replace(/(?<!["'=])(https?:\/\/[^\s<"]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s<"]*)?)/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
-        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="Image" onerror="this.style.display=\'none\'" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="Image" onerror="this.onerror=null; this.alt=\'Image failed to load\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
       // Markdown Links: [text](url)
@@ -1475,10 +1478,10 @@
         return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // Ensure existing <img> tags hide gracefully if broken
+      // Ensure existing <img> tags handle failures gracefully
       body = body.replace(/<img\b([^>]*)>/gi, function(match, attrs) {
         if (/onerror=/i.test(attrs)) return match;
-        return '<img' + attrs + ' onerror="this.style.display=\'none\'">';
+        return '<img' + attrs + ' onerror="this.onerror=null; this.alt=\'Image failed to load\';">';
       });
 
       // Markdown Bold and Italic formatting support
