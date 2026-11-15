@@ -1917,6 +1917,11 @@
 
         var escaped = escapeHtml(rawBody);
 
+        // Automatically convert bare image URLs (and image proxy URLs like i.ecency.com / images.hive.blog) into images
+        escaped = escaped.replace(/(https?:\/\/[^\s<>]+?\.(?:jpg|jpeg|png|webp|gif)(?:\?[^\s<>]*?)?|https?:\/\/(?:i\.ecency\.com|images\.hive\.blog|img\.leofinance\.io)[^\s<>]+)/gi, function(match, url) {
+          return '<br><img src="' + url + '" alt="Post Image"><br>';
+        });
+
         escaped = escaped.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
           return '<br><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><br>';
         });
@@ -2052,7 +2057,6 @@
       var title = '';
       var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
 
-      // Corrected parameter order for Hive Keychain requestComment
       window.hive_keychain.requestComment(
         connectedUser,
         parentAuthor,
@@ -2202,7 +2206,6 @@
         var floorVal = Math.floor(rawAmt);
         var roundedAmt;
 
-        // Force rounding up if balance covers it, or rounding down if balance isn't enough
         if (hiveBalance >= ceilVal) {
           roundedAmt = ceilVal;
         } else if (hiveBalance >= floorVal && floorVal >= 1) {
