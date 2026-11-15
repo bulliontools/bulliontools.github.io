@@ -1451,9 +1451,9 @@
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // Markdown Images: ![alt](url) -> Double Fallback: Try Hive Proxy first, fallback to Direct URL, then IPFS
+      // 1. Markdown Images: ![alt](url) -> Safe parsing with proxy + direct fallback
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
-        var cleanAlt = escapeHtml(alt || 'Image');
+        var cleanAlt = (alt || 'Image').replace(/"/g, '&quot;');
         var parts = inner.trim().split(/\s+/);
         var url = parts[0].replace(/^["'<]|["'>]$/g, '');
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
@@ -1473,22 +1473,19 @@
           primaryUrl = 'https://ipfs.io/ipfs/' + hashPart;
           fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + hashPart;
         } else {
-          // Try Hive proxy first (bypasses CORS/hotlink), fallback to direct URL
           primaryUrl = 'https://images.hive.blog/0x0/' + cleanUrl;
           fallbackUrl = cleanUrl;
         }
 
-        var onerrorAttr = 'this.onerror=function(){ this.onerror=function(){ this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'16px\'; }; this.src=\'' + escapeHtml(fallbackUrl) + '\'; }; this.src=\'' + escapeHtml(primaryUrl) + '\';';
-
-        return '<br><img src="' + escapeHtml(primaryUrl) + '" alt="' + cleanAlt + '" onerror="' + onerrorAttr + '" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        return '<br><img src="' + primaryUrl + '" alt="' + cleanAlt + '" onerror="if(this.src.indexOf(\'images.hive.blog\')!==-1){this.src=\'' + fallbackUrl + '\';}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
-      // Raw Image URLs -> Direct loading with fallback
-      body = body.replace(/(?<!["'=])(https?:\/\/[^\s<"]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s<"]*)?)/gi, function(match, url) {
-        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
-        var proxyUrl = 'https://images.hive.blog/0x0/' + cleanUrl;
-        var onerrorAttr = 'this.onerror=function(){ this.onerror=function(){ this.alt=\'Image failed to load\'; }; this.src=\'' + escapeHtml(cleanUrl) + '\'; };';
-        return '<br><img src="' + escapeHtml(proxyUrl) + '" alt="Image" onerror="' + onerrorAttr + '" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+      // 2. Safe handling of existing HTML <img> tags in posts without breaking attributes
+      body = body.replace(/<img\b([^>]*)>/gi, function(match, attrs) {
+        if (/onerror=/i.test(attrs)) {
+          return match;
+        }
+        return '<img ' + attrs + ' onerror="if(this.src && this.src.indexOf(\'images.hive.blog\')!==-1){this.src=this.src.replace(\'https://images.hive.blog/0x0/\', \'\');}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}">';
       });
 
       // Markdown Links: [text](url)
@@ -1497,12 +1494,6 @@
         var url = parts[0].replace(/^["'<]|["'>]$/g, '');
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
-      });
-
-      // Ensure existing <img> tags handle failures gracefully
-      body = body.replace(/<img\b([^>]*)>/gi, function(match, attrs) {
-        if (/onerror=/i.test(attrs)) return match;
-        return '<img' + attrs + ' onerror="this.onerror=null; this.alt=\'Image failed to load\';">';
       });
 
       // Markdown Bold and Italic formatting support
@@ -1516,7 +1507,7 @@
       body = body.replace(/^\s*[|]+\s*$/gm, '');
       body = body.replace(/\|{2,}/g, '');
 
-      // Line-by-line parsing for blockquotes and heading hashes (handles inline or newline-separated hashes)
+      // Line-by-line parsing for blockquotes and heading hashes
       var lines = body.split(/\r?\n/);
       var processedLines = [];
       for (var i = 0; i < lines.length; i++) {
