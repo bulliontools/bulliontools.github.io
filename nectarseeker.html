@@ -507,7 +507,7 @@
       margin-top: 0;
       margin-bottom: 12px;
       line-height: 1.3;
-      padding-right: 90px;
+      padding-right: 110px;
     }
     #readerMeta {
       color: #94a3b8;
@@ -523,6 +523,21 @@
       word-break: break-word;
     }
     #readerContent p {
+      margin-bottom: 16px;
+    }
+    #readerContent img {
+      max-width: 100%;
+      border-radius: 8px;
+      display: block;
+      margin: 16px auto;
+    }
+    .reader-action-section {
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid #2a3447;
+      background: #1c2331;
+      padding: 16px 20px;
+      border-radius: 10px;
       margin-bottom: 16px;
     }
 
@@ -647,6 +662,24 @@
       <h2 id="readerTitle"></h2>
       <div id="readerMeta"></div>
       <div id="readerContent"></div>
+      
+      <!-- CUSTOM PERCENTAGE VOTE BOX -->
+      <div class="reader-action-section">
+        <h4 style="margin:0 0 10px 0; color:#f8fafc; font-size:15px;">Cast Vote via Hive Keychain</h4>
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+          <label style="font-size:14px; color:#cbd5e1;">Weight: <span id="voteSliderVal" style="color:#38bdf8; font-weight:700;">100</span>%</label>
+          <input type="range" id="voteWeightSlider" min="1" max="100" value="100" style="flex:1; min-width:180px; accent-color:#e31337;" oninput="document.getElementById('voteSliderVal').textContent = this.value">
+          <button type="button" class="vote-btn up" onclick="castCustomVote(1)">👍 Upvote</button>
+          <button type="button" class="vote-btn down" onclick="castCustomVote(-1)">👎 Downvote</button>
+        </div>
+      </div>
+
+      <!-- ADD COMMENT BOX -->
+      <div class="reader-action-section">
+        <h4 style="margin:0 0 10px 0; color:#f8fafc; font-size:15px;">Leave a Comment</h4>
+        <textarea id="commentBodyInput" placeholder="Write your reply/comment here..." style="width:100%; height:90px; background:#0d1017; color:#f0f4f8; border:1px solid #2a3447; border-radius:8px; padding:12px; font-size:14px; outline:none; resize:vertical; margin-bottom:12px;"></textarea>
+        <button type="button" class="primary-btn" onclick="submitComment()" style="padding: 10px 18px; font-size: 14px;">Post Comment</button>
+      </div>
     </div>
   </div>
 
@@ -692,7 +725,8 @@
       sort: 'relevant',
       results: [],
       isRunning: false,
-      kcUser: ''
+      kcUser: '',
+      currentReaderIndex: null
     };
 
     var TASTE_KEY = 'nectarseeker_taste_v1';
@@ -1608,12 +1642,15 @@
     function openPostReader(idx) {
       var item = appState.results[idx];
       if (!item) return;
+      appState.currentReaderIndex = idx;
       var p = item.post;
       
       var titleEl = document.getElementById('readerTitle');
       var metaEl = document.getElementById('readerMeta');
       var contentEl = document.getElementById('readerContent');
       var modalEl = document.getElementById('postReaderModal');
+      var commentInput = document.getElementById('commentBodyInput');
+      if (commentInput) commentInput.value = '';
       
       if (titleEl) titleEl.textContent = p.title || '(Untitled)';
       if (metaEl) {
@@ -1623,7 +1660,15 @@
       }
       if (contentEl) {
         var rawBody = p.body || '';
-        var formatted = escapeHtml(rawBody).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+        
+        var parsed = rawBody.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, url) {
+          return '<br><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><br>';
+        });
+
+        var escaped = escapeHtml(parsed);
+        escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline;">$1</a>');
+        
+        var formatted = escaped.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
         contentEl.innerHTML = '<p>' + formatted + '</p>';
       }
       
@@ -1633,6 +1678,97 @@
     function closePostReader() {
       var modalEl = document.getElementById('postReaderModal');
       if (modalEl) modalEl.style.display = 'none';
+      appState.currentReaderIndex = null;
+    }
+
+    function castCustomVote(direction) {
+      var idx = appState.currentReaderIndex;
+      if (idx === null || idx === undefined) return;
+      var item = appState.results[idx];
+      if (!item) return;
+
+      if (!window.hive_keychain) {
+        setStatus('Hive Keychain extension or app browser was not detected.', true);
+        return;
+      }
+      var connectedUser = getConnectedUser();
+      if (!connectedUser) {
+        setStatus('Please connect Hive Keychain first to vote.', true);
+        return;
+      }
+
+      var slider = document.getElementById('voteWeightSlider');
+      var pct = slider ? parseInt(slider.value, 10) : 100;
+      var weight = pct * 100 * direction;
+
+      window.hive_keychain.requestVote(
+        connectedUser,
+        item.post.permlink,
+        item.post.author,
+        weight,
+        function (res) {
+          if (res && res.success) {
+            setStatus('Successfully cast ' + (direction > 0 ? 'upvote' : 'downvote') + ' (' + pct + '%) on @' + item.post.author + '/' + item.post.permlink, false);
+            if (direction > 0) {
+              learnFromCard(idx, 1);
+            } else {
+              learnFromCard(idx, -1);
+            }
+            closePostReader();
+          } else {
+            setStatus('Vote cancelled or failed.', true);
+          }
+        }
+      );
+    }
+
+    function submitComment() {
+      var idx = appState.currentReaderIndex;
+      if (idx === null || idx === undefined) return;
+      var item = appState.results[idx];
+      if (!item) return;
+
+      var inputEl = document.getElementById('commentBodyInput');
+      var body = inputEl ? inputEl.value.trim() : '';
+      if (!body) {
+        setStatus('Please enter a comment message.', true);
+        return;
+      }
+
+      if (!window.hive_keychain) {
+        setStatus('Hive Keychain extension or app browser was not detected.', true);
+        return;
+      }
+      var connectedUser = getConnectedUser();
+      if (!connectedUser) {
+        setStatus('Please connect Hive Keychain first to comment.', true);
+        return;
+      }
+
+      var parentAuthor = item.post.author;
+      var parentPermlink = item.post.permlink;
+      var permlink = 're-' + parentPermlink + '-' + Math.random().toString(36).substring(2, 7);
+      var title = '';
+      var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
+
+      window.hive_keychain.requestComment(
+        connectedUser,
+        parentAuthor,
+        parentPermlink,
+        title,
+        body,
+        json_metadata,
+        permlink,
+        function (res) {
+          if (res && res.success) {
+            setStatus('Successfully posted comment on @' + parentAuthor + '/' + parentPermlink, false);
+            if (inputEl) inputEl.value = '';
+            closePostReader();
+          } else {
+            setStatus('Comment broadcast was cancelled or failed.', true);
+          }
+        }
+      );
     }
 
     function renderCards(items) {
@@ -1679,7 +1815,6 @@
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
-        // Title opens within the same page via the embedded reader
         html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
@@ -2087,7 +2222,6 @@
         return;
       }
       
-      // Pass null to let the user choose their account in the Hive Keychain extension
       var targetAccount = null;
 
       window.hive_keychain.requestSignBuffer(
