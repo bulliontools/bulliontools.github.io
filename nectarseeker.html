@@ -370,10 +370,9 @@
     }
     .card-top {
       display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
+      flex-direction: column;
       gap: 10px;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
     .card h3 {
       margin: 0;
@@ -400,9 +399,8 @@
       display: flex;
       gap: 6px;
       align-items: center;
-      flex-shrink: 0;
       flex-wrap: wrap;
-      justify-content: flex-end;
+      justify-content: flex-start;
     }
     .dapp-tag {
       font-size: 12px;
@@ -1122,7 +1120,6 @@
       setStatus('Disconnected Hive Keychain account.', false);
     }
 
-    // Calculate or fetch Author KE Ratio = (Author Rewards + Curation Rewards) / Held HP
     function getAuthorKeRatio(username, callback) {
       if (!username) { callback('N/A'); return; }
       if (appState.keCache[username] !== undefined) {
@@ -1138,14 +1135,12 @@
         }
         var acc = accs[0];
         var vestingShares = parseFloat(acc.vesting_shares) || 0;
-        // Approximation: 1 VEST ~ 0.00055 HP (or dynamic ratio if available, simplified to hp = vesting_shares * 0.0005)
         var heldHp = vestingShares * 0.00055;
         if (heldHp < 1) heldHp = 1;
 
         var lifetimeAuthRewards = parseFloat(acc.lifetime_vote_payouts || acc.reward_vesting_balance || 0) / 1000;
         var lifetimeCurRewards = parseFloat(acc.curation_rewards || 0) / 1000;
         
-        // Fallback estimation if lifetime stats are sparse
         var totalRewards = (lifetimeAuthRewards + lifetimeCurRewards) || (parseFloat(acc.post_count || 10) * 5);
         var ke = totalRewards / heldHp;
         if (isNaN(ke) || ke < 0) ke = 1.25;
@@ -2505,7 +2500,6 @@
       );
     }
 
-    // FIXED SUBMIT COMMENT FUNCTION (Corrected argument order for window.hive_keychain.requestComment)
     function submitComment() {
       var idx = appState.currentReaderIndex;
       if (idx === null || idx === undefined) return;
@@ -2540,13 +2534,13 @@
       var title = '';
       var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
 
-      // Correct Keychain requestComment signature: (username, title, body, parent_perm, parent_account, json_metadata, permlink, callback)
+      // Fixed: Pass correct callback signature parameters for Keychain requestComment
       window.hive_keychain.requestComment(
         connectedUser,
-        title,
-        body,
-        parentPermlink,
         parentAuthor,
+        parentPermlink,
+        body,
+        title,
         json_metadata,
         permlink,
         function (res) {
@@ -2560,7 +2554,8 @@
           } else {
             setStatus('Comment broadcast was cancelled or failed.', true);
           }
-        }
+        },
+        null
       );
     }
 
@@ -2817,13 +2812,17 @@
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
-        html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+        
+        // Moved badges above the title
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
         html += '<span class="ke-badge ke-badge-placeholder" data-author="' + escapeHtml(p.author) + '">KE: ...</span>';
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
+
+        html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+        
         html += '</div>';
 
         html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong>';
