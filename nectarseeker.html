@@ -788,7 +788,7 @@
     <summary>How It Works</summary>
     <div style="font-size:14px;color:var(--text-muted);display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;">
       <div>
-        <strong style="color:var(--accent-cyan);">Feed Mode:</strong> Scans your past 24 months of upvotes, comments, and posts to construct a personal taste vector, recommending unread articles tailored to your interests.
+        <strong style="color:var(--accent-cyan);">Feed Mode:</strong> Scans your past 3 months of upvotes, comments, and posts to construct a personal taste vector, recommending unread articles tailored to your interests.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Username Mode:</strong> Looks up any Hive user to display their authored posts at the top, alongside personalized content recommendations based on their activity.
@@ -1353,7 +1353,7 @@
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // 2. Convert markdown images ![alt](url "title") to proper responsive HTML images, securely parsing quoted titles and alt text
+      // 2. Convert markdown images ![alt](url "title") to proper responsive HTML images
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = escapeHtml(alt || 'Image');
         var parts = inner.trim().split(/\s+/);
@@ -1689,7 +1689,7 @@
       var skipKeys = {};
       var weightedSeeds = {};
       var page = 0;
-      var maxPages = months > 6 ? 80 : 25;
+      var maxPages = months > 6 ? 20 : 10;
       var startSeq = -1;
 
       function fetchPage() {
@@ -1790,7 +1790,7 @@
         }
         list.sort(function (a, b) { return b.weight - a.weight; });
         return {
-          seeds: list.slice(0, months > 6 ? 120 : 60),
+          seeds: list.slice(0, months > 6 ? 50 : 30),
           skipKeys: skipKeys
         };
       }
@@ -1870,9 +1870,9 @@
         hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
         hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
         hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
-        fetchPaginatedRanked('created', 5, obs),
-        fetchPaginatedRanked('trending', 4, obs),
-        fetchPaginatedRanked('hot', 3, obs)
+        fetchPaginatedRanked('created', 3, obs),
+        fetchPaginatedRanked('trending', 2, obs),
+        fetchPaginatedRanked('hot', 2, obs)
       ]).then(function (groups) {
         var map = {};
         var list = [];
@@ -2746,7 +2746,7 @@
         })
         .catch(function () { return []; });
 
-      var historyPromise = getAccountHistory(username, 6).catch(function () { return { seeds: [], skipKeys: {} }; });
+      var historyPromise = getAccountHistory(username, 3).catch(function () { return { seeds: [], skipKeys: {} }; });
 
       return Promise.all([ownPostsPromise, historyPromise])
         .then(function (res) {
@@ -2867,7 +2867,7 @@
       var skipKeys = {};
       var profileVec = null;
 
-      return getAccountHistory(username, 24)
+      return getAccountHistory(username, 3)
         .then(function (hist) {
           skipKeys = hist.skipKeys;
           return fetchSeedPosts(hist.seeds, skipKeys);
@@ -3126,11 +3126,6 @@
                 var topSlice = appState.results.slice(0, 100);
                 renderCards(topSlice);
                 syncVotesForRenderedPosts(topSlice);
-              } else {
-                setMode('feed');
-                var input = document.getElementById('queryInput');
-                if (input && !input.value.trim()) input.value = '@' + verifiedUser;
-                startApp();
               }
             }
           } else {
