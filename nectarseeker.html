@@ -1661,13 +1661,20 @@
       if (contentEl) {
         var rawBody = p.body || '';
         
-        var parsed = rawBody.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, url) {
+        // 1. Escape the raw body text first to protect against untrusted injection
+        var escaped = escapeHtml(rawBody);
+
+        // 2. Safely parse and convert markdown images into <img> tags
+        escaped = escaped.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
           return '<br><img src="' + escapeHtml(url) + '" alt="' + escapeHtml(alt) + '"><br>';
         });
 
-        var escaped = escapeHtml(parsed);
-        escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline;">$1</a>');
-        
+        // 3. Safely parse markdown links into <a> tags
+        escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
+          return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:underline;">' + escapeHtml(text) + '</a>';
+        });
+
+        // 4. Format line breaks into paragraphs
         var formatted = escaped.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
         contentEl.innerHTML = '<p>' + formatted + '</p>';
       }
