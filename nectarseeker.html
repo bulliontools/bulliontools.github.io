@@ -1451,7 +1451,7 @@
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // Markdown Images: ![alt](url) -> Direct loading with multi-gateway fallback
+      // Markdown Images: ![alt](url) -> Double Fallback: Try Hive Proxy first, fallback to Direct URL, then IPFS
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = escapeHtml(alt || 'Image');
         var parts = inner.trim().split(/\s+/);
@@ -1461,28 +1461,34 @@
         if (cleanUrl.startsWith('//')) cleanUrl = 'https:' + cleanUrl;
         if (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('ipfs://')) return match;
         
-        var displayUrl = cleanUrl;
-        var fallbackGateway = '';
+        var primaryUrl = cleanUrl;
+        var fallbackUrl = cleanUrl;
+
         if (cleanUrl.startsWith('ipfs://')) {
           var ipfsHash = cleanUrl.replace('ipfs://', '');
-          displayUrl = 'https://ipfs.io/ipfs/' + ipfsHash;
-          fallbackGateway = 'https://cloudflare-ipfs.com/ipfs/' + ipfsHash;
+          primaryUrl = 'https://ipfs.io/ipfs/' + ipfsHash;
+          fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + ipfsHash;
         } else if (cleanUrl.includes('/ipfs/')) {
           var hashPart = cleanUrl.split('/ipfs/')[1];
-          fallbackGateway = 'https://cloudflare-ipfs.com/ipfs/' + hashPart;
+          primaryUrl = 'https://ipfs.io/ipfs/' + hashPart;
+          fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + hashPart;
+        } else {
+          // Try Hive proxy first (bypasses CORS/hotlink), fallback to direct URL
+          primaryUrl = 'https://images.hive.blog/0x0/' + cleanUrl;
+          fallbackUrl = cleanUrl;
         }
 
-        var onerrorAttr = fallbackGateway 
-          ? 'this.onerror=null; this.src=\'' + fallbackGateway + '\'; this.onerror=function(){ this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'16px\'; };'
-          : 'this.onerror=null; this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'16px\';';
+        var onerrorAttr = 'this.onerror=function(){ this.onerror=function(){ this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'16px\'; }; this.src=\'' + escapeHtml(fallbackUrl) + '\'; }; this.src=\'' + escapeHtml(primaryUrl) + '\';';
 
-        return '<br><img src="' + escapeHtml(displayUrl) + '" alt="' + cleanAlt + '" onerror="' + onerrorAttr + '" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        return '<br><img src="' + escapeHtml(primaryUrl) + '" alt="' + cleanAlt + '" onerror="' + onerrorAttr + '" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
-      // Raw Image URLs -> Direct loading
+      // Raw Image URLs -> Direct loading with fallback
       body = body.replace(/(?<!["'=])(https?:\/\/[^\s<"]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s<"]*)?)/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
-        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="Image" onerror="this.onerror=null; this.alt=\'Image failed to load\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        var proxyUrl = 'https://images.hive.blog/0x0/' + cleanUrl;
+        var onerrorAttr = 'this.onerror=function(){ this.onerror=function(){ this.alt=\'Image failed to load\'; }; this.src=\'' + escapeHtml(cleanUrl) + '\'; };';
+        return '<br><img src="' + escapeHtml(proxyUrl) + '" alt="Image" onerror="' + onerrorAttr + '" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
       // Markdown Links: [text](url)
