@@ -846,7 +846,7 @@
 
       <div id="tipAmountSection" style="margin-bottom:14px;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;" id="tipAmountLabel">Amount:</label>
-        <input type="number" step="0.001" id="tipAmountInput" placeholder="0.000" />
+        <input type="number" step="any" id="tipAmountInput" placeholder="0.000" />
       </div>
 
       <div id="tipMemoGroup" style="margin-bottom:20px;">
@@ -1824,23 +1824,6 @@
       var taste = loadTaste();
       var key = item.post.author + '/' + item.post.permlink;
 
-      if (delta > 0 && window.hive_keychain) {
-        var connectedUser = getConnectedUser();
-        if (connectedUser) {
-          window.hive_keychain.requestVote(
-            connectedUser,
-            item.post.permlink,
-            item.post.author,
-            10000,
-            function (res) {
-              if (res && res.success) {
-                setStatus('Successfully cast upvote on @' + item.post.author + '/' + item.post.permlink, false);
-              }
-            }
-          );
-        }
-      }
-
       var titleTokens = tokenize(item.post.title || '');
       var bodyTokens = tokenize((item.post.body || '').slice(0, 1200));
 
@@ -1928,7 +1911,6 @@
       if (contentEl) {
         var rawBody = p.body || '';
         
-        // Normalize line breaks inside raw HTML <img> tags so multi-line tags parse successfully
         rawBody = rawBody.replace(/<img\s+[^>]*?>/gis, function(match) {
           return match.replace(/[\r\n]+/g, ' ');
         });
@@ -1943,7 +1925,6 @@
           return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
         });
 
-        // Handle escaped/multi-line HTML img tags (e.g. &lt;img src="..."&gt; or &lt;img src=&quot;...&quot;&gt;)
         escaped = escaped.replace(/&lt;img\s+([\s\S]*?)&gt;/gi, function(match, inner) {
           var unescapedInner = inner.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
           var srcMatch = unescapedInner.match(/src\s*=\s*(["'])(.*?)\1/i) || unescapedInner.match(/src\s*=\s*([^\s]+)/i);
@@ -2035,7 +2016,6 @@
             } else {
               learnFromCard(idx, -1);
             }
-            closePostReader();
           } else {
             setStatus('Vote cancelled or failed.', true);
           }
@@ -2074,17 +2054,16 @@
 
       window.hive_keychain.requestComment(
         connectedUser,
-        parentAuthor,
-        parentPermlink,
         title,
         body,
+        parentPermlink,
+        parentAuthor,
         json_metadata,
         permlink,
         function (res) {
           if (res && res.success) {
             setStatus('Successfully posted comment on @' + parentAuthor + '/' + parentPermlink, false);
             if (inputEl) inputEl.value = '';
-            closePostReader();
           } else {
             setStatus('Comment broadcast was cancelled or failed.', true);
           }
@@ -2179,10 +2158,10 @@
       balEl.textContent = 'Fetching ' + symbol + ' balance...';
 
       fetchHiveEngineBalance(connectedUser, symbol, function(tokenBalance) {
-        var formattedBalance = parseFloat(tokenBalance || '0').toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 6 }) + ' ' + symbol;
+        var formattedBalance = parseFloat(tokenBalance || '0').toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 8 }) + ' ' + symbol;
         balEl.textContent = 'Available ' + symbol + ' balance: ' + formattedBalance;
         document.getElementById('tipAmountLabel').textContent = 'Amount of ' + symbol + ':';
-        document.getElementById('tipAmountInput').value = '1.0';
+        document.getElementById('tipAmountInput').value = parseFloat(tokenBalance) > 0 ? tokenBalance : '1.0';
         document.getElementById('tipSymbolSection').style.display = 'none';
         document.getElementById('tipAmountSection').style.display = 'block';
         document.getElementById('tipSubmitBtn').style.display = 'inline-block';
@@ -2208,7 +2187,7 @@
       closeTipModal();
 
       if (type === 'HSBI') {
-        var amountStr = parseFloat(amtVal).toFixed(3) + ' HIVE';
+        var amountStr = parseFloat(amtVal).toFixed(3);
         window.hive_keychain.requestTransfer(
           connectedUser,
           'steembasicincome',
@@ -2218,14 +2197,13 @@
           function(res) {
             if (res && res.success) {
               setStatus('Successfully sponsored HSBI for @' + author + '!', false);
-              closePostReader();
             } else {
               setStatus('HSBI sponsorship transfer cancelled or failed.', true);
             }
           }
         );
       } else if (type === 'HIVE' || type === 'HBD') {
-        var amountStr = parseFloat(amtVal).toFixed(3) + ' ' + type;
+        var amountStr = parseFloat(amtVal).toFixed(3);
         window.hive_keychain.requestTransfer(
           connectedUser,
           author,
@@ -2234,8 +2212,7 @@
           type,
           function(res) {
             if (res && res.success) {
-              setStatus('Successfully tipped ' + amountStr + ' to @' + author + '!', false);
-              closePostReader();
+              setStatus('Successfully tipped ' + amountStr + ' ' + type + ' to @' + author + '!', false);
             } else {
               setStatus('Tip transfer cancelled or failed.', true);
             }
@@ -2243,13 +2220,14 @@
         );
       } else if (type === 'HE') {
         var symbol = currentTipConfig.symbol;
+        var quantityStr = String(amtVal).trim();
         var jsonPayload = JSON.stringify({
           contractName: 'tokens',
           contractAction: 'transfer',
           contractPayload: {
             symbol: symbol,
             to: author,
-            quantity: String(amtVal),
+            quantity: quantityStr,
             memo: memoVal || 'Tip via NectarSeeker'
           }
         });
@@ -2262,8 +2240,7 @@
           'Tip ' + symbol + ' to @' + author,
           function(res) {
             if (res && res.success) {
-              setStatus('Successfully tipped ' + amtVal + ' ' + symbol + ' to @' + author + '!', false);
-              closePostReader();
+              setStatus('Successfully tipped ' + quantityStr + ' ' + symbol + ' to @' + author + '!', false);
             } else {
               setStatus('Token tip cancelled or failed.', true);
             }
