@@ -1359,36 +1359,36 @@
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt) + '"><br>';
       });
 
-      // Handle images wrapped in []() or bare URLs that are images
+      // Handle images wrapped in []()
       body = body.replace(/\[\s*\]\((https?:\/\/[^\s)]+)\)/g, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
 
-      // Auto-detect standalone image URL lines (e.g., ending in .jpg, .png, etc.)
-      body = body.replace(/^(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)$/gim, function(match, url) {
+      // 2. Auto-detect any standalone or line-ending image URLs (handling .png, .jpg, .jpeg, .webp, .gif with optional trailing pipes or spaces)
+      body = body.replace(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)\s*\|?/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
 
-      // 2. Convert markdown links [text](url)
+      // 3. Convert markdown links [text](url)
       body = body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<a href="' + cleanUrl.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // 3. Handle Headings (##, ###)
-      body = body.replace(/^###\s+(.*)$/gm, function(match, title) {
+      // 4. Handle Headings (##, ###, #) with flexible spacing
+      body = body.replace(/^\s*###\s+(.*)$/gm, function(match, title) {
         return '<h3>' + escapeHtml(title) + '</h3>';
       });
-      body = body.replace(/^##\s+(.*)$/gm, function(match, title) {
+      body = body.replace(/^\s*##\s+(.*)$/gm, function(match, title) {
         return '<h2>' + escapeHtml(title) + '</h2>';
       });
-      body = body.replace(/^#\s+(.*)$/gm, function(match, title) {
+      body = body.replace(/^\s*#\s+(.*)$/gm, function(match, title) {
         return '<h2>' + escapeHtml(title) + '</h2>';
       });
 
-      // 4. Handle common HTML tags (<center>, </center>, <br>, <img>, etc.)
+      // 5. Handle HTML tags (<center>, </center>, <br>, <img>, etc.)
       body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
         return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
       });
