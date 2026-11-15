@@ -2530,33 +2530,58 @@
         parentPermlink = appState.activeReplyTarget.permlink;
       }
 
-      var permlink = 're-' + parentPermlink + '-' + Math.random().toString(36).substring(2, 7);
+      var cleanParentPerm = parentPermlink.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
+      var permlink = 're-' + (cleanParentPerm || 'comment') + '-' + Math.random().toString(36).substring(2, 7);
       var title = '';
       var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
 
-      // Fixed: Pass correct callback signature parameters for Keychain requestComment
-      window.hive_keychain.requestComment(
-        connectedUser,
-        parentAuthor,
-        parentPermlink,
-        body,
-        title,
-        json_metadata,
-        permlink,
-        function (res) {
-          if (res && res.success) {
-            setStatus('Successfully posted reply on @' + parentAuthor + '/' + parentPermlink, false);
-            if (inputEl) inputEl.value = '';
-            cancelReplyTarget();
-            setTimeout(function () {
-              loadPostComments(item.post.author, item.post.permlink);
-            }, 2500);
-          } else {
-            setStatus('Comment broadcast was cancelled or failed.', true);
+      var handleResponse = function (res) {
+        if (res && (res.success || res.result)) {
+          setStatus('Successfully posted reply on @' + parentAuthor + '/' + parentPermlink, false);
+          if (inputEl) inputEl.value = '';
+          cancelReplyTarget();
+          setTimeout(function () {
+            loadPostComments(item.post.author, item.post.permlink);
+          }, 2500);
+        } else {
+          var errMsg = (res && res.message) ? res.message : 'Comment broadcast was cancelled or failed.';
+          setStatus(errMsg, true);
+        }
+      };
+
+      if (typeof window.hive_keychain.requestComment === 'function') {
+        window.hive_keychain.requestComment(
+          connectedUser,
+          title,
+          body,
+          parentPermlink,
+          parentAuthor,
+          json_metadata,
+          permlink,
+          handleResponse
+        );
+      } else if (typeof window.hive_keychain.requestBroadcast === 'function') {
+        var commentOp = [
+          'comment',
+          {
+            parent_author: parentAuthor,
+            parent_permlink: parentPermlink,
+            author: connectedUser,
+            permlink: permlink,
+            title: title,
+            body: body,
+            json_metadata: json_metadata
           }
-        },
-        null
-      );
+        ];
+        window.hive_keychain.requestBroadcast(
+          connectedUser,
+          [commentOp],
+          'posting',
+          handleResponse
+        );
+      } else {
+        setStatus('Hive Keychain comment method not found.', true);
+      }
     }
 
     function tipAuthor(type) {
@@ -2813,7 +2838,7 @@
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
         
-        // Moved badges above the title
+        // Badges positioned above the title as requested
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
@@ -2821,6 +2846,7 @@
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
 
+        // Title underneath the badges
         html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
         
         html += '</div>';
