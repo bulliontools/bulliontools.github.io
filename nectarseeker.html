@@ -903,10 +903,10 @@
 
   <script>
     var HIVE_NODES = [
-      'https://api.hive.blog',
-      'https://api.deathwing.me',
-      'https://api.openhive.network',
-      'https://techcoderx.com'
+      '[https://api.hive.blog](https://api.hive.blog)',
+      '[https://api.deathwing.me](https://api.deathwing.me)',
+      '[https://api.openhive.network](https://api.openhive.network)',
+      '[https://techcoderx.com](https://techcoderx.com)'
     ];
 
     var STOP_WORDS = {
@@ -1311,9 +1311,17 @@
       return s;
     }
 
-    /* UNIVERSAL RENDERER */
+    /* UNIVERSAL RENDERER WITH ROBUST CODE & IMAGE PARSING */
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
+
+      // 1. Extract and safely format code blocks (``` ... ```)
+      body = body.replace(/```([a-z]*)\n([\s\S]*?)```/g, function(match, lang, code) {
+        return '<pre style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:14px; overflow-x:auto; font-family:monospace; font-size:13px; color:var(--text-main); margin:16px 0; white-space:pre-wrap;"><code>' + escapeHtml(code.trim()) + '</code></pre>';
+      });
+
+      // 2. Extract and format inline code (`...`)
+      body = body.replace(/`([^`]+)`/g, '<code style="background:var(--surface-2); padding:2px 6px; border-radius:4px; font-family:monospace; font-size:13px; color:var(--accent-cyan);">$1</code>');
 
       body = body
         .replace(/&lt;/g, '<')
@@ -1326,6 +1334,7 @@
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
+      // 3. Render Markdown images securely
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = (alt || 'Image').replace(/"/g, '&quot;');
         var parts = inner.trim().split(/\s+/);
@@ -1340,14 +1349,14 @@
 
         if (cleanUrl.startsWith('ipfs://')) {
           var ipfsHash = cleanUrl.replace('ipfs://', '');
-          primaryUrl = 'https://ipfs.io/ipfs/' + ipfsHash;
-          fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + ipfsHash;
+          primaryUrl = '[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + ipfsHash;
+          fallbackUrl = '[https://cloudflare-ipfs.com/ipfs/](https://cloudflare-ipfs.com/ipfs/)' + ipfsHash;
         } else if (cleanUrl.includes('/ipfs/')) {
           var hashPart = cleanUrl.split('/ipfs/')[1];
-          primaryUrl = 'https://ipfs.io/ipfs/' + hashPart;
-          fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + hashPart;
+          primaryUrl = '[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + hashPart;
+          fallbackUrl = '[https://cloudflare-ipfs.com/ipfs/](https://cloudflare-ipfs.com/ipfs/)' + hashPart;
         } else {
-          primaryUrl = 'https://images.hive.blog/0x0/' + cleanUrl;
+          primaryUrl = '[https://images.hive.blog/0x0/](https://images.hive.blog/0x0/)' + cleanUrl;
           fallbackUrl = cleanUrl;
         }
 
@@ -1356,7 +1365,7 @@
 
       body = body.replace(/<img\b([^>]*)>/gi, function(match, attrs) {
         if (/onerror=/i.test(attrs)) return match;
-        return '<img ' + attrs + ' onerror="if(this.src && this.src.indexOf(\'images.hive.blog\')!==-1){this.src=this.src.replace(\'https://images.hive.blog/0x0/\', \'\');}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}">';
+        return '<img ' + attrs + ' onerror="if(this.src && this.src.indexOf(\'images.hive.blog\')!==-1){this.src=this.src.replace(\'[https://images.hive.blog/0x0/](https://images.hive.blog/0x0/)\', \'\');}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}">';
       });
 
       body = body.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, inner) {
@@ -1611,7 +1620,7 @@
         params: { contract: 'tokens', table: 'balances', query: { account: username, symbol: symbol } },
         id: 1
       });
-      fetch('https://api.hive-engine.com/rpc/contracts', {
+      fetch('[https://api.hive-engine.com/rpc/contracts](https://api.hive-engine.com/rpc/contracts)', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload
@@ -2484,9 +2493,9 @@
         var dapp = detectFrontend(p);
         var authorEnc = encodeURIComponent(p.author);
         var permEnc = encodeURIComponent(p.permlink);
-        var peakdUrl = 'https://peakd.com/@' + authorEnc + '/' + permEnc;
-        var ecencyUrl = 'https://ecency.com/@' + authorEnc + '/' + permEnc;
-        var hiveUrl = 'https://hive.blog/@' + authorEnc + '/' + permEnc;
+        var peakdUrl = '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
+        var ecencyUrl = '[https://ecency.com/](https://ecency.com/)@' + authorEnc + '/' + permEnc;
+        var hiveUrl = '[https://hive.blog/](https://hive.blog/)@' + authorEnc + '/' + permEnc;
 
         var rawBody = cleanMarkdown(p.body || '');
         var snippet = rawBody.length > 220 ? rawBody.slice(0, 220) + '...' : rawBody;
