@@ -501,7 +501,6 @@
       color: var(--accent-danger);
     }
 
-    /* In-Page Reader Modal Styles */
     #postReaderModal {
       display: none;
       position: fixed;
@@ -758,7 +757,7 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Diagnose &amp; Fix:</strong> If a post ever displays broken layout or raw image code, click the <strong>🛠️ Diagnose &amp; Fix</strong> button in the reader to automatically sanitize and repair it instantly.
+        <strong style="color:var(--accent-cyan);">Reload Page:</strong> If anything looks off or fails to load, click <strong>Is something off? Reload Page</strong> in the reader to fetch a fresh version instantly.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Hive Keychain Integration:</strong> Connect your account via Hive Keychain to vote, comment, reblog, and tip authors directly.
@@ -774,7 +773,7 @@
   <div id="status">Ready. Enter your Hive username or select Feed mode to load your personalized recommendations.</div>
   <div id="feed"></div>
 
-  <!-- IN-PAGE READER MODAL WITH STICKY FLOATING NAV & DIAGNOSE/FIX -->
+  <!-- IN-PAGE READER MODAL WITH STICKY FLOATING NAV -->
   <div id="postReaderModal">
     <div class="reader-container">
       
@@ -782,8 +781,11 @@
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           <button type="button" class="reader-close" onclick="closePostReader()">✕ Close</button>
           
-          <!-- DIAGNOSE & FIX BUTTON -->
-          <button type="button" class="kc-btn" onclick="diagnoseAndFixCurrentPost()" style="background: rgba(245,158,11,0.15); border-color: var(--accent-warn); color: var(--accent-warn);" title="Diagnose and repair layout or image issues in this post">🛠️ Diagnose &amp; Fix</button>
+          <!-- RELOAD PAGE BUTTON WITH "Is something off?" -->
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span style="font-size: 13px; color: var(--text-muted);">Is something off?</span>
+            <button type="button" class="kc-btn" onclick="reloadCurrentPostReader()" style="background: rgba(245,158,11,0.15); border-color: var(--accent-warn); color: var(--accent-warn);">Reload Page</button>
+          </div>
           
           <div id="stickyManaDisplay" style="font-size: 12px; color: var(--accent-green); background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 4px 8px; border-radius: 6px; display: none; align-items: center; gap: 4px;">
             <span>⚡ <span id="manaVal">Loading...</span></span>
@@ -1309,7 +1311,7 @@
       return s;
     }
 
-    /* UNIVERSAL RENDERER (Default Mode) */
+    /* UNIVERSAL RENDERER */
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
 
@@ -1324,7 +1326,6 @@
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // Standard Markdown Images
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = (alt || 'Image').replace(/"/g, '&quot;');
         var parts = inner.trim().split(/\s+/);
@@ -1353,13 +1354,11 @@
         return '<br><img src="' + primaryUrl + '" alt="' + cleanAlt + '" onerror="if(this.src.indexOf(\'images.hive.blog\')!==-1){this.src=\'' + fallbackUrl + '\';}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
-      // Safe HTML <img> tag handling
       body = body.replace(/<img\b([^>]*)>/gi, function(match, attrs) {
         if (/onerror=/i.test(attrs)) return match;
         return '<img ' + attrs + ' onerror="if(this.src && this.src.indexOf(\'images.hive.blog\')!==-1){this.src=this.src.replace(\'https://images.hive.blog/0x0/\', \'\');}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}">';
       });
 
-      // Links
       body = body.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, inner) {
         var parts = inner.trim().split(/\s+/);
         var url = parts[0].replace(/^["'<]|["'>]$/g, '');
@@ -1421,41 +1420,38 @@
       return htmlParts.join('\n');
     }
 
-    /* AGGRESSIVE DIAGNOSE & FIX PARSER */
-    function diagnoseAndFixCurrentPost() {
+    /* RELOAD CURRENT POST READER FROM BLOCKCHAIN */
+    function reloadCurrentPostReader() {
       var idx = appState.currentReaderIndex;
       if (idx === null || idx === undefined) return;
       var item = appState.results[idx];
       if (!item) return;
 
-      var contentEl = document.getElementById('readerContent');
-      if (!contentEl) return;
+      setStatus('🔄 Re-fetching latest post data from Hive blockchain...', false);
+      var p = item.post;
 
-      setStatus('🛠️ Running diagnostics and repairing post layout...', false);
-
-      var rawBody = item.post.body || '';
-      var issuesCount = 0;
-
-      // 1. Strip malformed HTML tags with leaked attribute code blocks
-      var fixedBody = rawBody.replace(/onerror\s*=\s*["'][^"']*["']/gi, function() {
-        issuesCount++;
-        return '';
-      });
-
-      // 2. Fix broken or unclosed img tags by extracting src URLs and regenerating them cleanly
-      fixedBody = fixedBody.replace(/<img\b([^>]*)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>/gi, function(match, pre, quote, srcUrl, post) {
-        issuesCount++;
-        var cleanSrc = srcUrl.replace(/[\r\n\s|]+/g, '');
-        if (!cleanSrc.startsWith('http')) cleanSrc = 'https://images.hive.blog/0x0/' + cleanSrc;
-        return '<br><img src="' + cleanSrc + '" alt="Fixed Image" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
-      });
-
-      // 3. Run standard rendering on the sanitized body
-      contentEl.innerHTML = renderHiveBodyHtml(fixedBody);
-
-      setTimeout(function() {
-        setStatus('✅ Diagnostics complete! Fixed ' + issuesCount + ' malformed image/code attribute issue(s) and reloaded post.', false);
-      }, 300);
+      hiveCall('bridge.get_post', { author: p.author, permlink: p.permlink })
+        .catch(function() {
+          return hiveCall('condenser_api.get_content', [p.author, p.permlink]);
+        })
+        .then(function(freshPost) {
+          if (freshPost && freshPost.body) {
+            appState.results[idx].post = freshPost;
+            p = freshPost;
+          }
+          var contentEl = document.getElementById('readerContent');
+          if (contentEl) {
+            contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+          }
+          setStatus('✅ Page reloaded with fresh post data.', false);
+        })
+        .catch(function() {
+          var contentEl = document.getElementById('readerContent');
+          if (contentEl) {
+            contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+          }
+          setStatus('✅ Reader reloaded successfully.', false);
+        });
     }
 
     function cleanMarkdown(text) {
