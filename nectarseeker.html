@@ -823,7 +823,7 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive ($Rewards / HP$) displayed on every preview and reader view.
+        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive (Rewards / HP) displayed on every preview and reader view.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
@@ -1451,7 +1451,7 @@
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // Markdown Images: ![alt](url)
+      // Markdown Images: ![alt](url) -> Routed through Hive Image Proxy for robust loading
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = escapeHtml(alt || 'Image');
         var parts = inner.trim().split(/\s+/);
@@ -1461,13 +1461,21 @@
         if (cleanUrl.startsWith('//')) cleanUrl = 'https:' + cleanUrl;
         if (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('ipfs://')) return match;
         
-        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="' + cleanAlt + '" onerror="this.onerror=null; this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'20px\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        var proxyUrl = cleanUrl;
+        if (cleanUrl.startsWith('ipfs://')) {
+          proxyUrl = 'https://images.hive.blog/0x0/' + encodeURIComponent('https://ipfs.io/ipfs/' + cleanUrl.replace('ipfs://', ''));
+        } else if (!cleanUrl.includes('images.hive.blog')) {
+          proxyUrl = 'https://images.hive.blog/0x0/' + encodeURIComponent(cleanUrl);
+        }
+
+        return '<br><img src="' + escapeHtml(proxyUrl) + '" alt="' + cleanAlt + '" onerror="this.onerror=null; this.alt=\'Image failed to load\'; this.style.border=\'1px dashed var(--border)\'; this.style.padding=\'16px\'; this.style.textAlign=\'center\'; this.style.color=\'var(--text-muted)\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
-      // Raw Image URLs not already inside HTML tags or markdown links
+      // Raw Image URLs -> Routed through Hive Image Proxy
       body = body.replace(/(?<!["'=])(https?:\/\/[^\s<"]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s<"]*)?)/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
-        return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="Image" onerror="this.onerror=null; this.alt=\'Image failed to load\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+        var proxyUrl = cleanUrl.includes('images.hive.blog') ? cleanUrl : 'https://images.hive.blog/0x0/' + encodeURIComponent(cleanUrl);
+        return '<br><img src="' + escapeHtml(proxyUrl) + '" alt="Image" onerror="this.onerror=null; this.alt=\'Image failed to load\';" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
       // Markdown Links: [text](url)
