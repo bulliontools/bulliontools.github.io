@@ -848,6 +848,9 @@
           <button type="button" class="vote-btn down" onclick="castCustomVoteFromSticky(-1)" style="padding: 4px 8px; font-size: 12px;">👎 Down</button>
           <button type="button" class="kc-btn" onclick="scrollToCommentBox()" style="padding: 4px 8px; font-size: 12px; border-color: var(--accent-cyan);">💬 Comment</button>
           
+          <!-- Reblog Button in Sticky Nav -->
+          <button type="button" class="kc-btn" onclick="reblogPost()" style="padding: 4px 8px; font-size: 12px; background: rgba(56,189,248,0.15); border-color: var(--accent-cyan);" title="Reblog Post">🔁 Reblog</button>
+
           <!-- Tip Buttons -->
           <div style="display:inline-flex; gap:3px;">
             <button type="button" class="kc-btn" onclick="tipAuthor('HIVE')" style="padding: 4px 6px; font-size: 11px; background: rgba(227,19,55,0.15); border-color: var(--hive-red);" title="Tip HIVE">HIVE</button>
@@ -879,10 +882,11 @@
         </div>
       </div>
 
-      <!-- BOTTOM TIPPING & SUPPORT SECTION -->
+      <!-- BOTTOM TIPPING & SUPPORT SECTION WITH REBLOG BUTTON -->
       <div class="reader-action-section" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-        <h4 style="margin: 0; color: var(--text-main); font-size: 15px;">Support &amp; Tip Author</h4>
+        <h4 style="margin: 0; color: var(--text-main); font-size: 15px;">Support, Tip &amp; Reblog</h4>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="kc-btn" onclick="reblogPost()" style="background: rgba(56,189,248,0.15); border-color: var(--accent-cyan);" title="Reblog Post">🔁 Reblog Post</button>
           <button type="button" class="kc-btn" onclick="tipAuthor('HIVE')" style="background: rgba(227,19,55,0.15); border-color: var(--hive-red);" title="Tip HIVE">Tip HIVE</button>
           <button type="button" class="kc-btn" onclick="tipAuthor('HBD')" style="background: rgba(56,189,248,0.15); border-color: var(--accent-cyan);" title="Tip HBD">Tip HBD</button>
           <button type="button" class="kc-btn" onclick="tipAuthor('HSBI')" style="background: rgba(16,185,129,0.15); border-color: var(--accent-green);" title="Sponsor HSBI">Sponsor HSBI</button>
@@ -2500,6 +2504,46 @@
       );
     }
 
+    function reblogPost() {
+      var idx = appState.currentReaderIndex;
+      if (idx === null || idx === undefined) return;
+      var item = appState.results[idx];
+      if (!item) return;
+
+      if (!window.hive_keychain) {
+        setStatus('Hive Keychain extension or app browser was not detected.', true);
+        return;
+      }
+      var connectedUser = getConnectedUser();
+      if (!connectedUser) {
+        setStatus('Please connect Hive Keychain first to reblog.', true);
+        return;
+      }
+
+      var author = item.post.author;
+      var permlink = item.post.permlink;
+      var jsonPayload = JSON.stringify(['reblog', {
+        account: connectedUser,
+        author: author,
+        permlink: permlink
+      }]);
+
+      window.hive_keychain.requestCustomJson(
+        connectedUser,
+        'follow',
+        'Posting',
+        jsonPayload,
+        'Reblog @' + author + '/' + permlink,
+        function (res) {
+          if (res && res.success) {
+            setStatus('Successfully reblogged @' + author + '/' + permlink + '!', false);
+          } else {
+            setStatus('Reblog request cancelled or failed.', true);
+          }
+        }
+      );
+    }
+
     function submitComment() {
       var idx = appState.currentReaderIndex;
       if (idx === null || idx === undefined) return;
@@ -2838,7 +2882,7 @@
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
         
-        // Badges positioned above the title as requested
+        // Badges positioned above the title
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
