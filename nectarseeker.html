@@ -1348,54 +1348,28 @@
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
 
-      // Fix broken URLs split across multiple lines by authors
+      // Clean up broken URLs split across multiple lines
       body = body.replace(/(https?:\/\/[^\s]+)/g, function(urlMatch) {
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // Strip markdown table separator lines (e.g. |---|---|)
-      body = body.replace(/^\s*\|?(?:\s*[-:]+\s*\|)+[\s-:]*\|?\s*$/gm, '');
-
-      // Parse markdown table rows containing images or text cleanly
-      body = body.replace(/^\|\s*(.*?)\s*\|$/gm, function(match, content) {
-        var parts = content.split(/\s*\|\s*/);
-        var partHtml = '';
-        for (var p = 0; p < parts.length; p++) {
-          var cell = parts[p].trim();
-          if (!cell) continue;
-          var imgMatch = cell.match(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/) || cell.match(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)/i);
-          if (imgMatch) {
-            var url = (imgMatch[2] || imgMatch[1] || imgMatch[0]).replace(/[\r\n\s|]+/g, '');
-            partHtml += '<div style="text-align:center; margin: 12px 0;"><img src="' + escapeHtml(url) + '" alt="Image" style="max-width:100%; border-radius:8px; display:inline-block;"></div>';
-          } else {
-            partHtml += '<div style="margin: 4px 0;">' + cell + '</div>';
-          }
-        }
-        return partHtml;
-      });
-
-      // 1. Convert markdown images ![alt](url) to HTML img tags
+      // 1. Convert markdown images ![alt](url) to HTML img tags properly
       body = body.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt || 'Image') + '"><br>';
       });
 
-      // Handle images wrapped in []()
+      // Handle empty brackets image markdown []()
       body = body.replace(/\[\s*\]\((https?:\/\/[^\s)]+)\)/g, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
 
-      // 2. Auto-detect standalone image URL lines
-      body = body.replace(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)\s*\|?/gi, function(match, url) {
+      // 2. Auto-detect standalone image URLs (handling .png, .jpg, .jpeg, .webp, .gif)
+      body = body.replace(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
-
-      // Clean up any leftover stray alt fragments or quotes
-      body = body.replace(/alt\s*=\s*(["'])(.*?)\1/gi, '');
-      body = body.replace(/"\s*>/g, '>');
-      body = body.replace(/""/g, '');
 
       // 3. Convert markdown links [text](url)
       body = body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
@@ -1403,7 +1377,7 @@
         return '<a href="' + cleanUrl.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // 4. Handle Headings (##, ###, #) with flexible spacing
+      // 4. Handle Headings (##, ###, #)
       body = body.replace(/^\s*###\s+(.*)$/gm, function(match, title) {
         return '<h3>' + escapeHtml(title) + '</h3>';
       });
