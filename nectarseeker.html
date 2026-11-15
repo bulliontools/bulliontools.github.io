@@ -858,9 +858,16 @@
         </div>
       </div>
 
-      <!-- ADD COMMENT BOX -->
+      <!-- ADD COMMENT / REPLY BOX -->
       <div class="reader-action-section">
-        <h4 style="margin:0 0 10px 0; color:var(--text-main); font-size:15px;">Leave a Comment</h4>
+        <h4 id="commentBoxHeader" style="margin:0 0 10px 0; color:var(--text-main); font-size:15px;">Leave a Comment</h4>
+        
+        <!-- Reply Target Indicator -->
+        <div id="replyTargetIndicator" style="display:none; margin-bottom:10px; font-size:13px; color:var(--accent-cyan); background:var(--surface-1); padding:8px 12px; border-radius:6px; border:1px solid var(--border); align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <span>Replying to <strong id="replyTargetAuthor"></strong></span>
+          <button type="button" class="kc-btn" onclick="cancelReplyTarget()" style="padding:3px 8px; font-size:11px;">Cancel Reply</button>
+        </div>
+
         <textarea id="commentBodyInput" placeholder="Write your reply/comment here..." style="width:100%; height:90px; background:var(--input-bg); color:var(--text-main); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:14px; outline:none; resize:vertical; margin-bottom:12px;"></textarea>
         <button type="button" class="primary-btn" onclick="submitComment()" style="padding: 10px 18px; font-size: 14px;">Post Comment</button>
       </div>
@@ -951,6 +958,7 @@
       kcUser: '',
       accountData: null,
       currentReaderIndex: null,
+      activeReplyTarget: null,
       userVotesCache: {}
     };
 
@@ -1326,46 +1334,44 @@
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
 
-      // 1. Convert markdown images ![alt](url) to HTML img tags first (before escaping)
+      body = body.replace(/(https?:\/\/[^\s]+)/g, function(urlMatch) {
+        return urlMatch.replace(/[\r\n\s|]+/g, '');
+      });
+
       body = body.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
-        return '<br><img src="' + url.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt) + '"><br>';
+        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
+        return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt) + '"><br>';
       });
 
-      // Also handle images wrapped in []() or bare URLs that are images
       body = body.replace(/\[\s*\]\((https?:\/\/[^\s)]+)\)/g, function(match, url) {
-        return '<br><img src="' + url.replace(/"/g, '&quot;') + '" alt="Image"><br>';
+        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
+        return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
 
-      // 2. Convert markdown links [text](url)
       body = body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
-        return '<a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
+        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
+        return '<a href="' + cleanUrl.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // 3. Handle common HTML tags (<center>, </center>, <br>, <img>, etc.)
       body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
         return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
       });
       body = body.replace(/<br\s*\/?>/gi, '<br>');
 
-      // Handle HTML <img> tags
       body = body.replace(/<img\s+([^>]*?)>/gi, function(match, inner) {
         var srcMatch = inner.match(/src\s*=\s*(["'])(.*?)\1/i) || inner.match(/src\s*=\s*([^\s'">]+)/i);
         var altMatch = inner.match(/alt\s*=\s*(["'])(.*?)\1/i);
         if (srcMatch) {
-          var src = srcMatch[2] || srcMatch[1];
+          var src = (srcMatch[2] || srcMatch[1]).replace(/[\r\n\s|]+/g, '');
           var alt = altMatch ? (altMatch[2] || altMatch[1]) : 'Image';
           return '<br><img src="' + escapeHtml(src) + '" alt="' + escapeHtml(alt) + '"><br>';
         }
         return '';
       });
 
-      // Clean up orphaned markdown image exclamation marks like ![ or ![ ]
       body = body.replace(/!\[\s*\]?/g, '');
-
-      // Clean up &nbsp; entities
       body = body.replace(/&nbsp;/gi, ' ');
 
-      // Split paragraphs by double newlines and wrap in <p>
       var paragraphs = body.split(/\n\s*\n/);
       var htmlParts = [];
       for (var i = 0; i < paragraphs.length; i++) {
@@ -2075,6 +2081,27 @@
       syncVotesForRenderedPosts(topSlice);
     }
 
+    function setReplyTarget(author, permlink) {
+      appState.activeReplyTarget = { author: author, permlink: permlink };
+      var indicator = document.getElementById('replyTargetIndicator');
+      var authorSpan = document.getElementById('replyTargetAuthor');
+      var header = document.getElementById('commentBoxHeader');
+      if (indicator && authorSpan) {
+        authorSpan.textContent = '@' + author;
+        indicator.style.display = 'flex';
+      }
+      if (header) header.textContent = 'Reply to @' + author;
+      scrollToCommentBox();
+    }
+
+    function cancelReplyTarget() {
+      appState.activeReplyTarget = null;
+      var indicator = document.getElementById('replyTargetIndicator');
+      var header = document.getElementById('commentBoxHeader');
+      if (indicator) indicator.style.display = 'none';
+      if (header) header.textContent = 'Leave a Comment';
+    }
+
     function loadPostComments(author, permlink) {
       var listEl = document.getElementById('readerCommentsList');
       var headerEl = document.getElementById('readerCommentsHeader');
@@ -2134,6 +2161,7 @@
               html += '<div class="comment-item" style="margin-left:' + indent + 'px;">';
               html += '<div class="comment-header">';
               html += '<span><strong>@' + escapeHtml(c.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + '</span>';
+              html += '<button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(c.author) + '\', \'' + escapeHtml(c.permlink) + '\')">💬 Reply</button>';
               html += '</div>';
               html += '<div class="comment-body">' + bodyHtml + '</div>';
               html += '</div>';
@@ -2152,7 +2180,7 @@
               var oc = allNodes[j];
               var oAge = formatAge(oc.created);
               html += '<div class="comment-item">';
-              html += '<div class="comment-header"><span><strong>@' + escapeHtml(oc.author) + '</strong>' + (oAge ? ' &middot; ' + escapeHtml(oAge) : '') + '</span></div>';
+              html += '<div class="comment-header"><span><strong>@' + escapeHtml(oc.author) + '</strong>' + (oAge ? ' &middot; ' + escapeHtml(oAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(oc.author) + '\', \'' + escapeHtml(oc.permlink) + '\')">💬 Reply</button></div>';
               html += '<div class="comment-body">' + renderHiveBodyHtml(oc.body || '') + '</div>';
               html += '</div>';
             }
@@ -2174,7 +2202,7 @@
                 var r = replies[i];
                 var rAge = formatAge(r.created);
                 html += '<div class="comment-item">';
-                html += '<div class="comment-header"><span><strong>@' + escapeHtml(r.author) + '</strong>' + (rAge ? ' &middot; ' + escapeHtml(rAge) : '') + '</span></div>';
+                html += '<div class="comment-header"><span><strong>@' + escapeHtml(r.author) + '</strong>' + (rAge ? ' &middot; ' + escapeHtml(rAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(r.author) + '\', \'' + escapeHtml(r.permlink) + '\')">💬 Reply</button></div>';
                 html += '<div class="comment-body">' + renderHiveBodyHtml(r.body || '') + '</div>';
                 html += '</div>';
               }
@@ -2190,6 +2218,7 @@
       var item = appState.results[idx];
       if (!item) return;
       appState.currentReaderIndex = idx;
+      cancelReplyTarget();
       var p = item.post;
       
       var titleEl = document.getElementById('readerTitle');
@@ -2221,6 +2250,7 @@
       var modalEl = document.getElementById('postReaderModal');
       if (modalEl) modalEl.style.display = 'none';
       appState.currentReaderIndex = null;
+      cancelReplyTarget();
     }
 
     function syncSliders(val) {
@@ -2343,6 +2373,11 @@
 
       var parentAuthor = item.post.author;
       var parentPermlink = item.post.permlink;
+      if (appState.activeReplyTarget) {
+        parentAuthor = appState.activeReplyTarget.author;
+        parentPermlink = appState.activeReplyTarget.permlink;
+      }
+
       var permlink = 're-' + parentPermlink + '-' + Math.random().toString(36).substring(2, 7);
       var title = '';
       var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
@@ -2357,10 +2392,11 @@
         json_metadata,
         function (res) {
           if (res && res.success) {
-            setStatus('Successfully posted comment on @' + parentAuthor + '/' + parentPermlink, false);
+            setStatus('Successfully posted reply on @' + parentAuthor + '/' + parentPermlink, false);
             if (inputEl) inputEl.value = '';
+            cancelReplyTarget();
             setTimeout(function () {
-              loadPostComments(parentAuthor, parentPermlink);
+              loadPostComments(item.post.author, item.post.permlink);
             }, 2500);
           } else {
             setStatus('Comment broadcast was cancelled or failed.', true);
