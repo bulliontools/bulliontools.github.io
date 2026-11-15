@@ -1348,15 +1348,12 @@
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
 
-      // Clean up any stray orphan attribute fragments left from broken tags (e.g. " style="..." or " alt="...">)
-      body = body.replace(/["']\s*(?:style|alt|class|width|height)\s*=\s*[^>\n]*>?/gi, '');
-
-      // Clean up broken URLs split across multiple lines
+      // 1. Clean up broken image URLs split across lines
       body = body.replace(/(https?:\/\/[^\s]+)/g, function(urlMatch) {
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // 1. Convert markdown images ![alt](url) to HTML img tags properly
+      // 2. Convert markdown images ![alt](url) to proper responsive HTML images
       body = body.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt || 'Image') + '" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
@@ -1368,37 +1365,20 @@
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
       });
 
-      // 2. Auto-detect standalone image URLs (handling .png, .jpg, .jpeg, .webp, .gif)
+      // 3. Auto-detect standalone image URLs (.png, .jpg, .jpeg, .webp, .gif)
       body = body.replace(/(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
       });
 
-      // 3. Convert markdown links [text](url)
+      // 4. Convert markdown links [text](url)
       body = body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<a href="' + cleanUrl.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // 4. Handle HTML <img> tags safely
-      body = body.replace(/<img\s+([^>]*?)>/gi, function(match, inner) {
-        var srcMatch = inner.match(/src\s*=\s*(["'])(.*?)\1/i) || inner.match(/src\s*=\s*([^\s'">]+)/i);
-        var altMatch = inner.match(/alt\s*=\s*(["'])(.*?)\1/i);
-        if (srcMatch) {
-          var src = (srcMatch[2] || srcMatch[1]).replace(/[\r\n\s|]+/g, '');
-          var alt = altMatch ? (altMatch[2] || altMatch[1]) : 'Image';
-          return '<br><img src="' + escapeHtml(src) + '" alt="' + escapeHtml(alt) + '" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
-        }
-        return '';
-      });
-
-      // 5. Clean up markdown table syntax (`|---|` and `|||`) so they don't render as raw pipes
-      body = body.replace(/\|?\s*[-:]+[-| :]*\|?/g, function(match) {
-        if (match.indexOf('-') !== -1) return '<hr style="border:0; border-top:1px solid var(--border); margin:16px 0;">';
-        return '';
-      });
-      body = body.replace(/^\s*\|\s*/gm, '');
-      body = body.replace(/\s*\|\s*$/gm, '');
+      // 5. Safely strip out markdown table divider lines (e.g. |---|---|) so they don't clutter the post
+      body = body.replace(/^\s*\|?\s*[-:]+[-| :]*\|?\s*$/gm, '');
 
       // 6. Handle Headings (##, ###, #)
       body = body.replace(/^\s*###\s+(.*)$/gm, function(match, title) {
@@ -1411,20 +1391,23 @@
         return '<h2>' + escapeHtml(title) + '</h2>';
       });
 
-      // 7. Handle HTML tags (<center>, </center>, <br>, etc.)
+      // 7. Handle standard HTML tags (<center>, </center>, <br>, <img>)
       body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
         return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
       });
       body = body.replace(/<br\s*\/?>/gi, '<br>');
 
-      body = body.replace(/!\[\s*`?]?/g, '');
       body = body.replace(/&nbsp;/gi, ' ');
 
+      // Split into clean paragraphs
       var paragraphs = body.split(/\n\s*\n/);
       var htmlParts = [];
       for (var i = 0; i < paragraphs.length; i++) {
         var p = paragraphs[i].trim();
         if (!p) continue;
+        p = p.replace(/^\|\s*|\s*\|$/g, '').trim();
+        if (!p) continue;
+
         if (p.indexOf('<div') === 0 || p.indexOf('<img') === 0 || p.indexOf('<center') === 0 || p.indexOf('<h2') === 0 || p.indexOf('<h3') === 0 || p.indexOf('<hr') === 0) {
           htmlParts.push(p);
         } else {
