@@ -948,7 +948,7 @@
     ];
 
     var STOP_WORDS = {
-      // English structural stop words
+      // Comprehensive universal structural stop words (English, Spanish, French, German, Italian, Portuguese)
       the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
       not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
       will:1,way:1,about:1,many:1,then:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
@@ -964,16 +964,29 @@
       animal:1,point:1,mother:1,world:1,near:1,build:1,self:1,earth:1,father:1,http:1,https:1,
       www:1,com:1,org:1,net:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,webp:1,gif:1,
       
-      // Universal multi-lingual stop words (Spanish, French, German, Italian, Portuguese articles, pronouns, prepositions, conjunctions)
+      // Pronouns, prepositions, conjunctions, and auxiliary verbs across English & Romance languages
+      one:1,they:1,his:1,her:1,she:1,he:1,it:1,its:1,our:1,ours:1,your:1,yours:1,their:1,theirs:1,
+      me:1,him:1,us:1,them:1,who:1,whom:1,whose:1,which:1,that:1,this:1,these:1,those:1,
+      into:1,onto:1,upon:1,out:1,off:1,over:1,under:1,again:1,further:1,then:1,once:1,
+      because:1,since:1,although:1,though:1,while:1,where:1,when:1,why:1,how:1,both:1,
+      either:1,neither:1,nor:1,so:1,than:1,too:1,very:1,s:1,t:1,don:1,should:1,now:1,
+      
+      // Spanish & Portuguese structural noise
       el:1,la:1,los:1,las:1,un:1,una:1,unos:1,unas:1,y:1,o:1,de:1,del:1,al:1,en:1,por:1,para:1,con:1,sin:1,
       su:1,sus:1,tu:1,tus:1,mi:1,mis:1,es:1,son:1,fue:1,era:1,que:1,quien:1,como:1,mas:1,pero:1,si:1,
-      no:1,ya:1,o:1,le:1,les:1,se:1,lo:1,ha:1,han:1,hay:1,estar:1,ser:1,
+      no:1,ya:1,le:1,les:1,se:1,lo:1,ha:1,han:1,hay:1,estar:1,ser:1,nos:1,vos:1,ellos:1,ellas:1,
+      um:1,uma:1,os:1,as:1,no:1,na:1,por:1,para:1,com:1,sem:1,foi:1,sao:1,seria:1,dos:1,das:1,
+      
+      // French structural noise
       le:1,la:1,les:1,des:1,du:1,un:1,une:1,et:1,ou:1,en:1,par:1,pour:1,dans:1,sur:1,avec:1,sans:1,
-      est:1,sont:1,pas:1,ne:1,que:1,qui:1,c:1,il:1,elle:1,ils:1,elles:1,on:1,nous:1,vous:1,
+      est:1,sont:1,pas:1,ne:1,que:1,qui:1,c:1,il:1,elle:1,ils:1,elles:1,on:1,nous:1,vous:1,tout:1,
+      
+      // German structural noise
       der:1,die:1,das:1,dem:1,den:1,des:1,ein:1,eine:1,und:1,oder:1,in:1,an:1,auf:1,mit:1,von:1,
-      zu:1,fur:1,ist:1,sind:1,war:1,waren:1,es:1,sie:1,er:1,wir:1,ihr:1,
-      il:1,lo:1,la:1,i:1,gli:1,le:1,un:1,uno:1,una:1,e:1,o:1,di:1,da:1,in:1,con:1,su:1,per:1,tra:1,fra:1,
-      e:1,o:1,um:1,uma:1,os:1,as:1,no:1,na:1,por:1,para:1,com:1,sem:1,foi:1,sao:1
+      zu:1,fur:1,ist:1,sind:1,war:1,waren:1,es:1,sie:1,er:1,wir:1,ihr:1,nicht:1,auch:1,
+      
+      // Italian structural noise
+      il:1,lo:1,la:1,i:1,gli:1,le:1,un:1,uno:1,una:1,e:1,o:1,di:1,da:1,in:1,con:1,su:1,per:1,tra:1,fra:1,non:1
     };
 
     var appState = {
@@ -1509,7 +1522,7 @@
       var vec = {};
       var normSq = 0;
       for (var term in counts) {
-        if (Object.prototype.hasOwnProperty.call(counts, term) && counts[term] > 0) {
+        if (Object.prototype.hasOwnProperty.call(counts, term) && counts[term] > 0 && !STOP_WORDS[term]) {
           var tf = 1 + Math.log(counts[term]);
           vec[term] = tf;
           normSq += tf * tf;
@@ -1523,7 +1536,7 @@
       var dot = 0;
       var matched = [];
       for (var term in a.vec) {
-        if (Object.prototype.hasOwnProperty.call(a.vec, term) && b.vec[term]) {
+        if (Object.prototype.hasOwnProperty.call(a.vec, term) && b.vec[term] && !STOP_WORDS[term]) {
           var prod = a.vec[term] * b.vec[term];
           dot += prod;
           matched.push({ term: term, weight: prod });
@@ -1532,7 +1545,9 @@
       matched.sort(function (x, y) { return y.weight - x.weight; });
       var top = [];
       for (var i = 0; i < Math.min(5, matched.length); i++) {
-        top.push(matched[i].term);
+        if (!STOP_WORDS[matched[i].term]) {
+          top.push(matched[i].term);
+        }
       }
       return {
         score: dot / (a.norm * b.norm),
@@ -2053,7 +2068,7 @@
       var seen = {};
       for (var i = 0; i < tokens.length; i++) {
         var t = tokens[i];
-        if (seen[t]) continue;
+        if (seen[t] || STOP_WORDS[t]) continue;
         seen[t] = true;
         if (taste.weights[t]) {
           boost += taste.weights[t] * 0.03;
@@ -2073,10 +2088,12 @@
 
       for (var i = 0; i < titleTokens.length; i++) {
         var tt = titleTokens[i];
+        if (STOP_WORDS[tt]) continue;
         taste.weights[tt] = (taste.weights[tt] || 0) + (delta * 1.4);
       }
       for (var j = 0; j < bodyTokens.length; j++) {
         var bt = bodyTokens[j];
+        if (STOP_WORDS[bt]) continue;
         taste.weights[bt] = (taste.weights[bt] || 0) + (delta * 0.6);
       }
 
@@ -2776,6 +2793,7 @@
               var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
               var toks = tokenize(text);
               for (var j = 0; j < toks.length; j++) {
+                if (STOP_WORDS[toks[j]]) continue;
                 allTokens.push(toks[j]);
                 weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + entry.weight;
               }
@@ -2788,6 +2806,7 @@
                 var text = (p.title || '') + ' ' + (p.body || '');
                 var toks = tokenize(text);
                 for (var j = 0; j < toks.length; j++) {
+                  if (STOP_WORDS[toks[j]]) continue;
                   allTokens.push(toks[j]);
                   weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + 2.0;
                 }
@@ -2893,6 +2912,7 @@
             var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
             var toks = tokenize(text);
             for (var j = 0; j < toks.length; j++) {
+              if (STOP_WORDS[toks[j]]) continue;
               allTokens.push(toks[j]);
               weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + entry.weight;
             }
