@@ -2052,14 +2052,15 @@
       var title = '';
       var json_metadata = JSON.stringify({ app: 'nectarseeker/1.0' });
 
+      // Corrected parameter order for Hive Keychain requestComment
       window.hive_keychain.requestComment(
         connectedUser,
+        parentAuthor,
+        parentPermlink,
+        permlink,
         title,
         body,
-        parentPermlink,
-        parentAuthor,
         json_metadata,
-        permlink,
         function (res) {
           if (res && res.success) {
             setStatus('Successfully posted comment on @' + parentAuthor + '/' + parentPermlink, false);
@@ -2107,6 +2108,8 @@
       var submitBtn = document.getElementById('tipSubmitBtn');
 
       amtInput.value = '1.000';
+      amtInput.step = 'any';
+      amtInput.min = '';
       symbolSection.style.display = 'none';
       amountSection.style.display = 'block';
       submitBtn.style.display = 'inline-block';
@@ -2114,7 +2117,10 @@
       if (type === 'HSBI') {
         titleEl.textContent = 'Sponsor HSBI for @' + author;
         balEl.textContent = 'Available liquid HIVE balance: ' + hiveBal;
-        amtLabel.textContent = 'Amount of HIVE (1 HIVE = 1 unit):';
+        amtLabel.textContent = 'Amount of HIVE (Whole HIVE units only):';
+        amtInput.step = '1';
+        amtInput.min = '1';
+        amtInput.value = '1';
         memoGroup.style.display = 'none';
         document.getElementById('tipModal').style.display = 'flex';
       } else if (type === 'HIVE') {
@@ -2187,7 +2193,34 @@
       closeTipModal();
 
       if (type === 'HSBI') {
-        var amountStr = parseFloat(amtVal).toFixed(3);
+        var acc = appState.accountData || {};
+        var hiveBalStr = acc.balance || '0.000 HIVE';
+        var hiveBalance = parseFloat(hiveBalStr) || 0;
+
+        var rawAmt = parseFloat(amtVal) || 1;
+        var ceilVal = Math.ceil(rawAmt);
+        var floorVal = Math.floor(rawAmt);
+        var roundedAmt;
+
+        // Force rounding up if balance covers it, or rounding down if balance isn't enough
+        if (hiveBalance >= ceilVal) {
+          roundedAmt = ceilVal;
+        } else if (hiveBalance >= floorVal && floorVal >= 1) {
+          roundedAmt = floorVal;
+        } else {
+          roundedAmt = Math.max(1, Math.floor(hiveBalance));
+        }
+
+        if (roundedAmt > hiveBalance) {
+          roundedAmt = Math.max(1, Math.floor(hiveBalance));
+        }
+
+        if (roundedAmt < 1 || roundedAmt > hiveBalance) {
+          alert('Insufficient HIVE balance to sponsor HSBI (minimum 1 HIVE required).');
+          return;
+        }
+
+        var amountStr = roundedAmt.toFixed(3);
         window.hive_keychain.requestTransfer(
           connectedUser,
           'steembasicincome',
@@ -2196,7 +2229,7 @@
           'HIVE',
           function(res) {
             if (res && res.success) {
-              setStatus('Successfully sponsored HSBI for @' + author + '!', false);
+              setStatus('Successfully sponsored HSBI (' + amountStr + ' HIVE) for @' + author + '!', false);
             } else {
               setStatus('HSBI sponsorship transfer cancelled or failed.', true);
             }
