@@ -794,7 +794,7 @@
         <strong style="color:var(--accent-cyan);">Username Mode:</strong> Looks up any Hive user to display their authored posts at the top, alongside personalized content recommendations based on their activity.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Search Term Mode:</strong> Indexes and searches Hive content to score and rank articles matching your exact keywords or phrases rapidly.
+        <strong style="color:var(--accent-cyan);">Search Term Mode:</strong> Indexes and searches Hive content using corpus-wide IDF weighting to score and rank articles matching your keywords or phrases rapidly.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
@@ -948,11 +948,11 @@
     ];
 
     var STOP_WORDS = {
-      // Comprehensive universal structural stop words (English, Spanish, French, German, Italian, Portuguese)
+      // English structural & grammar filler words only
       the:1,and:1,for:1,that:1,this:1,with:1,you:1,are:1,was:1,were:1,from:1,have:1,has:1,had:1,
       not:1,but:1,what:1,all:1,when:1,can:1,said:1,there:1,use:1,each:1,which:1,their:1,time:1,
       will:1,way:1,about:1,many:1,then:1,them:1,would:1,write:1,like:1,these:1,long:1,make:1,
-      thing:1,see:1,him:1,two:1,more:1,could:1,come:1,did:1,my:1,sound:1,most:1,people:1,over:1,
+      see:1,him:1,two:1,more:1,could:1,come:1,did:1,my:1,sound:1,most:1,people:1,over:1,
       know:1,water:1,than:1,call:1,first:1,who:1,may:1,down:1,side:1,been:1,now:1,find:1,any:1,
       new:1,work:1,part:1,take:1,get:1,place:1,made:1,live:1,where:1,after:1,back:1,little:1,
       only:1,round:1,man:1,year:1,came:1,show:1,every:1,good:1,give:1,our:1,under:1,very:1,
@@ -961,32 +961,20 @@
       three:1,want:1,air:1,well:1,also:1,play:1,small:1,end:1,put:1,home:1,read:1,hand:1,port:1,
       large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
       ask:1,men:1,change:1,went:1,light:1,kind:1,off:1,need:1,house:1,picture:1,try:1,again:1,
-      animal:1,point:1,mother:1,world:1,near:1,build:1,self:1,earth:1,father:1,http:1,https:1,
-      www:1,com:1,org:1,net:1,hive:1,peakd:1,ecency:1,post:1,blog:1,images:1,png:1,jpg:1,jpeg:1,webp:1,gif:1,
       
-      // Pronouns, prepositions, conjunctions, and auxiliary verbs across English & Romance languages
-      one:1,they:1,his:1,her:1,she:1,he:1,it:1,its:1,our:1,ours:1,your:1,yours:1,their:1,theirs:1,
-      me:1,him:1,us:1,them:1,who:1,whom:1,whose:1,which:1,that:1,this:1,these:1,those:1,
-      into:1,onto:1,upon:1,out:1,off:1,over:1,under:1,again:1,further:1,then:1,once:1,
-      because:1,since:1,although:1,though:1,while:1,where:1,when:1,why:1,how:1,both:1,
-      either:1,neither:1,nor:1,so:1,than:1,too:1,very:1,s:1,t:1,don:1,should:1,now:1,
+      // Pronouns, prepositions, conjunctions
+      one:1,they:1,his:1,her:1,she:1,he:1,it:1,its:1,ours:1,your:1,yours:1,theirs:1,
+      me:1,us:1,whom:1,whose:1,that:1,those:1,into:1,onto:1,upon:1,out:1,
+      because:1,since:1,although:1,though:1,while:1,both:1,either:1,neither:1,nor:1,so:1,
       
-      // Spanish & Portuguese structural noise
+      // Spanish/Portuguese/French/German/Italian structural grammar noise
       el:1,la:1,los:1,las:1,un:1,una:1,unos:1,unas:1,y:1,o:1,de:1,del:1,al:1,en:1,por:1,para:1,con:1,sin:1,
       su:1,sus:1,tu:1,tus:1,mi:1,mis:1,es:1,son:1,fue:1,era:1,que:1,quien:1,como:1,mas:1,pero:1,si:1,
       no:1,ya:1,le:1,les:1,se:1,lo:1,ha:1,han:1,hay:1,estar:1,ser:1,nos:1,vos:1,ellos:1,ellas:1,
-      um:1,uma:1,os:1,as:1,no:1,na:1,por:1,para:1,com:1,sem:1,foi:1,sao:1,seria:1,dos:1,das:1,
-      
-      // French structural noise
-      le:1,la:1,les:1,des:1,du:1,un:1,une:1,et:1,ou:1,en:1,par:1,pour:1,dans:1,sur:1,avec:1,sans:1,
-      est:1,sont:1,pas:1,ne:1,que:1,qui:1,c:1,il:1,elle:1,ils:1,elles:1,on:1,nous:1,vous:1,tout:1,
-      
-      // German structural noise
-      der:1,die:1,das:1,dem:1,den:1,des:1,ein:1,eine:1,und:1,oder:1,in:1,an:1,auf:1,mit:1,von:1,
-      zu:1,fur:1,ist:1,sind:1,war:1,waren:1,es:1,sie:1,er:1,wir:1,ihr:1,nicht:1,auch:1,
-      
-      // Italian structural noise
-      il:1,lo:1,la:1,i:1,gli:1,le:1,un:1,uno:1,una:1,e:1,o:1,di:1,da:1,in:1,con:1,su:1,per:1,tra:1,fra:1,non:1
+      um:1,uma:1,os:1,as:1,na:1,com:1,sem:1,foi:1,sao:1,seria:1,dos:1,das:1,porque:1,todo:1,toda:1,
+      todos:1,todas:1,esta:1,este:1,esto:1,estas:1,estos:1,sino:1,desde:1,dentro:1,poder:1,
+      der:1,die:1,das:1,dem:1,den:1,des:1,ein:1,eine:1,und:1,oder:1,ist:1,sind:1,war:1,waren:1,
+      il:1,lo:1,i:1,gli:1,le:1,uno:1,e:1,di:1,da:1,su:1,per:1,tra:1,fra:1
     };
 
     var appState = {
@@ -1321,7 +1309,7 @@
       var negTerms = [];
 
       for (var k in taste.weights) {
-        if (!Object.prototype.hasOwnProperty.call(taste.weights, k)) continue;
+        if (!Object.prototype.hasOwnProperty.call(taste.weights, k) || STOP_WORDS[k]) continue;
         var w = taste.weights[k];
         if (w >= 0.8) posTerms.push({ term: k, w: w });
         else if (w <= -0.8) negTerms.push({ term: k, w: w });
@@ -1373,12 +1361,10 @@
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
 
-      // 1. Clean up broken image URLs split across lines
       body = body.replace(/(https?:\/\/[^\s]+)/g, function(urlMatch) {
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
-      // 2. Convert markdown images ![alt](url "title") to proper responsive HTML images
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = escapeHtml(alt || 'Image');
         var parts = inner.trim().split(/\s+/);
@@ -1388,7 +1374,6 @@
         return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="' + cleanAlt + '" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
       });
 
-      // Handle empty brackets image markdown []()
       body = body.replace(/\[\s*\]\(([^)]+)\)/g, function(match, inner) {
         var parts = inner.trim().split(/\s+/);
         var url = parts[0].replace(/^["']|["']$/g, '');
@@ -1397,13 +1382,11 @@
         return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="Image" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
       });
 
-      // 3. Auto-detect standalone image URLs (.png, .jpg, .jpeg, .webp, .gif)
       body = body.replace(/(?<!["'=])(https?:\/\/[^\s<"]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s<"]*)?)/gi, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + escapeHtml(cleanUrl) + '" alt="Image" style="max-width:100%; border-radius:8px; display:block; margin:12px auto;"><br>';
       });
 
-      // 4. Convert markdown links [text](url)
       body = body.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, inner) {
         var parts = inner.trim().split(/\s+/);
         var url = parts[0].replace(/^["']|["']$/g, '');
@@ -1411,12 +1394,10 @@
         return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // 5. Safely strip out markdown table markup, table dividers, and standalone pipe characters (|)
       body = body.replace(/^\s*\|?\s*[-:]+[-| :]*\|?\s*$/gm, '');
       body = body.replace(/^\s*[|]+\s*$/gm, '');
       body = body.replace(/\|{2,}/g, '');
 
-      // 6. Handle Headings (##, ###, #)
       body = body.replace(/^\s*###\s+(.*)$/gm, function(match, title) {
         return '<h3>' + escapeHtml(title) + '</h3>';
       });
@@ -1427,15 +1408,12 @@
         return '<h2>' + escapeHtml(title) + '</h2>';
       });
 
-      // 7. Handle standard HTML tags (<center>, </center>, <br>, <img>)
       body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
         return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
       });
       body = body.replace(/<br\s*\/?>/gi, '<br>');
-
       body = body.replace(/&nbsp;/gi, ' ');
 
-      // Split into clean paragraphs
       var paragraphs = body.split(/\n\s*\n/);
       var htmlParts = [];
       for (var i = 0; i < paragraphs.length; i++) {
@@ -1512,10 +1490,40 @@
       return tokens;
     }
 
-    function buildVector(tokens, weightsMap) {
+    // Dynamic Corpus IDF Calculation (Search Engine Best Practice)
+    function computeCorpusIDF(candidates) {
+      var docCount = candidates.length;
+      var termDocCounts = {};
+
+      for (var i = 0; i < docCount; i++) {
+        var c = candidates[i];
+        var tokens = tokenize((c.title || '') + ' ' + (c.body || ''));
+        var uniqueTokens = {};
+        for (var j = 0; j < tokens.length; j++) {
+          uniqueTokens[tokens[j]] = true;
+        }
+        for (var t in uniqueTokens) {
+          if (Object.prototype.hasOwnProperty.call(uniqueTokens, t)) {
+            termDocCounts[t] = (termDocCounts[t] || 0) + 1;
+          }
+        }
+      }
+
+      var idfMap = {};
+      for (var term in termDocCounts) {
+        if (Object.prototype.hasOwnProperty.call(termDocCounts, term)) {
+          var df = termDocCounts[term];
+          idfMap[term] = Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
+        }
+      }
+      return idfMap;
+    }
+
+    function buildVectorWithIDF(tokens, weightsMap, idfMap) {
       var counts = {};
       for (var i = 0; i < tokens.length; i++) {
         var t = tokens[i];
+        if (STOP_WORDS[t]) continue;
         var w = weightsMap ? (weightsMap[t] || 1) : 1;
         counts[t] = (counts[t] || 0) + w;
       }
@@ -1524,8 +1532,10 @@
       for (var term in counts) {
         if (Object.prototype.hasOwnProperty.call(counts, term) && counts[term] > 0 && !STOP_WORDS[term]) {
           var tf = 1 + Math.log(counts[term]);
-          vec[term] = tf;
-          normSq += tf * tf;
+          var idf = idfMap && idfMap[term] !== undefined ? idfMap[term] : 1.0;
+          var weight = tf * Math.max(0.1, idf);
+          vec[term] = weight;
+          normSq += weight * weight;
         }
       }
       return { vec: vec, norm: Math.sqrt(normSq) };
@@ -1544,9 +1554,10 @@
       }
       matched.sort(function (x, y) { return y.weight - x.weight; });
       var top = [];
-      for (var i = 0; i < Math.min(5, matched.length); i++) {
-        if (!STOP_WORDS[matched[i].term]) {
-          top.push(matched[i].term);
+      for (var i = 0; i < matched.length; i++) {
+        var t = matched[i].term;
+        if (!STOP_WORDS[t] && t.length >= 3 && top.length < 5) {
+          top.push(t);
         }
       }
       return {
@@ -2785,37 +2796,39 @@
 
           var seedPromises = (hist.seeds && hist.seeds.length > 0) ? fetchSeedPosts(hist.seeds, skipKeys) : Promise.resolve([]);
           return seedPromises.then(function (seedData) {
-            var allTokens = [];
-            var weightsMap = {};
-            for (var i = 0; i < seedData.length; i++) {
-              var entry = seedData[i];
-              if (!entry || !entry.post) continue;
-              var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
-              var toks = tokenize(text);
-              for (var j = 0; j < toks.length; j++) {
-                if (STOP_WORDS[toks[j]]) continue;
-                allTokens.push(toks[j]);
-                weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + entry.weight;
-              }
-            }
+            return fetchAllFrontendsPool(obs).then(function (candidates) {
+              var idfMap = computeCorpusIDF(candidates);
 
-            for (var i = 0; i < ownPosts.length; i++) {
-              var p = ownPosts[i];
-              if (p && p.author === username) {
-                skipKeys[username + '/' + p.permlink] = true;
-                var text = (p.title || '') + ' ' + (p.body || '');
+              var allTokens = [];
+              var weightsMap = {};
+              for (var i = 0; i < seedData.length; i++) {
+                var entry = seedData[i];
+                if (!entry || !entry.post) continue;
+                var text = (entry.post.title || '') + ' ' + (entry.post.body || '');
                 var toks = tokenize(text);
                 for (var j = 0; j < toks.length; j++) {
                   if (STOP_WORDS[toks[j]]) continue;
                   allTokens.push(toks[j]);
-                  weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + 2.0;
+                  weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + entry.weight;
                 }
               }
-            }
 
-            var profileVec = allTokens.length > 0 ? buildVector(allTokens, weightsMap) : null;
-            return fetchAllFrontendsPool(obs).then(function (candidates) {
-              return { ownPosts: ownPosts, candidates: candidates, profileVec: profileVec, skipKeys: skipKeys };
+              for (var i = 0; i < ownPosts.length; i++) {
+                var p = ownPosts[i];
+                if (p && p.author === username) {
+                  skipKeys[username + '/' + p.permlink] = true;
+                  var text = (p.title || '') + ' ' + (p.body || '');
+                  var toks = tokenize(text);
+                  for (var j = 0; j < toks.length; j++) {
+                    if (STOP_WORDS[toks[j]]) continue;
+                    allTokens.push(toks[j]);
+                    weightsMap[toks[j]] = (weightsMap[toks[j]] || 0) + 2.0;
+                  }
+                }
+              }
+
+              var profileVec = allTokens.length > 0 ? buildVectorWithIDF(allTokens, weightsMap, idfMap) : null;
+              return { ownPosts: ownPosts, candidates: candidates, profileVec: profileVec, skipKeys: skipKeys, idfMap: idfMap };
             });
           });
         })
@@ -2824,6 +2837,7 @@
           var candidates = data.candidates;
           var profileVec = data.profileVec;
           var skipKeys = data.skipKeys;
+          var idfMap = data.idfMap;
           var taste = loadTaste();
           var scored = [];
           var addedKeys = {};
@@ -2864,7 +2878,7 @@
             var score = 0.1;
             var matched = [];
             if (profileVec) {
-              var cVec = buildVector(cTokens, null);
+              var cVec = buildVectorWithIDF(cTokens, null, idfMap);
               var sim = cosineSim(profileVec, cVec);
               score = sim.score;
               matched = sim.matched;
@@ -2920,10 +2934,15 @@
           if (allTokens.length === 0) {
             throw new Error('Could not extract enough text from your history.');
           }
-          profileVec = buildVector(allTokens, weightsMap);
-          return fetchAllFrontendsPool(username);
+          return fetchAllFrontendsPool(username).then(function(candidates) {
+            var idfMap = computeCorpusIDF(candidates);
+            profileVec = buildVectorWithIDF(allTokens, weightsMap, idfMap);
+            return { candidates: candidates, idfMap: idfMap };
+          });
         })
-        .then(function (candidates) {
+        .then(function (data) {
+          var candidates = data.candidates;
+          var idfMap = data.idfMap;
           var taste = loadTaste();
           var scored = [];
 
@@ -2938,7 +2957,7 @@
             var cTokens = tokenize(fullText);
             if (cTokens.length < 20) continue;
 
-            var cVec = buildVector(cTokens, null);
+            var cVec = buildVectorWithIDF(cTokens, null, idfMap);
             var sim = cosineSim(profileVec, cVec);
             if (sim.score > 0.005) {
               var ts = Date.parse((c.created || '') + 'Z') || 0;
@@ -2968,9 +2987,11 @@
       }
       var queryTokens = tokenize(cleanQuery);
       var lowerPhrase = cleanQuery.toLowerCase();
-      var queryVec = buildVector(queryTokens.length > 0 ? queryTokens : [lowerPhrase], null);
 
       return fetchSearchPool24Months().then(function (candidates) {
+        var idfMap = computeCorpusIDF(candidates);
+        var queryVec = buildVectorWithIDF(queryTokens.length > 0 ? queryTokens : [lowerPhrase], null, idfMap);
+
         var taste = loadTaste();
         var scored = [];
 
@@ -2987,7 +3008,7 @@
           var cTokens = tokenize(titleStr + ' ' + bodyStr);
           if (cTokens.length < 15) continue;
 
-          var cVec = buildVector(cTokens, null);
+          var cVec = buildVectorWithIDF(cTokens, null, idfMap);
           var sim = cosineSim(queryVec, cVec);
           var score = sim.score;
 
