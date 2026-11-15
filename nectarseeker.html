@@ -757,7 +757,7 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Reload Page:</strong> If anything looks off or fails to load, click <strong>Is something off? Reload Page</strong> in the reader to fetch a fresh version instantly.
+        <strong style="color:var(--accent-cyan);">Reload Page:</strong> If anything looks off or fails to load, click <strong>Is something off? Reload Page</strong> in the reader to fetch fresh data instantly.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Hive Keychain Integration:</strong> Connect your account via Hive Keychain to vote, comment, reblog, and tip authors directly.
@@ -1430,27 +1430,36 @@
       setStatus('🔄 Re-fetching latest post data from Hive blockchain...', false);
       var p = item.post;
 
-      hiveCall('bridge.get_post', { author: p.author, permlink: p.permlink })
-        .catch(function() {
-          return hiveCall('condenser_api.get_content', [p.author, p.permlink]);
-        })
+      hiveCall('condenser_api.get_content', [p.author, p.permlink])
         .then(function(freshPost) {
           if (freshPost && freshPost.body) {
             appState.results[idx].post = freshPost;
             p = freshPost;
           }
+          var titleEl = document.getElementById('readerTitle');
           var contentEl = document.getElementById('readerContent');
-          if (contentEl) {
-            contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
-          }
+          if (titleEl) titleEl.textContent = p.title || '(Untitled)';
+          if (contentEl) contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+          loadPostComments(p.author, p.permlink);
           setStatus('✅ Page reloaded with fresh post data.', false);
         })
         .catch(function() {
-          var contentEl = document.getElementById('readerContent');
-          if (contentEl) {
-            contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
-          }
-          setStatus('✅ Reader reloaded successfully.', false);
+          hiveCall('bridge.get_post', { author: p.author, permlink: p.permlink })
+            .then(function(freshPost) {
+              if (freshPost && freshPost.body) {
+                appState.results[idx].post = freshPost;
+                p = freshPost;
+              }
+              var titleEl = document.getElementById('readerTitle');
+              var contentEl = document.getElementById('readerContent');
+              if (titleEl) titleEl.textContent = p.title || '(Untitled)';
+              if (contentEl) contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+              loadPostComments(p.author, p.permlink);
+              setStatus('✅ Page reloaded with fresh post data.', false);
+            })
+            .catch(function(err) {
+              setStatus('⚠️ Could not refresh post: ' + (err.message || 'Network error'), true);
+            });
         });
     }
 
