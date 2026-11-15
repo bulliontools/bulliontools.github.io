@@ -604,6 +604,20 @@
       display: block;
       margin: 16px auto;
     }
+    #readerContent h2 {
+      font-size: 20px;
+      color: var(--text-main);
+      margin-top: 24px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    #readerContent h3 {
+      font-size: 17px;
+      color: var(--text-main);
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
     .reader-action-section {
       margin-top: 24px;
       background: var(--surface-2);
@@ -1334,25 +1348,47 @@
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText || '');
 
+      // Fix broken URLs split across multiple lines by authors
       body = body.replace(/(https?:\/\/[^\s]+)/g, function(urlMatch) {
         return urlMatch.replace(/[\r\n\s|]+/g, '');
       });
 
+      // 1. Convert markdown images ![alt](url) to HTML img tags
       body = body.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt) + '"><br>';
       });
 
+      // Handle images wrapped in []() or bare URLs that are images
       body = body.replace(/\[\s*\]\((https?:\/\/[^\s)]+)\)/g, function(match, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
 
+      // Auto-detect standalone image URL lines (e.g., ending in .jpg, .png, etc.)
+      body = body.replace(/^(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s]*)?)$/gim, function(match, url) {
+        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
+        return '<br><img src="' + cleanUrl.replace(/"/g, '&quot;') + '" alt="Image"><br>';
+      });
+
+      // 2. Convert markdown links [text](url)
       body = body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
         var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
         return '<a href="' + cleanUrl.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
+      // 3. Handle Headings (##, ###)
+      body = body.replace(/^###\s+(.*)$/gm, function(match, title) {
+        return '<h3>' + escapeHtml(title) + '</h3>';
+      });
+      body = body.replace(/^##\s+(.*)$/gm, function(match, title) {
+        return '<h2>' + escapeHtml(title) + '</h2>';
+      });
+      body = body.replace(/^#\s+(.*)$/gm, function(match, title) {
+        return '<h2>' + escapeHtml(title) + '</h2>';
+      });
+
+      // 4. Handle common HTML tags (<center>, </center>, <br>, <img>, etc.)
       body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
         return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
       });
@@ -1377,7 +1413,7 @@
       for (var i = 0; i < paragraphs.length; i++) {
         var p = paragraphs[i].trim();
         if (!p) continue;
-        if (p.indexOf('<div') === 0 || p.indexOf('<img') === 0 || p.indexOf('<center') === 0) {
+        if (p.indexOf('<div') === 0 || p.indexOf('<img') === 0 || p.indexOf('<center') === 0 || p.indexOf('<h2') === 0 || p.indexOf('<h3') === 0) {
           htmlParts.push(p);
         } else {
           htmlParts.push('<p>' + p.replace(/\n/g, '<br>') + '</p>');
