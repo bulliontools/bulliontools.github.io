@@ -330,6 +330,7 @@
     .card h3 a {
       color: #f8fafc;
       text-decoration: none;
+      cursor: pointer;
     }
     .card h3 a:hover {
       color: #ff6b84;
@@ -463,6 +464,68 @@
       color: #fda4af;
     }
 
+    /* In-Page Reader Modal Styles */
+    #postReaderModal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(13, 16, 23, 0.95);
+      z-index: 1000;
+      overflow-y: auto;
+      padding: 24px 16px;
+    }
+    .reader-container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #151a24;
+      border: 1px solid #2a3447;
+      border-radius: 14px;
+      padding: 28px;
+      position: relative;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.5);
+    }
+    .reader-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background-color: #e31337;
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .reader-close:hover { background-color: #ff264c; }
+    #readerTitle {
+      color: #f8fafc;
+      font-size: 24px;
+      margin-top: 0;
+      margin-bottom: 12px;
+      line-height: 1.3;
+      padding-right: 90px;
+    }
+    #readerMeta {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #2a3447;
+    }
+    #readerContent {
+      color: #cbd5e1;
+      font-size: 16px;
+      line-height: 1.7;
+      word-break: break-word;
+    }
+    #readerContent p {
+      margin-bottom: 16px;
+    }
+
     @media (max-width: 640px) {
       .toolbar-row {
         flex-direction: column;
@@ -577,6 +640,16 @@
   <div id="status" style="background-color:#112a38;color:#bae6fd;border:1px solid #38bdf8;border-radius:9px;padding:12px 14px;margin-bottom:16px;">Ready. Enter your Hive username or select Feed mode to load your personalized recommendations.</div>
   <div id="feed"></div>
 
+  <!-- IN-PAGE READER MODAL -->
+  <div id="postReaderModal">
+    <div class="reader-container">
+      <button type="button" class="reader-close" onclick="closePostReader()">Close Reader</button>
+      <h2 id="readerTitle"></h2>
+      <div id="readerMeta"></div>
+      <div id="readerContent"></div>
+    </div>
+  </div>
+
   <script>
     (function () {
       var st = document.getElementById('status');
@@ -678,8 +751,16 @@
     }
 
     function getUserVoteInfo(post, username) {
-      if (!username || !post || !Array.isArray(post.active_votes)) return null;
+      if (!username || !post) return null;
       var target = stripLeadingAt(username);
+      var key = post.author + '/' + post.permlink;
+      var taste = loadTaste();
+      
+      if (taste.liked && taste.liked[key]) {
+        return { voted: true, percent: 100 };
+      }
+
+      if (!Array.isArray(post.active_votes)) return { voted: false, percent: 0 };
       for (var i = 0; i < post.active_votes.length; i++) {
         var v = post.active_votes[i];
         if (v && stripLeadingAt(v.voter) === target) {
@@ -1409,16 +1490,6 @@
       return 'Hive dApp';
     }
 
-    function getNativeUrl(post, dapp) {
-      var path = '/@' + encodeURIComponent(post.author) + '/' + encodeURIComponent(post.permlink);
-      if (dapp === 'Ecency') return 'https://ecency.com' + path;
-      if (dapp === 'InLeo') return 'https://inleo.io' + path;
-      if (dapp === 'Liketu') return 'https://liketu.com' + path;
-      if (dapp === '3Speak') return 'https://3speak.tv/watch?v=' + encodeURIComponent(post.author + '/' + post.permlink);
-      if (dapp === 'Hive.blog') return 'https://hive.blog' + path;
-      return 'https://peakd.com' + path;
-    }
-
     function formatAge(createdStr) {
       if (!createdStr) return '';
       var ts = Date.parse(createdStr + 'Z');
@@ -1452,6 +1523,23 @@
       var taste = loadTaste();
       var key = item.post.author + '/' + item.post.permlink;
 
+      if (delta > 0 && window.hive_keychain) {
+        var connectedUser = getConnectedUser();
+        if (connectedUser) {
+          window.hive_keychain.requestVote(
+            connectedUser,
+            item.post.permlink,
+            item.post.author,
+            10000,
+            function (res) {
+              if (res && res.success) {
+                setStatus('Successfully cast upvote on @' + item.post.author + '/' + item.post.permlink, false);
+              }
+            }
+          );
+        }
+      }
+
       var titleTokens = tokenize(item.post.title || '');
       var bodyTokens = tokenize((item.post.body || '').slice(0, 1200));
 
@@ -1467,6 +1555,22 @@
       if (delta > 0) {
         taste.liked[key] = true;
         delete taste.disliked[key];
+
+        var currentUser = getConnectedUser();
+        if (currentUser) {
+          if (!Array.isArray(item.post.active_votes)) item.post.active_votes = [];
+          var found = false;
+          for (var v = 0; v < item.post.active_votes.length; v++) {
+            if (stripLeadingAt(item.post.active_votes[v].voter) === stripLeadingAt(currentUser)) {
+              item.post.active_votes[v].percent = 10000;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            item.post.active_votes.push({ voter: currentUser, percent: 10000 });
+          }
+        }
       } else {
         taste.disliked[key] = true;
         delete taste.liked[key];
@@ -1501,6 +1605,36 @@
       renderCards(activeList.slice(0, 100));
     }
 
+    function openPostReader(idx) {
+      var item = appState.results[idx];
+      if (!item) return;
+      var p = item.post;
+      
+      var titleEl = document.getElementById('readerTitle');
+      var metaEl = document.getElementById('readerMeta');
+      var contentEl = document.getElementById('readerContent');
+      var modalEl = document.getElementById('postReaderModal');
+      
+      if (titleEl) titleEl.textContent = p.title || '(Untitled)';
+      if (metaEl) {
+        var dapp = detectFrontend(p);
+        var age = formatAge(p.created);
+        metaEl.innerHTML = 'by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
+      }
+      if (contentEl) {
+        var rawBody = p.body || '';
+        var formatted = escapeHtml(rawBody).replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
+        contentEl.innerHTML = '<p>' + formatted + '</p>';
+      }
+      
+      if (modalEl) modalEl.style.display = 'block';
+    }
+
+    function closePostReader() {
+      var modalEl = document.getElementById('postReaderModal');
+      if (modalEl) modalEl.style.display = 'none';
+    }
+
     function renderCards(items) {
       var feedEl = document.getElementById('feed');
       if (!feedEl) return;
@@ -1517,7 +1651,6 @@
         var item = items[i];
         var p = item.post;
         var dapp = detectFrontend(p);
-        var mainUrl = getNativeUrl(p, dapp);
         var authorEnc = encodeURIComponent(p.author);
         var permEnc = encodeURIComponent(p.permlink);
         var peakdUrl = 'https://peakd.com/@' + authorEnc + '/' + permEnc;
@@ -1546,7 +1679,8 @@
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
-        html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="' + escapeHtml(mainUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+        // Title opens within the same page via the embedded reader
+        html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
@@ -1568,7 +1702,7 @@
         }
 
         html += '<div class="actions-right">';
-        html += '<span class="fe-links">Open: <a href="' + escapeHtml(peakdUrl) + '" target="_blank" rel="noopener noreferrer">PeakD</a> | <a href="' + escapeHtml(ecencyUrl) + '" target="_blank" rel="noopener noreferrer">Ecency</a> | <a href="' + escapeHtml(hiveUrl) + '" target="_blank" rel="noopener noreferrer">Hive.blog</a></span>';
+        html += '<span class="fe-links">Open Externally: <a href="' + escapeHtml(peakdUrl) + '" target="_blank" rel="noopener noreferrer">PeakD</a> | <a href="' + escapeHtml(ecencyUrl) + '" target="_blank" rel="noopener noreferrer">Ecency</a> | <a href="' + escapeHtml(hiveUrl) + '" target="_blank" rel="noopener noreferrer">Hive.blog</a></span>';
         html += '<button type="button" class="vote-btn up' + (item.isLiked ? ' active' : '') + '" onclick="learnFromCard(' + i + ', 1)">&#128077; More</button>';
         html += '<button type="button" class="vote-btn down" onclick="learnFromCard(' + i + ', -1)">&#128078; Less</button>';
         html += '</div>';
@@ -1952,10 +2086,9 @@
         setStatus('Hive Keychain extension or app browser was not detected.', true);
         return;
       }
-      var input = document.getElementById('queryInput');
-      var typed = input ? stripLeadingAt(input.value) : '';
-      var cached = getConnectedUser();
-      var targetAccount = typed || cached || null;
+      
+      // Pass null to let the user choose their account in the Hive Keychain extension
+      var targetAccount = null;
 
       window.hive_keychain.requestSignBuffer(
         targetAccount,
@@ -1963,7 +2096,7 @@
         'Posting',
         function (res) {
           if (res && res.success) {
-            var verifiedUser = (res.data && res.data.username) ? stripLeadingAt(res.data.username) : targetAccount;
+            var verifiedUser = (res.data && res.data.username) ? stripLeadingAt(res.data.username) : '';
             if (verifiedUser) {
               appState.kcUser = verifiedUser;
               try { localStorage.setItem(KC_USER_KEY, verifiedUser); } catch (e) {}
@@ -1973,6 +2106,7 @@
                 renderCards(appState.results.slice(0, 100));
               } else {
                 setMode('feed');
+                var input = document.getElementById('queryInput');
                 if (input && !input.value.trim()) input.value = '@' + verifiedUser;
                 startApp();
               }
