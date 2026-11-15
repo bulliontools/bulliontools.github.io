@@ -1324,43 +1324,61 @@
     }
 
     function renderHiveBodyHtml(rawText) {
-      var rawBody = String(rawText || '');
-      rawBody = rawBody.replace(/<img\s+[^>]*?>/gis, function(match) {
-        return match.replace(/[\r\n]+/g, ' ');
+      var body = String(rawText || '');
+
+      // 1. Convert markdown images ![alt](url) to HTML img tags first (before escaping)
+      body = body.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
+        return '<br><img src="' + url.replace(/"/g, '&quot;') + '" alt="' + escapeHtml(alt) + '"><br>';
       });
 
-      var escaped = escapeHtml(rawBody);
-
-      // Markdown images ![alt](url)
-      escaped = escaped.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, function(match, alt, url) {
-        return '<br><img src="' + url + '" alt="' + alt + '"><br>';
+      // Also handle images wrapped in []() or bare URLs that are images
+      body = body.replace(/\[\s*\]\((https?:\/\/[^\s)]+)\)/g, function(match, url) {
+        return '<br><img src="' + url.replace(/"/g, '&quot;') + '" alt="Image"><br>';
       });
 
-      // Markdown links [text](url)
-      escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
-        return '<a href="' + url + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + text + '</a>';
+      // 2. Convert markdown links [text](url)
+      body = body.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(match, text, url) {
+        return '<a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
       });
 
-      // Raw HTML <img> tags
-      escaped = escaped.replace(/&lt;img\s+([\s\S]*?)&gt;/gi, function(match, inner) {
-        var unescapedInner = inner.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
-        var srcMatch = unescapedInner.match(/src\s*=\s*(["'])(.*?)\1/i) || unescapedInner.match(/src\s*=\s*([^\s]+)/i);
-        var altMatch = unescapedInner.match(/alt\s*=\s*(["'])(.*?)\1/i);
+      // 3. Handle common HTML tags (<center>, </center>, <br>, <img>, etc.)
+      body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
+        return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
+      });
+      body = body.replace(/<br\s*\/?>/gi, '<br>');
+
+      // Handle HTML <img> tags
+      body = body.replace(/<img\s+([^>]*?)>/gi, function(match, inner) {
+        var srcMatch = inner.match(/src\s*=\s*(["'])(.*?)\1/i) || inner.match(/src\s*=\s*([^\s'">]+)/i);
+        var altMatch = inner.match(/alt\s*=\s*(["'])(.*?)\1/i);
         if (srcMatch) {
           var src = srcMatch[2] || srcMatch[1];
-          var alt = altMatch ? (altMatch[2] || altMatch[1]) : 'Post Image';
+          var alt = altMatch ? (altMatch[2] || altMatch[1]) : 'Image';
           return '<br><img src="' + escapeHtml(src) + '" alt="' + escapeHtml(alt) + '"><br>';
         }
-        return match;
+        return '';
       });
 
-      // Bare image URLs not already inside src="..." or href="..."
-      escaped = escaped.replace(/(^|[\s>])(https?:\/\/[^\s<>]+?\.(?:jpg|jpeg|png|webp|gif)(?:\?[^\s<>]*?)?|https?:\/\/(?:i\.ecency\.com|images\.hive\.blog|img\.leofinance\.io)[^\s<>]+)/gi, function(match, prefix, url) {
-        return prefix + '<br><img src="' + url + '" alt="Image"><br>';
-      });
+      // Clean up orphaned markdown image exclamation marks like ![ or ![ ]
+      body = body.replace(/!\[\s*\]?/g, '');
 
-      var formatted = escaped.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>');
-      return '<p>' + formatted + '</p>';
+      // Clean up &nbsp; entities
+      body = body.replace(/&nbsp;/gi, ' ');
+
+      // Split paragraphs by double newlines and wrap in <p>
+      var paragraphs = body.split(/\n\s*\n/);
+      var htmlParts = [];
+      for (var i = 0; i < paragraphs.length; i++) {
+        var p = paragraphs[i].trim();
+        if (!p) continue;
+        if (p.indexOf('<div') === 0 || p.indexOf('<img') === 0 || p.indexOf('<center') === 0) {
+          htmlParts.push(p);
+        } else {
+          htmlParts.push('<p>' + p.replace(/\n/g, '<br>') + '</p>');
+        }
+      }
+
+      return htmlParts.join('\n');
     }
 
     function cleanMarkdown(text) {
@@ -2087,7 +2105,6 @@
             return;
           }
 
-          // Build nested comment tree
           var childrenMap = {};
           for (var i = 0; i < allNodes.length; i++) {
             var c = allNodes[i];
@@ -2127,7 +2144,6 @@
 
           renderBranch(rootKey, 0);
 
-          // Fallback if any orphaned replies exist
           if (!html && allNodes.length > 0) {
             allNodes.sort(function (a, b) {
               return (Date.parse((a.created || '') + 'Z') || 0) - (Date.parse((b.created || '') + 'Z') || 0);
@@ -2145,7 +2161,6 @@
           listEl.innerHTML = html;
         })
         .catch(function () {
-          // Fallback to condenser_api.get_content_replies
           hiveCall('condenser_api.get_content_replies', [author, permlink])
             .then(function (replies) {
               if (!Array.isArray(replies) || replies.length === 0) {
