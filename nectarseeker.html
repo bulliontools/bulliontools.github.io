@@ -265,8 +265,6 @@
       color: var(--text-muted);
     }
     .taste-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .taste-up { color: var(--accent-green); background: rgba(16,185,129,0.14); padding: 2px 7px; border-radius: 4px; }
-    .taste-down { color: var(--accent-danger); background: rgba(244,63,94,0.14); padding: 2px 7px; border-radius: 4px; }
     .reset-btn { background: transparent; color: var(--text-muted); border: 1px solid var(--border); padding: 5px 10px; border-radius: 5px; font-size: 12px; cursor: pointer; }
     #status {
       margin-bottom: 16px;
@@ -541,11 +539,12 @@
   </div>
 
   <script>
+    // Robust CORS-enabled public Hive RPC nodes
     var HIVE_NODES = [
+      'https://rpc.ecency.com',
       'https://api.hive.blog',
-      'https://api.deathwing.me',
       'https://api.openhive.network',
-      'https://techcoderx.com'
+      'https://api.deathwing.me'
     ];
 
     var STOP_WORDS = {
@@ -908,6 +907,7 @@
       return { score: dot / (a.norm * b.norm), matched: top };
     }
 
+    // Robust JSON-RPC Call with automatic failover across nodes
     function hiveCall(method, params) {
       var idx = 0;
       var lastErr = 'Unknown error';
@@ -947,7 +947,7 @@
       return Promise.all([
         hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 40 }]).catch(function() { return []; }),
         hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 30 }]).catch(function() { return []; }),
-        hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 40 }).catch(function() { return []; })
+        hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 30 }]).catch(function() { return []; })
       ]).then(function(groups) {
         var map = {};
         var list = [];
@@ -1091,7 +1091,7 @@
     function runSearchWorkflow(query) {
       setStatus('Searching and evaluating Hive content...');
       return fetchAllFrontendsPool('').then(function(candidates) {
-        if (!candidates || candidates.length === 0) throw new Error('No candidate posts available.');
+        if (!candidates || candidates.length === 0) throw new Error('No candidate posts received from Hive nodes.');
         
         var cleanQuery = String(query || '').trim().toLowerCase();
         var queryTokens = tokenize(cleanQuery);
@@ -1115,7 +1115,7 @@
           var bodyStr = String(c.body || '');
           var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
           var cTokens = tokenize(titleStr + ' ' + bodyStr);
-          if (cTokens.length < 10) continue;
+          if (cTokens.length < 5) continue;
 
           var cVec = buildVectorWithIDF(cTokens, null, idfMap);
           var sim = cosineSim(queryVec, cVec);
@@ -1126,7 +1126,7 @@
 
           var depthScore = Math.min(2.0, 1.0 + (cTokens.length / 500) + ((bodyStr.match(/<img|!\[|\|/g) || []).length * 0.1));
 
-          if (score > 0.005 || !cleanQuery) {
+          if (score > 0.001 || !cleanQuery) {
             var finalScore = score * depthScore;
             var ts = Date.parse((c.created || '') + 'Z') || 0;
             scored.push({
@@ -1165,13 +1165,14 @@
 
     function runUsernameWorkflow(username) {
       setStatus('Fetching posts for @' + username + '...');
-      return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 30 })
+      return hiveCall('condenser_api.get_discussions_by_blog', [{ tag: username, limit: 30 }])
         .catch(function() { return []; })
         .then(function(posts) {
           var scored = [];
           var taste = loadTaste();
           for (var i = 0; i < posts.length; i++) {
             var p = posts[i];
+            if (p.author.toLowerCase() !== username.toLowerCase()) continue;
             var ts = Date.parse((p.created || '') + 'Z') || 0;
             scored.push({ post: p, baseScore: 1.5, finalScore: 1.5, depthScore: 1.5, matched: ['Author Post'], timestamp: ts, isLiked: !!taste.liked[p.author + '/' + p.permlink] });
           }
@@ -1210,7 +1211,7 @@
       else if (appState.mode === 'newusers') promise = runNewUsersWorkflow(raw);
 
       promise.catch(function(err) {
-        setStatus(err.message || 'An error occurred during search.', true);
+        setStatus('Search error: ' + (err.message || 'Unable to connect to Hive RPC nodes.'), true);
       }).then(function() {
         appState.isRunning = false;
       });
@@ -1257,16 +1258,16 @@
       var headerEl = document.getElementById('readerCommentsHeader');
       if (!listEl) return;
       listEl.innerHTML = 'Loading comments...';
-      hiveCall('bridge.get_discussion', { author: author, permlink: permlink }).then(function(discussion) {
-        if (!discussion) throw new Error();
-        var rootKey = author + '/' + permlink;
-        var allNodes = [];
-        for (var k in discussion) { if (k !== rootKey) allNodes.push(discussion[k]); }
-        if (headerEl) headerEl.textContent = 'Comments (' + allNodes.length + ')';
-        if (allNodes.length === 0) { listEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No comments yet.</div>'; return; }
+      hiveCall('condenser_api.get_content_replies', [{ author: author, permlink: permlink }]).then(function(replies) {
+        if (!replies || replies.length === 0) {
+          listEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No comments yet.</div>';
+          if (headerEl) headerEl.textContent = 'Comments (0)';
+          return;
+        }
+        if (headerEl) headerEl.textContent = 'Comments (' + replies.length + ')';
         var html = '';
-        for (var i = 0; i < allNodes.length; i++) {
-          var c = allNodes[i];
+        for (var i = 0; i < replies.length; i++) {
+          var c = replies[i];
           html += '<div class="comment-item"><div class="comment-header"><span><strong>@' + escapeHtml(c.author) + '</strong></span></div><div class="comment-body">' + renderHiveBodyHtml(c.body || '') + '</div></div>';
         }
         listEl.innerHTML = html;
@@ -1378,6 +1379,7 @@
     detectKeychain();
     setTimeout(detectKeychain, 700);
     
+    // Initial fetch
     runSearchWorkflow('hive blockchain');
   </script>
 </body>
