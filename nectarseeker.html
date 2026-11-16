@@ -596,10 +596,8 @@
       padding-bottom: 12px;
       border-bottom: 1px solid var(--border);
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
+      flex-direction: column;
+      gap: 6px;
     }
     #readerContent {
       color: var(--text-muted);
@@ -861,6 +859,7 @@
           <div id="stickyManaDisplay" style="font-size: 12px; color: var(--accent-green); background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 4px 8px; border-radius: 6px; display: none; align-items: center; gap: 4px;">
             <span>⚡ <span id="manaVal">Loading...</span></span>
           </div>
+          <a id="stickyOriginalLink" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: var(--accent-cyan); text-decoration: underline;">Page didn't load correctly? Click here to view the original post.</a>
         </div>
 
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -1712,7 +1711,7 @@
 
       var generated = renderMarkdownBlocks(body);
       var parsed = new DOMParser().parseFromString('<!doctype html><html><body>' + generated + '</body></html>', 'text/html');
-      var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DIV DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO'.split(' ');
+      var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO'.split(' ');
       var blocked = 'SCRIPT STYLE OBJECT EMBED FORM INPUT BUTTON TEXTAREA LINK META BASE SVG MATH'.split(' ');
       var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', '3speak.online'];
 
@@ -2707,6 +2706,17 @@
       return 'Hive dApp';
     }
 
+    function getOriginalPostUrl(p) {
+      var authorEnc = encodeURIComponent(p.author);
+      var permEnc = encodeURIComponent(p.permlink);
+      var dapp = detectFrontend(p);
+      if (dapp === 'PeakD') return '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
+      if (dapp === 'Ecency') return '[https://ecency.com/](https://ecency.com/)@' + authorEnc + '/' + permEnc;
+      if (dapp === 'InLeo') return '[https://inleo.io/](https://inleo.io/)@' + authorEnc + '/' + permEnc;
+      if (dapp === 'Hive.blog') return '[https://hive.blog/](https://hive.blog/)@' + authorEnc + '/' + permEnc;
+      return '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
+    }
+
     function formatAge(createdStr) {
       if (!createdStr) return '';
       var ts = Date.parse(createdStr + 'Z');
@@ -2974,13 +2984,21 @@
       var modalEl = document.getElementById('postReaderModal');
       var commentInput = document.getElementById('commentBodyInput');
       var readerKeBottomVal = document.getElementById('readerKeBottomVal');
+      var stickyOriginalLink = document.getElementById('stickyOriginalLink');
       if (commentInput) commentInput.value = '';
       
       if (titleEl) titleEl.textContent = p.title || '(Untitled)';
+      var originalUrl = getOriginalPostUrl(p);
+
+      if (stickyOriginalLink) {
+        stickyOriginalLink.href = originalUrl;
+      }
+
       if (metaEl) {
         var dapp = detectFrontend(p);
         var age = formatAge(p.created);
-        metaEl.innerHTML = 'by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span> <span class="ke-badge reader-ke-top" data-author="' + escapeHtml(p.author) + '">KE: Loading...</span>';
+        metaEl.innerHTML = '<div>by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span> <span class="ke-badge reader-ke-top" data-author="' + escapeHtml(p.author) + '">KE: Loading...</span></div>' +
+                           '<div style="margin-top:4px;"><a href="' + escapeHtml(originalUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); font-size:13px; text-decoration:underline;">Page didn\'t load correctly? Click here to view the original post.</a></div>';
       }
       if (contentEl) {
         contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
