@@ -1623,7 +1623,6 @@
         body = decoded;
       }
 
-      // Pre-process raw markdown to collapse multiline/broken image tags into a single line
       body = body.replace(/!\[([^\]]*)\]\s*\(([^)]+?)\)/g, function (m, alt, url) {
         var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
         return '![' + alt + '](' + cleanUrl + ')';
@@ -1719,7 +1718,7 @@
       var blocked = 'SCRIPT STYLE OBJECT EMBED FORM INPUT BUTTON TEXTAREA LINK META BASE SVG MATH'.split(' ');
       var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', '3speak.online'];
 
-      function safeUrl(value, imageMode) {
+      function safeUrl(value) {
         var url = String(value || '').trim().replace(/[\u0000-\u0020]+/g, '');
         if (!url) return '';
         if (url.indexOf('//') === 0) url = 'https:' + url;
@@ -1756,7 +1755,7 @@
             var name = attr.name.toLowerCase();
             if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'formaction') { child.removeAttribute(attr.name); return; }
             if (name === 'class') {
-              var safeClass = attr.value.split(/\\s+/).filter(function (c) { return /^[a-zA-Z0-9_-]{1,64}$/.test(c); }).join(' ');
+              var safeClass = attr.value.split(/\s+/).filter(function (c) { return /^[a-zA-Z0-9_-]{1,64}$/.test(c); }).join(' ');
               if (safeClass) child.setAttribute('class', safeClass); else child.removeAttribute('class');
               return;
             }
@@ -1770,7 +1769,7 @@
           }
           if (tag === 'IMG' || tag === 'SOURCE' || tag === 'VIDEO' || tag === 'IFRAME') {
             var rawSrc = child.getAttribute('src') || child.getAttribute('data-src') || child.getAttribute('data-original') || (child.getAttribute('srcset') || '').split(',')[0].trim().split(/\s+/)[0];
-            var src = safeUrl(rawSrc, tag === 'IMG' || tag === 'SOURCE');
+            var src = safeUrl(rawSrc);
             child.removeAttribute('data-src'); child.removeAttribute('data-original');
             if (tag === 'IFRAME') {
               var host = '';
@@ -2711,14 +2710,15 @@
     }
 
     function getOriginalPostUrl(p) {
+      if (p && p.url) {
+        var u = String(p.url).trim();
+        if (/^https?:\/\//i.test(u)) return u;
+        if (u.charAt(0) === '/') return '[https://hive.blog](https://hive.blog)' + u;
+        return '[https://hive.blog/](https://hive.blog/)' + u;
+      }
       var author = String(p.author || '').trim();
       var permlink = String(p.permlink || '').trim();
-      var dapp = detectFrontend(p);
-      if (dapp === 'PeakD') return '[https://peakd.com/](https://peakd.com/)@' + author + '/' + permlink;
-      if (dapp === 'Ecency') return '[https://ecency.com/](https://ecency.com/)@' + author + '/' + permlink;
-      if (dapp === 'InLeo') return '[https://inleo.io/](https://inleo.io/)@' + author + '/' + permlink;
-      if (dapp === 'Hive.blog') return '[https://hive.blog/](https://hive.blog/)@' + author + '/' + permlink;
-      return '[https://peakd.com/](https://peakd.com/)@' + author + '/' + permlink;
+      return '[https://hive.blog/](https://hive.blog/)@' + author + '/' + permlink;
     }
 
     function formatAge(createdStr) {
