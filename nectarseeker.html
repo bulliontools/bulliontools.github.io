@@ -1031,6 +1031,109 @@
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
     var searchCache = {};
+    // Search-only performance layer. It does not alter taste data or ranking weights.
+    var nsCacheMemory = {};
+    var nsCachePending = {};
+    var nsCacheRefresh = {};
+    var nsHivePending = {};
+    var nsCacheDbPromise = null;
+    var nsNodeHealth = {};
+
+    function openNectarCacheDb() {
+      if (!window.indexedDB) return Promise.resolve(null);
+      if (nsCacheDbPromise) return nsCacheDbPromise;
+      nsCacheDbPromise = new Promise(function (resolve) {
+        try {
+          var request = indexedDB.open('NectarSeekerSearchCache', 1);
+          request.onupgradeneeded = function () {
+            var db = request.result;
+            if (!db.objectStoreNames.contains('cache')) db.createObjectStore('cache', { keyPath: 'key' });
+          };
+          request.onsuccess = function () { resolve(request.result); };
+          request.onerror = function () { resolve(null); };
+          request.onblocked = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+      });
+      return nsCacheDbPromise;
+    }
+
+    function readNectarCache(key) {
+      if (nsCacheMemory[key]) return Promise.resolve(nsCacheMemory[key]);
+      return openNectarCacheDb().then(function (db) {
+        if (!db) return null;
+        return new Promise(function (resolve) {
+          try {
+            var tx = db.transaction('cache', 'readonly');
+            var req = tx.objectStore('cache').get(key);
+            req.onsuccess = function () {
+              var record = req.result || null;
+              if (record) nsCacheMemory[key] = record;
+              resolve(record);
+            };
+            req.onerror = function () { resolve(null); };
+          } catch (e) { resolve(null); }
+        });
+      });
+    }
+
+    function writeNectarCache(key, value, ttlMs) {
+      var record = { key: key, value: value, savedAt: Date.now(), expiresAt: Date.now() + ttlMs };
+      nsCacheMemory[key] = record;
+      return openNectarCacheDb().then(function (db) {
+        if (!db) return;
+        return new Promise(function (resolve) {
+          try {
+            var tx = db.transaction('cache', 'readwrite');
+            tx.objectStore('cache').put(record);
+            tx.oncomplete = function () { resolve(); };
+            tx.onerror = function () { resolve(); };
+            tx.onabort = function () { resolve(); };
+          } catch (e) { resolve(); }
+        });
+      });
+    }
+
+    // Return fresh data immediately; stale data may be used while a refresh runs in the background.
+    function loadNectarCached(key, ttlMs, staleGraceMs, loader) {
+      if (nsCachePending[key]) return nsCachePending[key];
+      var task = readNectarCache(key).then(function (record) {
+        var now = Date.now();
+        if (record && record.expiresAt > now) return record.value;
+        if (record && now - record.expiresAt <= staleGraceMs) {
+          if (!nsCacheRefresh[key]) {
+            nsCacheRefresh[key] = Promise.resolve().then(loader).then(function (value) {
+              return writeNectarCache(key, value, ttlMs).then(function () { return value; });
+            }).catch(function () { return record.value; }).then(function (value) {
+              delete nsCacheRefresh[key];
+              return value;
+            });
+          }
+          return record.value;
+        }
+        return Promise.resolve().then(loader).then(function (value) {
+          return writeNectarCache(key, value, ttlMs).then(function () { return value; });
+        });
+      }).finally(function () { delete nsCachePending[key]; });
+      nsCachePending[key] = task;
+      return task;
+    }
+
+    function hiveCall(method, params) {
+      var key;
+      try { key = method + ':' + JSON.stringify(params || null); }
+      catch (e) { return hiveCallUncached(method, params); }
+      if (nsHivePending[key]) return nsHivePending[key];
+      var request = hiveCallUncached(method, params).then(function (result) {
+        delete nsHivePending[key];
+        return result;
+      }, function (err) {
+        delete nsHivePending[key];
+        throw err;
+      });
+      nsHivePending[key] = request;
+      return request;
+    }
+
     var TASTE_KEY = 'nectarseeker_taste_v1';
     var KC_USER_KEY = 'nectarseeker_kc_user';
     var THEME_KEY = 'nectarseeker_theme';
@@ -2009,10 +2112,9 @@
       };
     }
 
-    function scoreAgainstBehaviorProfile(post, profile, idfMap) {
+    function scoreAgainstBehaviorProfile(post, profile, idfMap, cachedVector) {
       if (!profile) return { score: 0, matched: [], positive: 0, negative: 0, author: 0 };
-      var tokens = tokenize((post.title || '') + ' ' + (post.body || ''));
-      var postVector = buildVectorWithIDF(tokens, null, idfMap);
+      var postVector = cachedVector || buildVectorWithIDF(tokenize((post.title || '') + ' ' + (post.body || '')), null, idfMap);
       var positive = cosineSim(profile.positive, postVector);
       var negative = cosineSim(profile.negative, postVector);
       var authorScore = profile.authorAffinity && profile.authorAffinity[post.author] ? profile.authorAffinity[post.author] : 0;
@@ -2031,30 +2133,33 @@
       }
       names.sort(function (a, b) { return b.weight - a.weight; });
       names = names.slice(0, 12);
-      var collected = [];
-      var index = 0;
-      function nextBatch() {
-        if (index >= names.length) return Promise.resolve(collected);
-        var batch = names.slice(index, index + 4);
-        index += 4;
-        return Promise.all(batch.map(function (entry) {
-          return hiveCall('bridge.get_account_posts', { sort: 'blog', account: entry.name, limit: 8, observer: observer || getConnectedUser() || '' })
-            .catch(function () {
-              return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: observer || getConnectedUser() || '' });
-            })
-            .catch(function () { return []; });
-        })).then(function (groups) {
-          for (var g = 0; g < groups.length; g++) {
-            var posts = groups[g] || [];
-            for (var k = 0; k < posts.length; k++) {
-              var item = posts[k];
-              if (item && item.author && item.permlink && !item.parent_author) collected.push(item);
+      var cacheKey = 'related-authors-v2:' + (observer || getConnectedUser() || 'anon') + ':' + names.map(function (x) { return x.name; }).join(',');
+      return loadNectarCached(cacheKey, 30 * 60 * 1000, 2 * 60 * 60 * 1000, function () {
+        var collected = [];
+        var index = 0;
+        function nextBatch() {
+          if (index >= names.length) return Promise.resolve(collected);
+          var batch = names.slice(index, index + 6);
+          index += 6;
+          return Promise.all(batch.map(function (entry) {
+            return hiveCall('bridge.get_account_posts', { sort: 'blog', account: entry.name, limit: 8, observer: observer || getConnectedUser() || '' })
+              .catch(function () {
+                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: observer || getConnectedUser() || '' });
+              })
+              .catch(function () { return []; });
+          })).then(function (groups) {
+            for (var g = 0; g < groups.length; g++) {
+              var posts = groups[g] || [];
+              for (var k = 0; k < posts.length; k++) {
+                var item = posts[k];
+                if (item && item.author && item.permlink && !item.parent_author) collected.push(item);
+              }
             }
-          }
-          return nextBatch();
-        });
-      }
-      return nextBatch();
+            return nextBatch();
+          });
+        }
+        return nextBatch();
+      });
     }
 
     function mergePostPools() {
@@ -2074,26 +2179,38 @@
 
     function fetchUserBehaviorProfile(username, idfMap, ownPosts) {
       if (!username) return Promise.resolve(null);
-      return getAccountHistory(username, 24).then(function (history) {
-        history = history || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {} };
-        return Promise.all([
-          fetchSeedPosts(history.seeds || [], history.skipKeys || {}),
-          fetchSeedPosts(history.negativeSeeds || [], {})
-        ]).then(function (groups) {
-          return buildBehaviorProfile(history, groups[0], groups[1], ownPosts || [], idfMap);
+      var terms = Object.keys(idfMap || {});
+      var corpusKey = terms.length + ':' + (terms[0] || '') + ':' + (terms[terms.length - 1] || '');
+      var cacheKey = 'behavior-profile-v2:' + username + ':' + corpusKey;
+      return loadNectarCached(cacheKey, 20 * 60 * 1000, 60 * 60 * 1000, function () {
+        return getAccountHistory(username, 24).then(function (history) {
+          history = history || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {} };
+          return Promise.all([
+            fetchSeedPosts(history.seeds || [], history.skipKeys || {}),
+            fetchSeedPosts(history.negativeSeeds || [], {})
+          ]).then(function (groups) {
+            return buildBehaviorProfile(history, groups[0], groups[1], ownPosts || [], idfMap);
+          });
         });
       }).catch(function () { return null; });
     }
 
-    function hiveCall(method, params) {
+    function hiveCallUncached(method, params) {
       var idx = 0;
       var lastErr = 'Unknown error';
+      var orderedNodes = HIVE_NODES.slice().sort(function (a, b) {
+        var ah = nsNodeHealth[a] || { failures: 0, latency: 999999, cooldownUntil: 0 };
+        var bh = nsNodeHealth[b] || { failures: 0, latency: 999999, cooldownUntil: 0 };
+        var ap = ah.cooldownUntil > Date.now() ? 1000000 : ah.failures * 5000 + ah.latency;
+        var bp = bh.cooldownUntil > Date.now() ? 1000000 : bh.failures * 5000 + bh.latency;
+        return ap - bp;
+      });
 
       function next() {
-        if (idx >= HIVE_NODES.length) {
+        if (idx >= orderedNodes.length) {
           return Promise.reject(new Error('All Hive nodes failed: ' + lastErr));
         }
-        var node = HIVE_NODES[idx++];
+        var node = orderedNodes[idx++];
         var payload = JSON.stringify({
           jsonrpc: '2.0',
           method: method,
@@ -2103,6 +2220,7 @@
 
         if (window.fetch) {
           var controller = window.AbortController ? new AbortController() : null;
+          var startedAt = Date.now();
           var timer = controller ? setTimeout(function () { controller.abort(); }, 7000) : null;
           return fetch(node, {
             method: 'POST',
@@ -2115,10 +2233,15 @@
             return res.json();
           }).then(function (data) {
             if (data && data.error) throw new Error(data.error.message || 'RPC error');
+            nsNodeHealth[node] = { failures: 0, latency: Date.now() - startedAt, cooldownUntil: 0 };
             return data.result;
           }).catch(function (err) {
             if (timer) clearTimeout(timer);
             lastErr = (err && err.message) ? err.message : 'Fetch error';
+            var prior = nsNodeHealth[node] || { failures: 0, latency: 999999 };
+            prior.failures = Math.min(10, (prior.failures || 0) + 1);
+            prior.cooldownUntil = Date.now() + Math.min(120000, 15000 * prior.failures);
+            nsNodeHealth[node] = prior;
             return next();
           });
         }
@@ -2126,6 +2249,7 @@
         return new Promise(function (resolve, reject) {
           var xhr = new XMLHttpRequest();
           xhr.open('POST', node, true);
+          var startedAt = Date.now();
           xhr.timeout = 7000;
           xhr.setRequestHeader('Content-Type', 'application/json');
           xhr.onreadystatechange = function () {
@@ -2134,7 +2258,7 @@
               try {
                 var d = JSON.parse(xhr.responseText);
                 if (d.error) reject(new Error(d.error.message || 'RPC error'));
-                else resolve(d.result);
+                else { nsNodeHealth[node] = { failures: 0, latency: Date.now() - startedAt, cooldownUntil: 0 }; resolve(d.result); }
               } catch (e) {
                 reject(new Error('Bad JSON'));
               }
@@ -2147,6 +2271,10 @@
           xhr.send(payload);
         }).catch(function (err) {
           lastErr = err.message;
+          var prior = nsNodeHealth[node] || { failures: 0, latency: 999999 };
+          prior.failures = Math.min(10, (prior.failures || 0) + 1);
+          prior.cooldownUntil = Date.now() + Math.min(120000, 15000 * prior.failures);
+          nsNodeHealth[node] = prior;
           return next();
         });
       }
@@ -2254,7 +2382,7 @@
 
       function fetchPage() {
         page++;
-        var initialLimit = (page === 1 && startSeq === -1) ? 20 : 1000;
+        var initialLimit = 1000;
 
         return hiveCall('condenser_api.get_account_history', [username, startSeq, initialLimit, 3])
           .catch(function () {
@@ -2477,66 +2605,59 @@
 
     function fetchSearchPool24Months() {
       var obs = getConnectedUser();
-      var cachedKey = 'global_search_pool_v1_' + (obs || 'anon');
-      if (searchCache[cachedKey]) {
-        return Promise.resolve(searchCache[cachedKey]);
-      }
+      var cachedKey = 'global_search_pool_v2_' + (obs || 'anon');
+      return loadNectarCached(cachedKey, 30 * 60 * 1000, 2 * 60 * 60 * 1000, function () {
+        var twentyFourMonthsMs = 24 * 30.5 * 24 * 60 * 60 * 1000;
+        var cutoff = Date.now() - twentyFourMonthsMs;
+        var collected = [];
+        var map = {};
+        var startAuthor = '';
+        var startPermlink = '';
+        var page = 0;
+        var requestedLimit = 100;
+        var maxPages = 35; // fallback remains 20/page if the endpoint clamps the requested limit
 
-      var twentyFourMonthsMs = 24 * 30.5 * 24 * 60 * 60 * 1000;
-      var cutoff = Date.now() - twentyFourMonthsMs;
-      var collected = [];
-      var map = {};
-      var startAuthor = '';
-      var startPermlink = '';
-      var page = 0;
-      var maxPages = 35;
-
-      function fetchBatch() {
-        page++;
-        var params = { sort: 'created', tag: '', limit: 20 };
-        if (obs) params.observer = obs;
-        if (startAuthor && startPermlink) {
-          params.start_author = startAuthor;
-          params.start_permlink = startPermlink;
-        }
-        return hiveCall('bridge.get_ranked_posts', params).catch(function () {
-          return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 20, start_author: startAuthor, start_permlink: startPermlink }]);
-        }).then(function (posts) {
-          if (!Array.isArray(posts) || posts.length === 0) return collected;
-
-          var reachedCutoff = false;
-          for (var i = 0; i < posts.length; i++) {
-            var p = posts[i];
-            if (!p || !p.author || !p.permlink) continue;
-            if (p.parent_author) continue;
-
-            if (p.created) {
-              var ts = Date.parse(p.created + 'Z');
-              if (!isNaN(ts) && ts < cutoff) {
-                reachedCutoff = true;
-                continue;
+        function fetchBatch() {
+          page++;
+          var params = { sort: 'created', tag: '', limit: requestedLimit };
+          if (obs) params.observer = obs;
+          if (startAuthor && startPermlink) {
+            params.start_author = startAuthor;
+            params.start_permlink = startPermlink;
+          }
+          return hiveCall('bridge.get_ranked_posts', params).catch(function () {
+            return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: requestedLimit, start_author: startAuthor, start_permlink: startPermlink }]);
+          }).then(function (posts) {
+            if (!Array.isArray(posts) || posts.length === 0) return collected;
+            // If the endpoint honors 100, seven pages retain the same ~700-post pool.
+            // If it clamps to 20, keep paging up to the original 35-page ceiling.
+            if (page === 1) maxPages = Math.max(1, Math.ceil(700 / posts.length));
+            var reachedCutoff = false;
+            for (var i = 0; i < posts.length; i++) {
+              var p = posts[i];
+              if (!p || !p.author || !p.permlink || p.parent_author) continue;
+              if (p.created) {
+                var ts = Date.parse(p.created + 'Z');
+                if (!isNaN(ts) && ts < cutoff) { reachedCutoff = true; continue; }
               }
+              var key = p.author + '/' + p.permlink;
+              if (!map[key]) { map[key] = true; collected.push(p); }
             }
-
-            var key = p.author + '/' + p.permlink;
-            if (!map[key]) {
-              map[key] = true;
-              collected.push(p);
-            }
-          }
-
-          var last = posts[posts.length - 1];
-          if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < 10 || page >= maxPages) {
-            searchCache[cachedKey] = collected;
-            return collected;
-          }
-          startAuthor = last.author;
-          startPermlink = last.permlink;
-          return fetchBatch();
+            var last = posts[posts.length - 1];
+            if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < Math.min(10, requestedLimit) || page >= maxPages) return collected;
+            startAuthor = last.author;
+            startPermlink = last.permlink;
+            return fetchBatch();
+          });
+        }
+        return fetchBatch().then(function (posts) {
+          searchCache[cachedKey] = posts || [];
+          return posts || [];
         });
-      }
-
-      return fetchBatch();
+      }).then(function (posts) {
+        searchCache[cachedKey] = posts || [];
+        return posts || [];
+      });
     }
 
     function fetchAccountsCreation(usernames) {
@@ -3537,62 +3658,91 @@
     function runSearchWorkflow(query) {
       var cleanQuery = String(query || '').trim();
       if (!cleanQuery) return Promise.reject(new Error('Please enter a search term.'));
-      var queryTokens = tokenize(cleanQuery);
       var lowerPhrase = cleanQuery.toLowerCase();
       var username = getConnectedUser();
 
       return fetchSearchPool24Months().then(function (baseCandidates) {
-          var candidates = baseCandidates || [];
-          var idfMap = computeCorpusIDF(candidates);
-          var queryVec = buildExpandedSearchQueryVector(cleanQuery, idfMap);
-          var profilePromise = username ? fetchUserBehaviorProfile(username, idfMap, []) : Promise.resolve(null);
-          return profilePromise.then(function (profile) {
-            if (!profile) return { profile: null, candidates: candidates };
-            return fetchRelatedAuthorPosts(profile.authorAffinity || {}, username).then(function (relatedPosts) {
-              return { profile: profile, candidates: mergePostPools(candidates, relatedPosts) };
-            });
-          }).then(function (context) {
-            var profile = context.profile;
-            candidates = context.candidates;
-            var taste = loadTaste();
-            var scored = [];
-            for (var i = 0; i < candidates.length; i++) {
-              var candidate = candidates[i];
-              var key = candidate.author + '/' + candidate.permlink;
-              if (taste.disliked[key]) continue;
-              var titleStr = String(candidate.title || '');
-              var bodyStr = String(candidate.body || '');
-              var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
-              var titleLower = titleStr.toLowerCase();
-              var tokens = tokenize(titleStr + ' ' + bodyStr);
-              if (tokens.length < 8) continue;
-              var candidateVector = buildVectorWithIDF(tokens, null, idfMap);
-              var semantic = cosineSim(queryVec, candidateVector);
-              var queryScore = semantic.score;
-              if (titleLower.indexOf(lowerPhrase) !== -1) queryScore += 0.35;
-              else if (fullLower.indexOf(lowerPhrase) !== -1) queryScore += 0.20;
+        var candidates = baseCandidates || [];
+        var corpusSignature = String(candidates.length);
+        for (var si = 0; si < candidates.length; si++) {
+          var sp = candidates[si];
+          if (sp) corpusSignature += '|' + sp.author + '/' + sp.permlink + ':' + String(sp.title || '').length + ':' + String(sp.body || '').length + ':' + String(sp.last_update || '');
+        }
+        var prepared = window.__nectarPreparedSearchCorpus;
+        if (!prepared || prepared.signature !== corpusSignature) {
+          var preparedIdf = computeCorpusIDF(candidates);
+          var preparedVectors = {};
+          for (var ci = 0; ci < candidates.length; ci++) {
+            var cp = candidates[ci];
+            if (!cp || !cp.author || !cp.permlink) continue;
+            var ckey = cp.author + '/' + cp.permlink;
+            var ctokens = tokenize((cp.title || '') + ' ' + (cp.body || ''));
+            preparedVectors[ckey] = { tokens: ctokens, vector: buildVectorWithIDF(ctokens, null, preparedIdf) };
+          }
+          prepared = { signature: corpusSignature, idfMap: preparedIdf, vectors: preparedVectors };
+          window.__nectarPreparedSearchCorpus = prepared;
+        }
+        var idfMap = prepared.idfMap;
+        var queryVec = buildExpandedSearchQueryVector(cleanQuery, idfMap);
 
-              var behavior = profile ? scoreAgainstBehaviorProfile(candidate, profile, idfMap) : null;
-              // Search intent remains dominant. Personal history only reorders results
-              // that already have meaningful relevance to the explicit query.
-              var score = queryScore;
-              var matchedTerms = semantic.matched.length > 0 ? semantic.matched.slice(0) : [lowerPhrase];
-              if (profile && queryScore > 0.01) {
-                score = (queryScore * 0.80) + (Math.min(1, behavior.score) * 0.20);
-                if (behavior.positive >= 0.12 || behavior.author >= 0.35) matchedTerms.push('Your Hive interests');
-              }
-              if (score > 0.01) {
-                var ts = Date.parse((candidate.created || '').replace(/Z$/, '') + 'Z') || 0;
-                scored.push({ post: candidate, baseScore: score, finalScore: score,
-                  matched: matchedTerms.slice(0, 6), tokens: tokens,
-                  timestamp: ts, isLiked: !!taste.liked[key], personalized: !!profile });
-              }
+        function scoreAndRender(searchCandidates, profile) {
+          var taste = loadTaste();
+          var scored = [];
+          for (var i = 0; i < searchCandidates.length; i++) {
+            var candidate = searchCandidates[i];
+            var key = candidate.author + '/' + candidate.permlink;
+            if (taste.disliked[key]) continue;
+            var titleStr = String(candidate.title || '');
+            var bodyStr = String(candidate.body || '');
+            var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
+            var titleLower = titleStr.toLowerCase();
+            var preparedPost = prepared.vectors[key];
+            var tokens = preparedPost ? preparedPost.tokens : tokenize(titleStr + ' ' + bodyStr);
+            if (tokens.length < 8) continue;
+            var candidateVector = preparedPost ? preparedPost.vector : buildVectorWithIDF(tokens, null, idfMap);
+            var semantic = cosineSim(queryVec, candidateVector);
+            var queryScore = semantic.score;
+            if (titleLower.indexOf(lowerPhrase) !== -1) queryScore += 0.35;
+            else if (fullLower.indexOf(lowerPhrase) !== -1) queryScore += 0.20;
+
+            var behavior = profile ? scoreAgainstBehaviorProfile(candidate, profile, idfMap, candidateVector) : null;
+            // Preserve the existing ranking blend: explicit query relevance 80%, behavior 20%.
+            var score = queryScore;
+            var matchedTerms = semantic.matched.length > 0 ? semantic.matched.slice(0) : [lowerPhrase];
+            if (profile && queryScore > 0.01) {
+              score = (queryScore * 0.80) + (Math.min(1, behavior.score) * 0.20);
+              if (behavior.positive >= 0.12 || behavior.author >= 0.35) matchedTerms.push('Your Hive interests');
             }
-            appState.results = scored;
-            rerankAndRender();
-            var shown = Math.min(100, appState.results.length);
-            setStatus('Found ' + shown + ' relevant Hive articles for "' + cleanQuery + '"' + (profile ? ', personalized with your Hive activity.' : '.'), false);
+            if (score > 0.01) {
+              var ts = Date.parse((candidate.created || '').replace(/Z$/, '') + 'Z') || 0;
+              scored.push({ post: candidate, baseScore: score, finalScore: score,
+                matched: matchedTerms.slice(0, 6), tokens: tokens,
+                timestamp: ts, isLiked: !!taste.liked[key], personalized: !!profile });
+            }
+          }
+          appState.results = scored;
+          rerankAndRender();
+          return Math.min(100, appState.results.length);
+        }
+
+        // Render useful query-matched results as soon as the corpus is ready;
+        // then replace them with the fully personalized ranking when profile data arrives.
+        var initialShown = scoreAndRender(candidates, null);
+        if (username) setStatus('Showing ' + initialShown + ' initial matches while your Hive interests are refreshed…', false);
+
+        var profilePromise = username ? fetchUserBehaviorProfile(username, idfMap, []) : Promise.resolve(null);
+        return profilePromise.then(function (profile) {
+          if (!profile) {
+            var shownWithoutProfile = initialShown;
+            setStatus('Found ' + shownWithoutProfile + ' relevant Hive articles for "' + cleanQuery + '".', false);
+            return;
+          }
+          return fetchRelatedAuthorPosts(profile.authorAffinity || {}, username).then(function (relatedPosts) {
+            var enrichedCandidates = mergePostPools(candidates, relatedPosts);
+            var shown = scoreAndRender(enrichedCandidates, profile);
+            setStatus('Found ' + shown + ' relevant Hive articles for "' + cleanQuery + '", personalized with your Hive activity.', false);
           });
+        });
       });
     }
 
