@@ -607,6 +607,67 @@
       line-height: 1.7;
       word-break: break-word;
     }
+    /* Original-frontend reader: the surrounding NectarSeeker theme and controls stay intact. */
+    .reader-source-tools {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 0 0 12px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .reader-source-tools a, .reader-source-tools button {
+      color: var(--text-main);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      text-decoration: none;
+      cursor: pointer;
+      font: inherit;
+    }
+    .reader-source-tools a:hover, .reader-source-tools button:hover {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+    #readerOriginalFrame {
+      display: block;
+      width: 100%;
+      height: min(78vh, 1100px);
+      min-height: 620px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }
+    #readerFallbackPanel {
+      display: none;
+      color: var(--text-muted);
+      font-size: 16px;
+      line-height: 1.7;
+      word-break: break-word;
+    }
+    #readerFallbackPanel img {
+      max-width: 100%;
+      border-radius: 8px;
+      display: block;
+      margin: 16px auto;
+    }
+    .reader-embed-note {
+      margin: 0 0 10px;
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    @media (max-width: 640px) {
+      #readerOriginalFrame { min-height: 68vh; height: 68vh; }
+      .reader-container { padding: 18px; }
+    }
     #readerContent p {
       margin-bottom: 16px;
     }
@@ -874,7 +935,16 @@
 
       <h2 id="readerTitle"></h2>
       <div id="readerMeta"></div>
-      <div id="readerContent"></div>
+      <div class="reader-source-tools">
+        <span id="readerSourceLabel">Original post view</span>
+        <span style="display:flex; gap:8px; flex-wrap:wrap;">
+          <a id="readerOpenOriginal" href="#" target="_blank" rel="noopener noreferrer">Open original in new tab ↗</a>
+          <button type="button" id="readerToggleFallback" onclick="toggleReaderFallback()">Use text fallback</button>
+        </span>
+      </div>
+      <div class="reader-embed-note">The original frontend is shown below when it allows embedding. If it blocks embedded viewing or appears blank, open it in a new tab or switch to the text fallback.</div>
+      <iframe id="readerOriginalFrame" title="Original Hive post" loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <div id="readerFallbackPanel"><div id="readerContent"></div></div>
       
       <!-- AUTHOR KE RATIO BOTTOM SECTION -->
       <div class="reader-action-section" id="readerKeBottomSection" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -2425,6 +2495,35 @@
         });
     }
 
+    function getOriginalPostUrl(post) {
+      if (!post || !post.author || !post.permlink) return '';
+      var meta = post.json_metadata;
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      }
+      var app = String((meta && meta.app) || '').toLowerCase();
+      var host = 'hive.blog';
+      if (app.indexOf('peakd') !== -1) host = 'peakd.com';
+      else if (app.indexOf('ecency') !== -1) host = 'ecency.com';
+      else if (app.indexOf('leofinance') !== -1 || app.indexOf('inleo') !== -1) host = 'inleo.io';
+      else if (app.indexOf('liketu') !== -1) host = 'liketu.com';
+      else if (app.indexOf('3speak') !== -1) host = '3speak.tv';
+      else if (app.indexOf('actifit') !== -1) host = 'actifit.io';
+      else if (app.indexOf('worldmappin') !== -1 || app.indexOf('pinmapple') !== -1) host = 'worldmappin.com';
+      else if (app.indexOf('dbuzz') !== -1) host = 'd.buzz';
+      return 'https://' + host + '/@' + encodeURIComponent(post.author) + '/' + encodeURIComponent(post.permlink);
+    }
+
+    function toggleReaderFallback() {
+      var frame = document.getElementById('readerOriginalFrame');
+      var fallback = document.getElementById('readerFallbackPanel');
+      var toggle = document.getElementById('readerToggleFallback');
+      var usingFallback = fallback && fallback.style.display === 'block';
+      if (frame) frame.style.display = usingFallback ? 'block' : 'none';
+      if (fallback) fallback.style.display = usingFallback ? 'none' : 'block';
+      if (toggle) toggle.textContent = usingFallback ? 'Use text fallback' : 'Show original frontend';
+    }
+
     function openPostReader(idx) {
       var item = appState.results[idx];
       if (!item) return;
@@ -2449,6 +2548,24 @@
       if (contentEl) {
         contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
       }
+
+      // Load the detected publishing frontend in the reader while keeping NectarSeeker's
+      // own navigation, voting, comments, tipping and reblog controls around it.
+      var originalUrl = getOriginalPostUrl(p);
+      var originalFrame = document.getElementById('readerOriginalFrame');
+      var originalLink = document.getElementById('readerOpenOriginal');
+      var fallbackPanel = document.getElementById('readerFallbackPanel');
+      var fallbackToggle = document.getElementById('readerToggleFallback');
+      var sourceLabel = document.getElementById('readerSourceLabel');
+      if (originalLink) originalLink.href = originalUrl || 'https://hive.blog';
+      if (sourceLabel) sourceLabel.textContent = 'Original post view · ' + detectFrontend(p);
+      if (fallbackPanel) fallbackPanel.style.display = 'none';
+      if (originalFrame) {
+        originalFrame.style.display = 'block';
+        originalFrame.src = originalUrl || 'about:blank';
+      }
+      if (fallbackToggle) fallbackToggle.textContent = 'Use text fallback';
+
       if (readerKeBottomVal) {
         readerKeBottomVal.textContent = 'Loading...';
         getAuthorKeRatio(p.author, function(ke) {
@@ -2469,6 +2586,8 @@
     function closePostReader() {
       var modalEl = document.getElementById('postReaderModal');
       if (modalEl) modalEl.style.display = 'none';
+      var originalFrame = document.getElementById('readerOriginalFrame');
+      if (originalFrame) originalFrame.src = 'about:blank';
       appState.currentReaderIndex = null;
       cancelReplyTarget();
     }
