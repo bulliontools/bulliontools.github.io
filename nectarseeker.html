@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NectarSeeker | Personalized Hive Knowledge Discovery Engine</title>
+  <title>NectarSeeker</title>
   <style>
     :root {
       --hive-red: #e31337;
@@ -346,7 +346,7 @@
     <div class="brand-row">
       <div class="brand-title">
         <div class="hive-hex">H</div>
-        <h1>NectarSeeker | Personalized Hive Knowledge Discovery Engine</h1>
+        <h1>NectarSeeker</h1>
       </div>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <button type="button" class="kc-btn" id="themeToggleBtn" onclick="toggleTheme()">☀️ Light Theme</button>
@@ -390,7 +390,7 @@
           <option value="all">All Time</option>
           <option value="1">Past 24 Hours</option>
           <option value="7">Past 7 Days</option>
-          <option value="30">Past 30 Days</option>
+          <option value="30">Past 3 Days</option>
           <option value="90">Past 3 Months</option>
         </select>
       </div>
@@ -414,19 +414,19 @@
   </div>
 
   <details class="panel">
-    <summary>Engine Controls, Personalization &amp; Discovery Guide</summary>
+    <summary>How It Works</summary>
     <div style="font-size:14px;color:var(--text-muted);display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;">
       <div>
-        <strong style="color:var(--accent-cyan);">Deep History Ingestion:</strong> Automatically scans your historical upvotes and comments to build a behavioral profile that heavily weights your preferences over generic global trending lists.
+        <strong style="color:var(--accent-cyan);">Search Modes:</strong> Switch between <strong>Hybrid Search</strong> (keywords &amp; author lookup), <strong>Personal Feed</strong> (tailored recommendations), <strong>Username</strong> (direct blog posts), and <strong>New Users</strong> discovery (authors joined in the last 12 months).
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Author Backpropagation:</strong> Searching or loading recommendations dynamically queries posts directly from authors and communities you have historically upvoted or engaged with.
+        <strong style="color:var(--accent-cyan);">Behavioral Profiling &amp; History:</strong> Ingests your historical upvotes and comments via Hive Keychain to weigh your true preferences over generic global popularity.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Serendipitous Discovery:</strong> Injects related knowledge outside your immediate query bounds while honoring your engagement patterns.
+        <strong style="color:var(--accent-cyan);">Interactive Actions &amp; Tipping:</strong> Vote with adjustable power weights (1-100%), comment in threaded discussions, reblog posts, and tip authors directly in HIVE, HBD, HSBI, or tokens.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Keychain &amp; Actions:</strong> Connect Hive Keychain[span_0](start_span)[span_0](end_span) to vote with custom slider weights, comment in threaded discussions, reblog, and tip authors in HIVE, HBD, HSBI, or Hive-Engine tokens.
+        <strong style="color:var(--accent-cyan);">KE Ratio &amp; AI Analysis:</strong> Evaluates author ecosystem sustainability (Rewards/Stake Co-efficient) and flags AI-generated content probabilities instantly.
       </div>
     </div>
   </details>
@@ -516,7 +516,7 @@
         <input type="number" step="any" id="tipAmountInput" placeholder="0.000" />
       </div>
       <div id="tipMemoGroup" style="margin-bottom:20px;">
-        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">Memo:</label>
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;" id="tipMemoLabel">Memo:</label>
         <input type="text" id="tipMemoInput" placeholder="Enter memo..." />
       </div>
       <div style="display:flex; justify-content:flex-end; gap:10px;">
@@ -617,7 +617,7 @@
         if (kcBtn) kcBtn.textContent = 'Switch Account (@' + user + ')';
         if (kcHint) kcHint.textContent = 'Behavioral profile active for @' + user;
         if (kcDisconnectWrap) kcDisconnectWrap.style.display = 'block';
-        fetchUserMana(user);
+        fetchUserAccountData(user);
         buildUserInterestProfile(user);
       } else {
         if (headerStatus) headerStatus.innerHTML = '';
@@ -627,7 +627,7 @@
       }
     }
 
-    function fetchUserMana(username) {
+    function fetchUserAccountData(username) {
       if (!username) return;
       hiveCall('condenser_api.get_accounts', [[username]]).then(function(accs) {
         if (accs && accs[0]) {
@@ -647,7 +647,6 @@
       }).catch(function() {});
     }
 
-    // DEEP HISTORICAL ON-CHAIN ANALYSIS (UPVOTES & COMMENTS)
     function buildUserInterestProfile(username) {
       if (!username) return;
       hiveCall('condenser_api.get_account_history', [username, -1, 500, 3]).then(function(history) {
@@ -705,11 +704,17 @@
       hiveCall('condenser_api.get_accounts', [[username]]).then(function(accs) {
         if (!accs || !accs[0]) { appState.keCache[username] = 'N/A'; callback('N/A'); return; }
         var acc = accs[0];
+        var postingRewards = parseFloat(acc.posting_rewards) || 0;
+        var curationRewards = parseFloat(acc.curation_rewards) || 0;
+        var totalRewards = postingRewards + curationRewards;
+        
         var vestingShares = parseFloat(acc.vesting_shares) || 0;
-        var heldHp = vestingShares * 0.00055;
-        if (heldHp < 1) heldHp = 1;
-        var totalRewards = parseFloat(acc.lifetime_vote_payouts || 1000) / 1000;
-        var ke = totalRewards / heldHp;
+        var receivedVests = parseFloat(acc.received_vesting_shares) || 0;
+        var delegatedVests = parseFloat(acc.delegated_vesting_shares) || 0;
+        var heldVests = vestingShares + receivedVests - delegatedVests;
+        if (heldVests <= 0) heldVests = 1;
+
+        var ke = totalRewards / heldVests;
         if (isNaN(ke) || ke < 0) ke = 1.25;
         var formatted = ke.toFixed(2);
         appState.keCache[username] = formatted;
@@ -907,7 +912,6 @@
       applyFilters();
     }
 
-    // ROBUST POOL FETCHING INCLUDING HISTORICAL PREFERRED AUTHORS
     function fetchComprehensivePool() {
       var basePromises = [
         hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '', limit: 40 }).catch(function() { return []; }),
@@ -915,7 +919,6 @@
         hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 30 }]).catch(function() { return []; })
       ];
 
-      // Actively pull posts from authors the user has historically upvoted or commented on
       var topAuthors = Object.keys(appState.userInterestProfile.authors || {});
       for (var a = 0; a < Math.min(topAuthors.length, 5); a++) {
         basePromises.push(
@@ -1005,7 +1008,6 @@
 
         item.isLiked = !!taste.liked[key];
         
-        // HEAVY WEIGHT ON HISTORICAL VOTING & COMMENTING PROFILE (60% weight when enabled)
         var persScore = personalizationEnabled ? (item.personalizationScore || 0) : 0;
         item.combinedScore = (item.relevanceScore * 0.40) + (persScore * 0.60);
         if (item.isLiked) item.combinedScore += 1.0;
@@ -1074,7 +1076,6 @@
       updateCardKeBadges();
     }
 
-    // ADVANCED SEARCH WITH DIRECT AUTHOR & HISTORICAL PROFILE BOOST
     function runSearchWorkflow(query) {
       setStatus('Searching Hive blockchain & historical voting/commenting profile...');
       var cleanQuery = String(query || '').trim().toLowerCase();
@@ -1147,7 +1148,6 @@
           var depthScore = Math.min(2.0, 1.0 + (bodyStr.length / 1000));
           relevanceScore *= depthScore;
 
-          // HEAVILY WEIGHTED HISTORICAL VOTING & COMMENTING MATCH
           var personalizationScore = 0;
           var expReasons = [];
           
@@ -1251,28 +1251,60 @@
         });
     }
 
-    function runNewUsersWorkflow() {
-      setStatus('Discovering new authors...');
-      return fetchComprehensivePool().then(function(posts) {
-        var scored = [];
-        var taste = loadTaste();
-        for (var i = 0; i < posts.length; i++) {
-          var p = posts[i];
-          var ts = Date.parse((p.created || '') + 'Z') || 0;
-          scored.push({
-            post: p,
-            relevanceScore: 1.0,
-            personalizationScore: 0.5,
-            depthScore: 1.0,
-            timestamp: ts,
-            explanation: 'New author discovery publication',
-            isLiked: !!taste.liked[p.author + '/' + p.permlink]
+    function runNewUsersWorkflow(query) {
+      setStatus('Discovering authors who joined Hive in the last 12 months...');
+      var cleanQuery = String(query || '').trim().toLowerCase();
+      return hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 50 })
+        .catch(function() { return []; })
+        .then(function(posts) {
+          var uniqueAuthors = [];
+          var authorMap = {};
+          for (var i = 0; i < posts.length; i++) {
+            var auth = posts[i].author;
+            if (auth && !authorMap[auth]) {
+              authorMap[auth] = true;
+              uniqueAuthors.push(auth);
+            }
+          }
+          if (uniqueAuthors.length === 0) return [];
+          return hiveCall('condenser_api.get_accounts', [uniqueAuthors]).then(function(accounts) {
+            var newAuthorsMap = {};
+            var oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
+            for (var a = 0; a < accounts.length; a++) {
+              var acc = accounts[a];
+              var createdTs = Date.parse((acc.created || '') + 'Z');
+              if (createdTs && createdTs >= oneYearAgo) {
+                newAuthorsMap[acc.name] = true;
+              }
+            }
+
+            var scored = [];
+            var taste = loadTaste();
+            for (var j = 0; j < posts.length; j++) {
+              var p = posts[j];
+              if (newAuthorsMap[p.author]) {
+                if (cleanQuery && (p.title + ' ' + p.body + ' ' + p.author).toLowerCase().indexOf(cleanQuery) === -1) {
+                  continue;
+                }
+                var ts = Date.parse((p.created || '') + 'Z') || 0;
+                scored.push({
+                  post: p,
+                  relevanceScore: 3.0,
+                  personalizationScore: 1.5,
+                  depthScore: 1.2,
+                  timestamp: ts,
+                  explanation: 'New author (joined within past 12 months)',
+                  isLiked: !!taste.liked[p.author + '/' + p.permlink]
+                });
+              }
+            }
+            appState.rawResults = scored;
+            applyFilters();
+            setStatus('Showing ' + scored.length + ' posts from authors who joined Hive in the last 12 months.', false);
           });
-        }
-        appState.rawResults = scored;
-        applyFilters();
-        setStatus('Showing recent posts from new Hive authors.', false);
-      });
+        }).catch(function(err) {
+          setStatus('Error discovering new users: ' + err.message, true);
+        });
     }
 
     function startApp() {
@@ -1285,7 +1317,7 @@
       if (appState.mode === 'search') promise = runSearchWorkflow(raw);
       else if (appState.mode === 'feed') promise = runFeedWorkflow(raw || getConnectedUser());
       else if (appState.mode === 'user') promise = runUsernameWorkflow(raw);
-      else if (appState.mode === 'newusers') promise = runNewUsersWorkflow();
+      else if (appState.mode === 'newusers') promise = runNewUsersWorkflow(raw);
 
       promise.catch(function(err) {
         setStatus('Search error: ' + (err.message || 'Unable to connect to Hive RPC nodes.'), true);
@@ -1409,21 +1441,93 @@
       if (idx === null || idx === undefined) return;
       var item = appState.results[idx];
       if (!window.hive_keychain) { setStatus('Keychain not detected.', true); return; }
+      var user = getConnectedUser();
+      if (!user) { setStatus('Connect Keychain first.', true); return; }
+
       currentTipConfig.type = type;
       currentTipConfig.author = item.post.author;
-      document.getElementById('tipModalTitle').textContent = 'Tip ' + type + ' to @' + item.post.author;
+
+      var titleText = 'Tip @' + item.post.author;
+      var memoVal = 'Tip via NectarSeeker';
+      var amountLabel = 'Amount:';
+
+      if (type === 'HSBI') {
+        titleText = 'Sponsor HSBI Units for @' + item.post.author;
+        memoVal = '@' + item.post.author;
+        amountLabel = 'Units (1 HIVE / unit):';
+      } else if (type === 'HE') {
+        type = prompt('Enter Hive-Engine token symbol (e.g., LEO, POB, BEE):', 'LEO');
+        if (!type) return;
+        currentTipConfig.type = type.toUpperCase();
+        titleText = 'Tip ' + currentTipConfig.type + ' to @' + item.post.author;
+      } else {
+        titleText = 'Tip ' + type + ' to @' + item.post.author;
+      }
+
+      document.getElementById('tipModalTitle').textContent = titleText;
+      document.getElementById('tipAmountLabel').textContent = amountLabel;
+      document.getElementById('tipMemoInput').value = memoVal;
       document.getElementById('tipModal').style.display = 'flex';
+
+      hiveCall('condenser_api.get_accounts', [[user]]).then(function(accs) {
+        if (accs && accs[0]) {
+          var acc = accs[0];
+          var balText = '';
+          if (type === 'HIVE' || type === 'HSBI') balText = 'Available: ' + (acc.balance || '0.000 HIVE');
+          else if (type === 'HBD') balText = 'Available: ' + (acc.hbd_balance || '0.000 HBD');
+          else balText = 'Currency: ' + currentTipConfig.type;
+          document.getElementById('tipModalBalance').textContent = balText;
+        }
+      }).catch(function() {
+        document.getElementById('tipModalBalance').textContent = '';
+      });
     }
 
-    function closeTipModal() { document.getElementById('tipModal').style.display = 'none'; }
+    function closeTipModal() {
+      document.getElementById('tipModal').style.display = 'none';
+    }
+
     function confirmTip() {
       var user = getConnectedUser();
-      var amt = document.getElementById('tipAmountInput').value;
-      var memo = document.getElementById('tipMemoInput').value || 'Tip via NectarSeeker';
+      var amtInput = document.getElementById('tipAmountInput').value;
+      var amt = parseFloat(amtInput);
+      var memo = document.getElementById('tipMemoInput').value || '';
       closeTipModal();
-      window.hive_keychain.requestTransfer(user, currentTipConfig.author, parseFloat(amt).toFixed(3), memo, currentTipConfig.type, function(res) {
-        if (res && res.success) setStatus('Tip sent successfully!', false);
-      });
+
+      if (isNaN(amt) || amt <= 0) {
+        setStatus('Invalid tip amount specified.', true);
+        return;
+      }
+
+      var formattedAmt = amt.toFixed(3);
+
+      if (currentTipConfig.type === 'HSBI') {
+        var memoText = memo.startsWith('@') ? memo : '@' + currentTipConfig.author;
+        window.hive_keychain.requestTransfer(user, 'steembasicincome', formattedAmt, memoText, 'HIVE', function(res) {
+          if (res && res.success) setStatus('Successfully sponsored ' + formattedAmt + ' HSBI units for @' + currentTipConfig.author + '!', false);
+          else setStatus('HSBI sponsorship cancelled.', true);
+        });
+      } else if (currentTipConfig.type === 'HIVE' || currentTipConfig.type === 'HBD') {
+        window.hive_keychain.requestTransfer(user, currentTipConfig.author, formattedAmt, memo, currentTipConfig.type, function(res) {
+          if (res && res.success) setStatus('Successfully sent ' + formattedAmt + ' ' + currentTipConfig.type + ' tip to @' + currentTipConfig.author + '!', false);
+          else setStatus('Tip transfer cancelled.', true);
+        });
+      } else {
+        var jsonPayload = JSON.stringify({
+          contractName: 'tokens',
+          contractAction: 'transfer',
+          contractPayload: {
+            symbol: currentTipConfig.type,
+            to: currentTipConfig.author,
+            quantity: formattedAmt,
+            memo: memo
+          }
+        });
+        window.hive_keychain.requestCustomJson(user, 'ssc-mainnet-hive', 'Active', jsonPayload, 'Tip ' + currentTipConfig.type, function(res) {
+          if (res && res.success) setStatus('Successfully tipped ' + formattedAmt + ' ' + currentTipConfig.type + ' to @' + currentTipConfig.author + '!', false);
+          else setStatus('Token tip cancelled.', true);
+        });
+      }
     }
 
     function loginKeychain() {
