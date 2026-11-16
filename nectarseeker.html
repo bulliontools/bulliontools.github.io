@@ -295,10 +295,6 @@
     .badge-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     .dapp-tag { font-size: 12px; font-weight: 600; color: var(--accent-cyan); background-color: var(--surface-2); border: 1px solid var(--border); padding: 3px 8px; border-radius: 5px; }
     .ke-badge { font-size: 11px; font-weight: 700; color: var(--accent-warn); background-color: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); padding: 3px 7px; border-radius: 5px; }
-    .vote-status-badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 5px; }
-    .vote-status-badge.voted { color: var(--accent-green); background-color: rgba(16,185,129,0.16); }
-    .vote-status-badge.downvoted { color: var(--accent-danger); background-color: rgba(244,63,94,0.16); }
-    .vote-status-badge.unvoted { color: var(--text-muted); background-color: var(--surface-2); }
     .ai-badge { font-size: 11px; font-weight: 700; color: var(--accent-green); background-color: rgba(16,185,129,0.12); padding: 3px 7px; border-radius: 5px; }
     .ai-badge.warning { color: var(--accent-warn); background-color: rgba(245,158,11,0.15); }
     .ai-badge.danger { color: var(--accent-danger); background-color: rgba(239,68,68,0.18); }
@@ -404,7 +400,6 @@
       <button type="button" class="primary-btn" id="runBtn" onclick="startApp()">Search &amp; Discover</button>
     </div>
 
-    <!-- ADVANCED FILTER CONTROLS -->
     <div class="filter-row">
       <div class="filter-group">
         <label for="dateFilter">Date Range:</label>
@@ -432,7 +427,6 @@
     </div>
   </div>
 
-  <!-- CORRECTED HOW IT WORKS & NAVIGATION SECTION -->
   <details class="panel">
     <summary>How to Navigate &amp; Operate NectarSeeker</summary>
     <div style="font-size:14px;color:var(--text-muted);display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;">
@@ -452,7 +446,7 @@
   </details>
 
   <div class="taste-bar" id="tasteBar">
-    <div class="taste-tags" id="tasteSummary">Taste model ready. Use More or Less on cards to train your feed.</div>
+    <div class="taste-tags" id="tasteSummary">Personalize your feed: Click <strong>More</strong> or <strong>Less</strong> on any post to tune your results.</div>
     <button type="button" class="reset-btn" onclick="resetTaste()">Reset Learning</button>
   </div>
 
@@ -572,7 +566,6 @@
       because:1,since:1,although:1,though:1,while:1,both:1,either:1,neither:1,nor:1,so:1
     };
 
-    // CONCEPT EXPANSION DICTIONARY FOR INTELLIGENT SEARCH
     var CONCEPT_SYNONYMS = {
       witness: ['node', 'server', 'infrastructure', 'producer', 'validator', 'config', 'monitoring', 'backup', 'security'],
       defi: ['swap', 'pool', 'yield', 'token', 'liquidity', 'stake', 'hive-engine', 'leo', 'dex'],
@@ -757,8 +750,13 @@
       var summaryEl = document.getElementById('tasteSummary');
       if (!summaryEl) return;
       var likedCount = Object.keys(taste.liked).length;
-      var filteredCount = Object.keys(taste.disliked).length;
-      summaryEl.innerHTML = 'Trained on <strong>' + likedCount + '</strong> liked &amp; <strong>' + filteredCount + '</strong> filtered items. Use More/Less to refine rankings[span_7](start_span)[span_7](end_span).';
+      var dislikedCount = Object.keys(taste.disliked).length;
+
+      if (likedCount === 0 && dislikedCount === 0) {
+        summaryEl.innerHTML = 'Personalize your feed: Click <strong>More</strong> or <strong>Less</strong> on any post to tune your results.';
+      } else {
+        summaryEl.innerHTML = 'Feed tuned with <strong>' + likedCount + '</strong> boosted &amp; <strong>' + dislikedCount + '</strong> muted posts.';
+      }
     }
 
     function setStatus(msg, isError) {
@@ -786,12 +784,10 @@
       var body = String(rawText || '');
       body = body.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
       
-      // YouTube Embeds
       body = body.replace(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/g, function(match, vidId) {
         return '<div style="position:relative;width:100%;height:0;padding-bottom:56.25%;margin:16px 0;"><iframe src="https://www.youtube-nocookie.com/embed/' + vidId + '" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;border-radius:8px;" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups"></iframe></div>';
       });
 
-      // Images
       body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
         var cleanAlt = escapeHtml(alt || 'Image');
         var parts = inner.trim().split(/\s+/);
@@ -799,7 +795,6 @@
         return '<br><img src="' + escapeHtml(url) + '" alt="' + cleanAlt + '" onerror="this.onerror=null; this.alt=\'Image failed to load\';" style="max-width:100%; height:auto; border-radius:8px; display:block; margin:16px auto;"><br>';
       });
 
-      // Links
       body = body.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, inner) {
         var parts = inner.trim().split(/\s+/);
         var url = parts[0].replace(/^["'<]|["'>]$/g, '');
@@ -1016,13 +1011,11 @@
         var key = item.post.author + '/' + item.post.permlink;
         if (taste.disliked[key]) continue;
 
-        // Date filter
         if (dateVal !== 'all') {
           var maxAgeMs = parseInt(dateVal, 10) * 24 * 60 * 60 * 1000;
           if (now - item.timestamp > maxAgeMs) continue;
         }
 
-        // Tag / Community filter
         if (tagVal) {
           var tags = item.post.category || '';
           var meta = item.post.json_metadata;
@@ -1037,7 +1030,6 @@
         filtered.push(item);
       }
 
-      // Sorting
       if (appState.sort === 'newest') {
         filtered.sort(function(a, b) { return b.timestamp - a.timestamp; });
       } else if (appState.sort === 'quality') {
@@ -1096,7 +1088,6 @@
       updateCardKeBadges();
     }
 
-    // INTELLIGENT HYBRID SEARCH WORKFLOW WITH CONCEPT EXPANSION
     function runSearchWorkflow(query) {
       setStatus('Searching and evaluating Hive content...');
       return fetchAllFrontendsPool('').then(function(candidates) {
@@ -1105,7 +1096,6 @@
         var cleanQuery = String(query || '').trim().toLowerCase();
         var queryTokens = tokenize(cleanQuery);
 
-        // Concept expansion
         var expandedTokens = queryTokens.slice();
         for (var i = 0; i < queryTokens.length; i++) {
           var t = queryTokens[i];
@@ -1124,18 +1114,16 @@
           var titleStr = String(c.title || '');
           var bodyStr = String(c.body || '');
           var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
-          var cTokens = tokenize(fullStr = titleStr + ' ' + bodyStr);
+          var cTokens = tokenize(titleStr + ' ' + bodyStr);
           if (cTokens.length < 10) continue;
 
           var cVec = buildVectorWithIDF(cTokens, null, idfMap);
           var sim = cosineSim(queryVec, cVec);
           var score = sim.score;
 
-          // Exact / phrase boosts
           if (cleanQuery && titleStr.toLowerCase().indexOf(cleanQuery) !== -1) score += 0.4;
           else if (cleanQuery && fullLower.indexOf(cleanQuery) !== -1) score += 0.2;
 
-          // Information density / depth scoring
           var depthScore = Math.min(2.0, 1.0 + (cTokens.length / 500) + ((bodyStr.match(/<img|!\[|\|/g) || []).length * 0.1));
 
           if (score > 0.005 || !cleanQuery) {
@@ -1228,7 +1216,6 @@
       });
     }
 
-    // Reader Modal & Keychain functionality
     function openPostReader(idx) {
       var item = appState.results[idx];
       if (!item) return;
@@ -1391,7 +1378,6 @@
     detectKeychain();
     setTimeout(detectKeychain, 700);
     
-    // Default initial search
     runSearchWorkflow('hive blockchain');
   </script>
 </body>
