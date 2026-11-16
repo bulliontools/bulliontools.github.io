@@ -1753,7 +1753,7 @@
             var name = attr.name.toLowerCase();
             if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'formaction') { child.removeAttribute(attr.name); return; }
             if (name === 'class') {
-              var safeClass = attr.value.split(/\\s+/).filter(function (c) { return /^[a-zA-Z0-9_-]{1,64}$/.test(c); }).join(' ');
+              var safeClass = attr.value.split(/\s+/).filter(function (c) { return /^[a-zA-Z0-9_-]{1,64}$/.test(c); }).join(' ');
               if (safeClass) child.setAttribute('class', safeClass); else child.removeAttribute('class');
               return;
             }
@@ -2707,6 +2707,27 @@
       return 'Hive dApp';
     }
 
+    function getOriginalFrontendUrl(post) {
+      var meta = post.json_metadata;
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      }
+      var app = (meta && meta.app) ? String(meta.app).toLowerCase() : '';
+      var authorEnc = encodeURIComponent(post.author);
+      var permEnc = encodeURIComponent(post.permlink);
+
+      if (app.indexOf('peakd') !== -1) return '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('ecency') !== -1) return '[https://ecency.com/](https://ecency.com/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('leofinance') !== -1 || app.indexOf('inleo') !== -1) return '[https://inleo.io/](https://inleo.io/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('liketu') !== -1) return '[https://liketu.com/](https://liketu.com/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('3speak') !== -1) return '[https://3speak.tv/watch?v=](https://3speak.tv/watch?v=)' + authorEnc + '/' + permEnc;
+      if (app.indexOf('actifit') !== -1) return '[https://actifit.io/](https://actifit.io/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('worldmappin') !== -1 || app.indexOf('pinmapple') !== -1) return '[https://worldmappin.com/](https://worldmappin.com/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('dbuzz') !== -1) return '[https://d.buzz/](https://d.buzz/)@' + authorEnc + '/' + permEnc;
+      if (app.indexOf('hiveblog') !== -1) return '[https://hive.blog/](https://hive.blog/)@' + authorEnc + '/' + permEnc;
+      return '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
+    }
+
     function formatAge(createdStr) {
       if (!createdStr) return '';
       var ts = Date.parse(createdStr + 'Z');
@@ -2980,7 +3001,8 @@
       if (metaEl) {
         var dapp = detectFrontend(p);
         var age = formatAge(p.created);
-        metaEl.innerHTML = 'by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span> <span class="ke-badge reader-ke-top" data-author="' + escapeHtml(p.author) + '">KE: Loading...</span>';
+        var origUrl = getOriginalFrontendUrl(p);
+        metaEl.innerHTML = 'by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span> <span class="ke-badge reader-ke-top" data-author="' + escapeHtml(p.author) + '">KE: Loading...</span><br><a href="' + escapeHtml(origUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); font-size:13px; text-decoration:underline; margin-top:4px; display:inline-block;">Something didn\'t load right? View the original post.</a>';
       }
       if (contentEl) {
         contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
@@ -3453,6 +3475,7 @@
         var item = items[i];
         var p = item.post;
         var dapp = detectFrontend(p);
+        var origUrl = getOriginalFrontendUrl(p);
         var authorEnc = encodeURIComponent(p.author);
         var permEnc = encodeURIComponent(p.permlink);
         var peakdUrl = '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
@@ -3498,6 +3521,7 @@
         html += ' &middot; Relevance: <strong>' + pct + '%</strong></div>';
 
         html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
+        html += '<div style="margin-bottom: 12px; font-size: 13px;"><a href="' + escapeHtml(origUrl) + '" target="_blank" rel="noopener noreferrer" style="color: var(--accent-cyan); text-decoration: underline;">Something didn\'t load right? View the original post.</a></div>';
 
         html += '<div class="card-footer">';
         if (item.matched && item.matched.length > 0) {
