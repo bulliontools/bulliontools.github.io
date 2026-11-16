@@ -1648,10 +1648,11 @@
         text = text.replace(/<!--([\s\S]*?)-->|<\/?[a-z][^>]*>/gi, function (m) { return hold(m); });
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
-        text = text.replace(/!\[([^\]]*)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, function (m, alt, url, title) {
-          return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(url.replace(/[<>]/g, '')) + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>');
+        text = text.replace(/!\[([^\]]*)\]\(([^)]+?)(?:\s+["']([^"']*)["'])?\)/g, function (m, alt, url, title) {
+          var cleanUrl = url.trim().replace(/^[<"]|[>"]$/g, '');
+          return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>');
         });
-        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|ipfs:\/\/[^\s)]+|\/[^\s)]*)\)/g, function (m, label, url) {
+        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+\vert{}ipfs:\/\/[^\s)]+\vert{}\/[^\s)]*)\)/g, function (m, label, url) {
           return hold('<a href="' + escapeHtml(url) + '">' + escapeHtml(label) + '</a>');
         });
         text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -1724,15 +1725,15 @@
       var parsed = new DOMParser().parseFromString('<!doctype html><html><body>' + generated + '</body></html>', 'text/html');
       var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DIV DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO'.split(' ');
       var blocked = 'SCRIPT STYLE OBJECT EMBED FORM INPUT BUTTON TEXTAREA LINK META BASE SVG MATH'.split(' ');
-      var safeFrameHosts = ['youtube.com', 'www.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com', 'player.vimeo.com', '3speak.tv', '3speak.online'];
+      var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', '3speak.online'];
 
       function safeUrl(value, imageMode) {
         var url = String(value || '').trim().replace(/[\u0000-\u0020]+/g, '');
         if (!url) return '';
         if (url.indexOf('//') === 0) url = 'https:' + url;
-        if (/^ipfs:\/\//i.test(url)) return 'https://ipfs.io/ipfs/' + url.slice(7).replace(/^ipfs\//, '');
+        if (/^ipfs:\/\//i.test(url)) return '[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + url.slice(7).replace(/^ipfs\//, '');
         if (/^https?:\/\//i.test(url)) return url;
-        if (/^\/ipfs\//i.test(url)) return 'https://ipfs.io' + url;
+        if (/^\/ipfs\//i.test(url)) return '[https://ipfs.io](https://ipfs.io)' + url;
         if (/^\/(?!\/)/.test(url)) return url;
         if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(url)) return 'https://' + url;
         return '';
@@ -1778,7 +1779,7 @@
           if (tag === 'IMG' || tag === 'SOURCE' || tag === 'VIDEO' || tag === 'IFRAME') {
             var rawSrc = child.getAttribute('src') || child.getAttribute('data-src') || child.getAttribute('data-original') || (child.getAttribute('srcset') || '').split(',')[0].trim().split(/\s+/)[0];
             var src = safeUrl(rawSrc, tag === 'IMG' || tag === 'SOURCE');
-            child.removeAttribute('data-src'); child.removeAttribute('data-original'); child.removeAttribute('srcset');
+            child.removeAttribute('data-src'); child.removeAttribute('data-original');
             if (tag === 'IFRAME') {
               var host = '';
               try { host = new URL(src, location.href).hostname.toLowerCase(); } catch (e) {}
@@ -1794,9 +1795,9 @@
                 var ipfsMatch = src.match(/\/ipfs\/([^?#]+)/i);
                 if (ipfsMatch) {
                   var hash = ipfsMatch[1];
-                  candidates.push('https://ipfs.io/ipfs/' + hash, 'https://gateway.pinata.cloud/ipfs/' + hash, 'https://cloudflare-ipfs.com/ipfs/' + hash);
+                  candidates.push('[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + hash, '[https://gateway.pinata.cloud/ipfs/](https://gateway.pinata.cloud/ipfs/)' + hash, '[https://cloudflare-ipfs.com/ipfs/](https://cloudflare-ipfs.com/ipfs/)' + hash);
                 } else if (/^https?:\/\//i.test(src) && !/images\.hive\.blog\/0x0\//i.test(src)) {
-                  candidates.push('https://images.hive.blog/0x0/' + src);
+                  candidates.push('[https://images.hive.blog/0x0/](https://images.hive.blog/0x0/)' + src);
                 } else if (/images\.hive\.blog\/0x0\//i.test(src)) {
                   candidates.push(src.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, ''));
                 }
@@ -1813,8 +1814,6 @@
       }
       sanitizeNode(parsed.body);
 
-      // Return only sanitized body markup. A delegated error handler below survives
-      // serialization into readerContent.innerHTML and retries alternate gateways.
       return parsed.body.innerHTML;
     }
 
@@ -1970,8 +1969,6 @@
       };
     }
 
-    // Lightweight in-file concept expansion improves recall without adding a
-    // remote model, API key, dependency, or additional application file.
     function buildExpandedSearchQueryVector(query, idfMap) {
       var originalTokens = tokenize(query);
       var lower = ' ' + String(query || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
@@ -2021,9 +2018,6 @@
       return buildVectorWithIDF(tokens, weights, idfMap);
     }
 
-    // Build a profile from weighted documents. Unlike the older token accumulator,
-    // this applies each interaction's weight once per token and keeps negative
-    // voting signals in a separate vector so they cannot cancel positive interests.
     function buildWeightedProfileVector(documents, idfMap) {
       var counts = {};
       for (var i = 0; i < documents.length; i++) {
@@ -2294,7 +2288,7 @@
         id: 1
       });
 
-      fetch('https://api.hive-engine.com/rpc/contracts', {
+      fetch('[https://api.hive-engine.com/rpc/contracts](https://api.hive-engine.com/rpc/contracts)', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload
@@ -2614,8 +2608,8 @@
         var startAuthor = '';
         var startPermlink = '';
         var page = 0;
-        var requestedLimit = 100;
-        var maxPages = 35; // fallback remains 20/page if the endpoint clamps the requested limit
+        var requestedLimit = 20; // Fixed from 100 to comply with Hive bridge node range limits
+        var maxPages = 35;
 
         function fetchBatch() {
           page++;
@@ -2629,8 +2623,6 @@
             return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: requestedLimit, start_author: startAuthor, start_permlink: startPermlink }]);
           }).then(function (posts) {
             if (!Array.isArray(posts) || posts.length === 0) return collected;
-            // If the endpoint honors 100, seven pages retain the same ~700-post pool.
-            // If it clamps to 20, keep paging up to the original 35-page ceiling.
             if (page === 1) maxPages = Math.max(1, Math.ceil(700 / posts.length));
             var reachedCutoff = false;
             for (var i = 0; i < posts.length; i++) {
@@ -3474,9 +3466,9 @@
         var dapp = detectFrontend(p);
         var authorEnc = encodeURIComponent(p.author);
         var permEnc = encodeURIComponent(p.permlink);
-        var peakdUrl = 'https://peakd.com/@' + authorEnc + '/' + permEnc;
-        var ecencyUrl = 'https://ecency.com/@' + authorEnc + '/' + permEnc;
-        var hiveUrl = 'https://hive.blog/@' + authorEnc + '/' + permEnc;
+        var peakdUrl = '[https://peakd.com/](https://peakd.com/)@' + authorEnc + '/' + permEnc;
+        var ecencyUrl = '[https://ecency.com/](https://ecency.com/)@' + authorEnc + '/' + permEnc;
+        var hiveUrl = '[https://hive.blog/](https://hive.blog/)@' + authorEnc + '/' + permEnc;
 
         var rawBody = cleanMarkdown(p.body || '');
         var snippet = rawBody.length > 220 ? rawBody.slice(0, 220) + '...' : rawBody;
@@ -3501,7 +3493,6 @@
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
         
-        // Badges positioned above the title
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
@@ -3509,7 +3500,6 @@
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
 
-        // Title underneath the badges
         html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
         
         html += '</div>';
@@ -3639,8 +3629,6 @@
                 var ts = Date.parse((candidate.created || '').replace(/Z$/, '') + 'Z') || 0;
                 var ageDays = ts ? Math.max(0, (Date.now() - ts) / 86400000) : 365;
                 score += 0.025 * Math.exp(-ageDays / 120);
-                // A small discovery lift keeps relevant new authors visible instead of
-                // allowing followed authors to monopolize the personalized feed.
                 if (!behavior.author) score += 0.012;
                 scored.push({ post: candidate, baseScore: score, finalScore: score, matched: behavior.matched, tokens: tokens,
                   timestamp: ts, isLiked: !!taste.liked[key], personalized: true });
@@ -3706,7 +3694,6 @@
             else if (fullLower.indexOf(lowerPhrase) !== -1) queryScore += 0.20;
 
             var behavior = profile ? scoreAgainstBehaviorProfile(candidate, profile, idfMap, candidateVector) : null;
-            // Preserve the existing ranking blend: explicit query relevance 80%, behavior 20%.
             var score = queryScore;
             var matchedTerms = semantic.matched.length > 0 ? semantic.matched.slice(0) : [lowerPhrase];
             if (profile && queryScore > 0.01) {
@@ -3725,8 +3712,6 @@
           return Math.min(100, appState.results.length);
         }
 
-        // Render useful query-matched results as soon as the corpus is ready;
-        // then replace them with the fully personalized ranking when profile data arrives.
         var initialShown = scoreAndRender(candidates, null);
         if (username) setStatus('Showing ' + initialShown + ' initial matches while your Hive interests are refreshed…', false);
 
