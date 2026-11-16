@@ -379,7 +379,7 @@
     </div>
 
     <div class="controls">
-      <input type="text" id="queryInput" placeholder="Search Hive content, keywords, or author (e.g. bulliontools, witness infrastructure)..." autocapitalize="none" autocorrect="off" />
+      <input type="text" id="queryInput" placeholder="Search Hive content, keywords, or author (e.g. bitcoin, silver, witness)..." autocapitalize="none" autocorrect="off" />
       <button type="button" class="primary-btn" id="runBtn" onclick="startApp()">Search &amp; Discover</button>
     </div>
 
@@ -417,7 +417,7 @@
     <summary>How It Works</summary>
     <div style="font-size:14px;color:var(--text-muted);display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;">
       <div>
-        <strong style="color:var(--accent-cyan);">Search Modes:</strong> Switch between <strong>Hybrid Search</strong> (keywords &amp; author lookup), <strong>Personal Feed</strong> (tailored recommendations), <strong>Username</strong> (direct blog posts), and <strong>New Users</strong> discovery (authors joined in the last 12 months).
+        <strong style="color:var(--accent-cyan);">Search Modes:</strong> Switch between <strong>Hybrid Search</strong> (strict relevancy &amp; tag matching), <strong>Personal Feed</strong> (tailored recommendations), <strong>Username</strong> (direct blog posts), and <strong>New Users</strong> discovery (all posts from authors joined in the last 12 months).
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Behavioral Profiling &amp; History:</strong> Ingests your historical upvotes and comments via Hive Keychain to weigh your true preferences over generic global popularity.
@@ -559,6 +559,9 @@
     };
 
     var CONCEPT_SYNONYMS = {
+      bitcoin: ['btc', 'satoshi', 'crypto', 'cryptocurrency', 'halving', 'lightning', 'sats', 'blockchain'],
+      btc: ['bitcoin', 'satoshi', 'crypto', 'cryptocurrency', 'lightning', 'sats'],
+      crypto: ['bitcoin', 'btc', 'hive', 'cryptocurrency', 'altcoin', 'defi', 'blockchain', 'token'],
       silver: ['bullion', 'gold', 'coins', 'stacking', 'pm', 'precious', 'metals', 'silvergoldstackers'],
       bullion: ['silver', 'gold', 'coins', 'stacking', 'pm', 'precious', 'metals', 'silvergoldstackers'],
       gold: ['silver', 'bullion', 'coins', 'stacking', 'pm', 'precious', 'metals'],
@@ -935,10 +938,13 @@
       for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-mode') === m);
       var input = document.getElementById('queryInput');
       if (input) {
-        if (m === 'search') input.placeholder = 'Search Hive content, keywords, or author (e.g. bulliontools, witness)...';
+        if (m === 'search') input.placeholder = 'Search Hive content, keywords, or author (e.g. bitcoin, silver, witness)...';
         else if (m === 'feed') input.placeholder = 'Enter your Hive username for personal recommendations';
         else if (m === 'user') input.placeholder = 'Enter Hive username (e.g. bulliontools)';
-        else if (m === 'newusers') input.placeholder = 'Optional: Enter keyword or leave blank for new users';
+        else if (m === 'newusers') input.placeholder = 'Keywords ignored — click Search & Discover to load posts from new users (last 12 months)';
+      }
+      if (m === 'newusers') {
+        startApp();
       }
     }
 
@@ -1046,7 +1052,7 @@
         item.isLiked = !!taste.liked[key];
         
         var persScore = personalizationEnabled ? (item.personalizationScore || 0) : 0;
-        item.combinedScore = (item.relevanceScore * 0.40) + (persScore * 0.60);
+        item.combinedScore = (item.relevanceScore * 0.50) + (persScore * 0.50);
         if (item.isLiked) item.combinedScore += 1.0;
 
         filtered.push(item);
@@ -1068,7 +1074,7 @@
       var feedEl = document.getElementById('feed');
       if (!feedEl) return;
       if (items.length === 0) {
-        feedEl.innerHTML = '<div class="card"><h3>No posts found matching your criteria. Try adjusting your search query or filters.</h3></div>';
+        feedEl.innerHTML = '<div class="card"><h3>No relevant posts found matching your search. Try broadening your keywords or checking your spelling.</h3></div>';
         setStatus('No matching posts found.', false);
         return;
       }
@@ -1082,7 +1088,7 @@
         var snippet = rawBody.length > 220 ? rawBody.slice(0, 220) + '...' : rawBody;
         var age = formatAge(p.created);
         var aiRes = analyzeAI((p.title || '') + ' ' + (p.body || ''));
-        var relPct = Math.min(99, Math.max(1, Math.round(item.relevanceScore * 20)));
+        var relPct = Math.min(99, Math.max(1, Math.round(item.relevanceScore * 10)));
         var persPct = Math.min(99, Math.max(1, Math.round((item.personalizationScore || 0) * 30)));
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
@@ -1098,6 +1104,7 @@
         html += '</div>';
         html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong>';
         if (age) html += ' &middot; ' + escapeHtml(age);
+        if (p.category) html += ' &middot; #' + escapeHtml(p.category);
         html += '</div>';
         html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
         html += '<div class="card-footer">';
@@ -1113,13 +1120,60 @@
       updateCardKeBadges();
     }
 
-    // FIELD-WEIGHTED & CONTEXT-AWARE SEARCH WORKFLOW
+    // STRICT RELEVANCE-FIRST SEARCH WORKFLOW (NO TRENDING NOISE)
     function runSearchWorkflow(query) {
-      setStatus('Searching Hive blockchain & context-matching user history profile...');
+      setStatus('Searching Hive blockchain index & community tags for exact relevancy...');
       var cleanQuery = String(query || '').trim().toLowerCase();
       var possibleAuthor = stripLeadingAt(cleanQuery);
 
-      var promises = [fetchComprehensivePool()];
+      if (cleanQuery === '') {
+        return runFeedWorkflow(getConnectedUser() || 'trending');
+      }
+
+      var queryTokens = tokenize(cleanQuery);
+      var expandedTokens = {};
+      for (var t = 0; t < queryTokens.length; t++) {
+        var tok = queryTokens[t];
+        expandedTokens[tok] = true;
+        if (CONCEPT_SYNONYMS[tok]) {
+          var syns = CONCEPT_SYNONYMS[tok];
+          for (var s = 0; s < syns.length; s++) expandedTokens[syns[s]] = true;
+        }
+      }
+
+      var searchTags = [];
+      var seenTags = {};
+      for (var i = 0; i < queryTokens.length; i++) {
+        var cleanTag = queryTokens[i].replace(/[^a-z0-9\-]/g, '');
+        if (cleanTag && !seenTags[cleanTag]) {
+          seenTags[cleanTag] = true;
+          searchTags.push(cleanTag);
+        }
+      }
+      for (var term in expandedTokens) {
+        if (Object.prototype.hasOwnProperty.call(expandedTokens, term) && searchTags.length < 5) {
+          var synTag = term.replace(/[^a-z0-9\-]/g, '');
+          if (synTag && !seenTags[synTag]) {
+            seenTags[synTag] = true;
+            searchTags.push(synTag);
+          }
+        }
+      }
+
+      var promises = [
+        hiveCall('search_api.find_text', { pattern: cleanQuery, sort: 'relevance' })
+          .then(function(res) { return Array.isArray(res) ? res : (res && res.results ? res.results : []); })
+          .catch(function() { return []; })
+      ];
+
+      for (var st = 0; st < searchTags.length; st++) {
+        var tagWord = searchTags[st];
+        promises.push(
+          hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: tagWord, limit: 50 }).catch(function() { return []; }),
+          hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: tagWord, limit: 30 }).catch(function() { return []; })
+        );
+      }
+
       if (possibleAuthor && /^[a-z0-9\-.]{3,20}$/.test(possibleAuthor)) {
         promises.push(
           hiveCall('bridge.get_account_posts', { sort: 'blog', account: possibleAuthor, limit: 50 })
@@ -1143,18 +1197,7 @@
           }
         }
 
-        if (candidates.length === 0) throw new Error('No posts received from Hive nodes.');
-        
-        var queryTokens = tokenize(cleanQuery);
-        var expandedTokens = {};
-        for (var t = 0; t < queryTokens.length; t++) {
-          var tok = queryTokens[t];
-          expandedTokens[tok] = true;
-          if (CONCEPT_SYNONYMS[tok]) {
-            var syns = CONCEPT_SYNONYMS[tok];
-            for (var s = 0; s < syns.length; s++) expandedTokens[syns[s]] = true;
-          }
-        }
+        if (candidates.length === 0) throw new Error('No matching posts found on Hive nodes for "' + cleanQuery + '".');
 
         var taste = loadTaste();
         var profile = appState.userInterestProfile;
@@ -1165,56 +1208,74 @@
           var titleStr = String(c.title || '').toLowerCase();
           var bodyStr = String(c.body || '').toLowerCase();
           var categoryStr = String(c.category || '').toLowerCase();
+          var metaStr = c.json_metadata ? JSON.stringify(c.json_metadata).toLowerCase() : '';
 
           var isAuthorMatch = possibleAuthor && c.author.toLowerCase() === possibleAuthor;
-          var titleMatchCount = 0;
-          var tagMatchCount = 0;
-          var bodyMatchCount = 0;
-          var semanticMatches = 0;
+          var exactTitleMatch = titleStr.indexOf(cleanQuery) !== -1;
+          var exactBodyMatch = bodyStr.indexOf(cleanQuery) !== -1;
+
+          var directTitleMatches = 0;
+          var directTagMatches = 0;
+          var directBodyMatches = 0;
+          var synonymTitleMatches = 0;
+          var synonymTagMatches = 0;
+          var synonymBodyMatches = 0;
 
           for (var term in expandedTokens) {
-            if (Object.prototype.hasOwnProperty.call(expandedTokens, term)) {
-              if (titleStr.indexOf(term) !== -1) titleMatchCount++;
-              else if (categoryStr.indexOf(term) !== -1 || (c.json_metadata && JSON.stringify(c.json_metadata).toLowerCase().indexOf(term) !== -1)) tagMatchCount++;
-              else if (bodyStr.indexOf(term) !== -1) bodyMatchCount++;
-              else semanticMatches++;
+            if (!Object.prototype.hasOwnProperty.call(expandedTokens, term)) continue;
+            var isPrimary = queryTokens.indexOf(term) !== -1;
+            var inTitle = titleStr.indexOf(term) !== -1;
+            var inTag = categoryStr.indexOf(term) !== -1 || metaStr.indexOf(term) !== -1;
+            var inBody = bodyStr.indexOf(term) !== -1;
+
+            if (isPrimary) {
+              if (inTitle) directTitleMatches++;
+              if (inTag) directTagMatches++;
+              if (inBody) directBodyMatches++;
+            } else {
+              if (inTitle) synonymTitleMatches++;
+              if (inTag) synonymTagMatches++;
+              if (inBody) synonymBodyMatches++;
             }
           }
 
-          var keywordScore = isAuthorMatch ? 15.0 : ((titleMatchCount * 5.0) + (tagMatchCount * 4.0) + (bodyMatchCount * 1.5) + (semanticMatches * 0.5));
-          
-          // Strict relevance threshold to filter out unrelated noise
-          if (cleanQuery !== '' && !isAuthorMatch && keywordScore < 3.0) {
+          var keywordScore = isAuthorMatch
+            ? 40.0
+            : (exactTitleMatch ? 20.0 : 0) +
+              (exactBodyMatch ? 8.0 : 0) +
+              (directTitleMatches * 12.0) +
+              (directTagMatches * 10.0) +
+              (directBodyMatches * 4.0) +
+              (synonymTitleMatches * 5.0) +
+              (synonymTagMatches * 4.0) +
+              (synonymBodyMatches * 1.5);
+
+          // Absolute relevance gate: discard anything that doesn't hit our keyword/semantic criteria
+          if (!isAuthorMatch && keywordScore < 3.0) {
             continue;
           }
 
           var depthScore = Math.min(2.0, 1.0 + (bodyStr.length / 1000));
           var personalizationScore = 0;
           var expReasons = [];
-          
+
           if (isAuthorMatch) {
             personalizationScore += 5.0;
             expReasons.push('Direct author match: @' + c.author);
           }
+          if (exactTitleMatch || directTitleMatches > 0) {
+            expReasons.push('Title match');
+          } else if (directTagMatches > 0) {
+            expReasons.push('Community tag match');
+          }
           if (profile.authors[c.author]) {
-            var authorWeight = profile.authors[c.author];
-            personalizationScore += (3.0 * Math.min(3, authorWeight));
-            expReasons.push('You frequently upvote @' + c.author);
-          }
-          if (c.category && profile.communities[c.category]) {
-            personalizationScore += 2.5;
-            expReasons.push('Community #' + c.category + ' matches your engagement history');
-          }
-          for (var tokKey in profile.topics) {
-            if ((titleStr + ' ' + bodyStr).indexOf(tokKey) !== -1) {
-              personalizationScore += 1.2;
-              if (expReasons.length < 2) expReasons.push('Matches topic keyword "' + tokKey + '" from your comment history');
-            }
+            personalizationScore += 2.0;
+            expReasons.push('Upvoted by you previously');
           }
 
-          var baseRel = (cleanQuery === '' ? 1.0 : keywordScore) * depthScore;
+          var baseRel = keywordScore * depthScore;
           var ts = Date.parse((c.created || '') + 'Z') || 0;
-          var explanation = expReasons.length > 0 ? expReasons.join(' & ') : 'Contextual relevance match';
+          var explanation = expReasons.length > 0 ? expReasons.join(' & ') : 'Strict relevance match';
 
           scored.push({
             post: c,
@@ -1229,7 +1290,7 @@
 
         appState.rawResults = scored;
         applyFilters();
-        setStatus('Found ' + appState.results.length + ' context-analyzed results for "' + (query || 'trending hive') + '".', false);
+        setStatus('Found ' + appState.results.length + ' strictly relevant results for "' + query + '".', false);
       });
     }
 
@@ -1293,60 +1354,74 @@
         });
     }
 
-    function runNewUsersWorkflow(query) {
-      setStatus('Discovering authors who joined Hive in the last 12 months...');
-      var cleanQuery = String(query || '').trim().toLowerCase();
-      return hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 50 })
-        .catch(function() { return []; })
-        .then(function(posts) {
-          var uniqueAuthors = [];
-          var authorMap = {};
-          for (var i = 0; i < posts.length; i++) {
-            var auth = posts[i].author;
-            if (auth && !authorMap[auth]) {
-              authorMap[auth] = true;
-              uniqueAuthors.push(auth);
+    // NEW USERS WORKFLOW: SHOWS ALL POSTS FROM AUTHORS WHO JOINED IN LAST 12 MONTHS (IGNORES KEYWORDS)
+    function runNewUsersWorkflow() {
+      setStatus('Discovering posts from Hive authors who joined in the last 12 months...');
+      return Promise.all([
+        hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 100 }).catch(function() { return []; }),
+        hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '', limit: 50 }).catch(function() { return []; })
+      ]).then(function(groups) {
+        var postMap = {};
+        var posts = [];
+        for (var g = 0; g < groups.length; g++) {
+          var arr = groups[g] || [];
+          for (var i = 0; i < arr.length; i++) {
+            var item = arr[i];
+            if (!item || !item.author || !item.permlink || item.parent_author) continue;
+            var k = item.author + '/' + item.permlink;
+            if (!postMap[k]) {
+              postMap[k] = true;
+              posts.push(item);
             }
           }
-          if (uniqueAuthors.length === 0) return [];
-          return hiveCall('condenser_api.get_accounts', [uniqueAuthors]).then(function(accounts) {
-            var newAuthorsMap = {};
-            var oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
-            for (var a = 0; a < accounts.length; a++) {
-              var acc = accounts[a];
-              var createdTs = Date.parse((acc.created || '') + 'Z');
-              if (createdTs && createdTs >= oneYearAgo) {
-                newAuthorsMap[acc.name] = true;
-              }
-            }
+        }
 
-            var scored = [];
-            var taste = loadTaste();
-            for (var j = 0; j < posts.length; j++) {
-              var p = posts[j];
-              if (newAuthorsMap[p.author]) {
-                if (cleanQuery && (p.title + ' ' + p.body + ' ' + p.author).toLowerCase().indexOf(cleanQuery) === -1) {
-                  continue;
-                }
-                var ts = Date.parse((p.created || '') + 'Z') || 0;
-                scored.push({
-                  post: p,
-                  relevanceScore: 3.0,
-                  personalizationScore: 1.5,
-                  depthScore: 1.2,
-                  timestamp: ts,
-                  explanation: 'New author (joined within past 12 months)',
-                  isLiked: !!taste.liked[p.author + '/' + p.permlink]
-                });
-              }
+        var uniqueAuthors = [];
+        var authorMap = {};
+        for (var i = 0; i < posts.length; i++) {
+          var auth = posts[i].author;
+          if (auth && !authorMap[auth]) {
+            authorMap[auth] = true;
+            uniqueAuthors.push(auth);
+          }
+        }
+        if (uniqueAuthors.length === 0) return [];
+
+        return hiveCall('condenser_api.get_accounts', [uniqueAuthors]).then(function(accounts) {
+          var newAuthorsMap = {};
+          var oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
+          for (var a = 0; a < accounts.length; a++) {
+            var acc = accounts[a];
+            var createdTs = Date.parse((acc.created || '') + 'Z');
+            if (createdTs && createdTs >= oneYearAgo) {
+              newAuthorsMap[acc.name] = acc.created.split('T')[0];
             }
-            appState.rawResults = scored;
-            applyFilters();
-            setStatus('Showing ' + scored.length + ' posts from authors who joined Hive in the last 12 months.', false);
-          });
-        }).catch(function(err) {
-          setStatus('Error discovering new users: ' + err.message, true);
+          }
+
+          var scored = [];
+          var taste = loadTaste();
+          for (var j = 0; j < posts.length; j++) {
+            var p = posts[j];
+            if (newAuthorsMap[p.author]) {
+              var ts = Date.parse((p.created || '') + 'Z') || 0;
+              scored.push({
+                post: p,
+                relevanceScore: 3.0,
+                personalizationScore: 1.5,
+                depthScore: 1.2,
+                timestamp: ts,
+                explanation: 'New Hive user (joined ' + newAuthorsMap[p.author] + ')',
+                isLiked: !!taste.liked[p.author + '/' + p.permlink]
+              });
+            }
+          }
+          appState.rawResults = scored;
+          applyFilters();
+          setStatus('Showing ' + appState.results.length + ' posts from authors who joined Hive in the last 12 months.', false);
         });
+      }).catch(function(err) {
+        setStatus('Error discovering new users: ' + err.message, true);
+      });
     }
 
     function startApp() {
@@ -1359,7 +1434,7 @@
       if (appState.mode === 'search') promise = runSearchWorkflow(raw);
       else if (appState.mode === 'feed') promise = runFeedWorkflow(raw || getConnectedUser());
       else if (appState.mode === 'user') promise = runUsernameWorkflow(raw);
-      else if (appState.mode === 'newusers') promise = runNewUsersWorkflow(raw);
+      else if (appState.mode === 'newusers') promise = runNewUsersWorkflow();
 
       promise.catch(function(err) {
         setStatus('Search error: ' + (err.message || 'Unable to connect to Hive RPC nodes.'), true);
