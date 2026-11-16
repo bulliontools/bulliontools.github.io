@@ -1146,37 +1146,109 @@
       setStatus('Disconnected Hive Keychain account.', false);
     }
 
+    // KE Ratio follows the same HAFBE data source and calculation used by PeakD's
+    // community KE viewer: (posting_rewards + curation_rewards) / vesting_balance.
+    // The API values are expressed in thousandths; the common scale cancels in
+    // the ratio, but we apply the same /1000 normalization for clarity.
+    var keCacheAt = {};
+    var KE_CACHE_TTL_MS = 15 * 60 * 1000;
+    var KE_ERROR_CACHE_TTL_MS = 30 * 1000;
+
     function getAuthorKeRatio(username, callback) {
-      if (!username) { callback('N/A'); return; }
-      if (appState.keCache[username] !== undefined) {
-        callback(appState.keCache[username]);
+      var done = typeof callback === 'function' ? callback : function() {};
+      var author = stripLeadingAt(String(username || '').trim()).toLowerCase();
+      if (!author || !/^[a-z0-9.-]{1,16}$/.test(author)) {
+        done('N/A');
         return;
       }
 
-      hiveCall('condenser_api.get_accounts', [[username]]).then(function(accs) {
-        if (!accs || !accs[0]) {
-          appState.keCache[username] = 'N/A';
-          callback('N/A');
-          return;
-        }
-        var acc = accs[0];
-        var vestingShares = parseFloat(acc.vesting_shares) || 0;
-        var heldHp = vestingShares * 0.00055;
-        if (heldHp < 1) heldHp = 1;
+      var now = Date.now();
+      var cachedAt = keCacheAt[author] || 0;
+      var cachedValue = appState.keCache[author];
+      var ttl = cachedValue && cachedValue !== 'N/A' ? KE_CACHE_TTL_MS : KE_ERROR_CACHE_TTL_MS;
+      if (cachedValue !== undefined && now - cachedAt < ttl) {
+        done(cachedValue);
+        return;
+      }
 
-        var lifetimeAuthRewards = parseFloat(acc.lifetime_vote_payouts || acc.reward_vesting_balance || 0) / 1000;
-        var lifetimeCurRewards = parseFloat(acc.curation_rewards || 0) / 1000;
-        
-        var totalRewards = (lifetimeAuthRewards + lifetimeCurRewards) || (parseFloat(acc.post_count || 10) * 5);
-        var ke = totalRewards / heldHp;
-        if (isNaN(ke) || ke < 0) ke = 1.25;
+      var endpoint = 'https://techcoderx.com/hafbe-api/accounts/' + encodeURIComponent(author);
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timeoutId = setTimeout(function() {
+        if (controller) controller.abort();
+      }, 10000);
+
+      fetch(endpoint, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store',
+        signal: controller ? controller.signal : undefined
+      }).then(function(response) {
+        if (!response.ok) throw new Error('KE API HTTP ' + response.status);
+        return response.json();
+      }).then(function(data) {
+        clearTimeout(timeoutId);
+        if (Array.isArray(data)) data = data[0];
+        if (!data || typeof data !== 'object') throw new Error('Invalid KE API response');
+
+        var postingRaw = Number.parseFloat(data.posting_rewards);
+        var curationRaw = Number.parseFloat(data.curation_rewards);
+        var vestingRaw = Number.parseFloat(data.vesting_balance);
+        if (!Number.isFinite(postingRaw) || !Number.isFinite(curationRaw) ||
+            !Number.isFinite(vestingRaw) || vestingRaw <= 0) {
+          throw new Error('KE API response is missing valid reward or vesting values');
+        }
+
+        var postingRewards = postingRaw / 1000;
+        var curationRewards = curationRaw / 1000;
+        var heldHp = vestingRaw / 1000;
+        var ke = (postingRewards + curationRewards) / heldHp;
+        if (!Number.isFinite(ke) || ke < 0) throw new Error('Invalid KE ratio');
 
         var formatted = ke.toFixed(2);
-        appState.keCache[username] = formatted;
-        callback(formatted);
-      }).catch(function() {
-        appState.keCache[username] = '1.45';
-        callback('1.45');
+        appState.keCache[author] = formatted;
+        keCacheAt[author] = Date.now();
+        done(formatted);
+      }).catch(function(error) {
+        clearTimeout(timeoutId);
+        console.warn('Primary KE endpoint unavailable for @' + author + '; trying Hive RPC:', error);
+
+        // Browser CORS policies can block the HAFBE endpoint on some hosts.
+        // Use the native Hive account reward fields and current global vesting
+        // conversion as a data-source fallback; never invent a ratio.
+        Promise.all([
+          hiveCall('condenser_api.get_accounts', [[author]]),
+          hiveCall('condenser_api.get_dynamic_global_properties', [])
+        ]).then(function(values) {
+          var accounts = values[0];
+          var props = values[1];
+          var account = accounts && accounts[0];
+          if (!account || !props) throw new Error('Missing Hive account or global properties');
+
+          var posting = Number.parseFloat(account.posting_rewards);
+          var curation = Number.parseFloat(account.curation_rewards);
+          var vestingShares = Number.parseFloat(account.vesting_shares);
+          var totalVestingFund = Number.parseFloat(props.total_vesting_fund_hive);
+          var totalVestingShares = Number.parseFloat(props.total_vesting_shares);
+          if (![posting, curation, vestingShares, totalVestingFund, totalVestingShares].every(Number.isFinite) ||
+              vestingShares <= 0 || totalVestingFund <= 0 || totalVestingShares <= 0) {
+            throw new Error('Hive RPC returned incomplete KE inputs');
+          }
+
+          var earnedHive = (posting + curation) / 1000;
+          var heldHp = vestingShares * (totalVestingFund / totalVestingShares);
+          var fallbackKe = earnedHive / heldHp;
+          if (!Number.isFinite(fallbackKe) || fallbackKe < 0) throw new Error('Invalid fallback KE ratio');
+
+          var fallbackFormatted = fallbackKe.toFixed(2);
+          appState.keCache[author] = fallbackFormatted;
+          keCacheAt[author] = Date.now();
+          done(fallbackFormatted);
+        }).catch(function(fallbackError) {
+          console.warn('Hive RPC KE fallback also failed for @' + author + ':', fallbackError);
+          appState.keCache[author] = 'N/A';
+          keCacheAt[author] = Date.now();
+          done('N/A');
+        });
       });
     }
 
