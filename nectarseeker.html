@@ -641,17 +641,6 @@
       border-radius: 0 8px 8px 0;
       color: var(--text-main);
     }
-    #readerContent video, #readerContent iframe { max-width: 100%; width: 100%; border: 0; border-radius: 8px; }
-    #readerContent video { height: auto; }
-    #readerContent table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; }
-    #readerContent th, #readerContent td { border: 1px solid var(--border); padding: 7px 10px; }
-    #readerContent th { background: var(--surface-2); color: var(--text-main); }
-    #readerContent pre { overflow-x: auto; padding: 12px; border-radius: 8px; background: var(--surface-2); }
-    #readerContent code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    #readerContent a { color: var(--accent-cyan); text-decoration: underline; overflow-wrap: anywhere; }
-    #readerContent figure { margin: 16px 0; }
-    #readerContent hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
-
     .reader-action-section {
       margin-top: 24px;
       background: var(--surface-2);
@@ -1447,219 +1436,130 @@
     }
 
     function renderHiveBodyHtml(rawText) {
-      // Hive posts may contain Markdown, raw HTML, HTML-escaped HTML, or any mixture.
-      // Build markup first, then parse and sanitize it with the browser's HTML parser.
-      var body = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
+      var body = String(rawText || '');
 
-      // Some API clients double-encode post HTML. Decode only when the body clearly
-      // contains encoded tags, and limit passes to avoid changing ordinary entities.
-      for (var decodePass = 0; decodePass < 2 && !/<\/?(?:pre|code)\b/i.test(body) && /&lt;\/?(?:p|div|span|img|a|br|h[1-6]|table|center|blockquote|iframe|figure|video)\b/i.test(body); decodePass++) {
-        var decoder = document.createElement('textarea');
-        decoder.innerHTML = body;
-        var decoded = decoder.value;
-        if (decoded === body) break;
-        body = decoded;
-      }
+      // Decode HTML entities if present in source body
+      body = body
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&');
 
-      function inlineMarkdown(value) {
-        var stash = [];
-        function hold(markup) {
-          var token = '\u0001' + stash.length + '\u0002';
-          stash.push(markup);
-          return token;
-        }
-        var text = String(value || '');
-        // Preserve inline HTML for the final sanitizer instead of displaying tags.
-        text = text.replace(/<!--([\s\S]*?)-->|<\/?[a-z][^>]*>/gi, function (m) { return hold(m); });
-        text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
-        text = escapeHtml(text);
-        text = text.replace(/!\[([^\]]*)\]\((\S+?)(?:\s+["']([^"']*)["'])?\)/g, function (m, alt, url, title) {
-          return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(url.replace(/[<>]/g, '')) + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>');
-        });
-        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|ipfs:\/\/[^\s)]+|\/[^\s)]*)\)/g, function (m, label, url) {
-          return hold('<a href="' + escapeHtml(url) + '">' + escapeHtml(label) + '</a>');
-        });
-        text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-          .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-          .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-          .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
-          .replace(/_([^_\n]+)_/g, '<em>$1</em>');
-        // Linkify bare web URLs without swallowing trailing punctuation.
-        text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+[A-Za-z0-9/#])/g, '$1<a href="$2">$2</a>');
-        text = text.replace(/\u0001(\d+)\u0002/g, function (m, index) { return stash[Number(index)] || ''; });
-        return text;
-      }
+      // Clean line breaks inside URLs
+      body = body.replace(/(https?:\/\/[^\s]+)/g, function(urlMatch) {
+        return urlMatch.replace(/[\r\n\s|]+/g, '');
+      });
 
-      function renderMarkdownBlocks(source) {
-        var lines = source.split('\n');
-        var out = [];
-        var paragraph = [];
-        var listType = '';
-        var inCode = false;
-        var codeLines = [];
-        var fence = '';
-        function flushParagraph() {
-          if (paragraph.length) {
-            out.push('<p>' + inlineMarkdown(paragraph.join('\n')).replace(/\n/g, '<br>') + '</p>');
-            paragraph = [];
-          }
-        }
-        function closeList() {
-          if (listType) { out.push('</' + listType + '>'); listType = ''; }
-        }
-        function isHtmlStart(line) { return /^\s*<(?:!--|\/?(?:address|article|aside|audio|blockquote|br|center|div|details|figure|figcaption|footer|h[1-6]|hr|iframe|img|li|ol|p|pre|section|source|table|tbody|td|th|thead|tr|ul|video)\b)/i.test(line); }
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i];
-          var trimmed = line.trim();
-          var fenceMatch = trimmed.match(/^(```+|~~~+)(.*)$/);
-          if (fenceMatch) {
-            flushParagraph(); closeList();
-            if (!inCode) { inCode = true; fence = fenceMatch[1].charAt(0); codeLines = []; }
-            else if (trimmed.charAt(0) === fence) { out.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>'); inCode = false; }
-            continue;
-          }
-          if (inCode) { codeLines.push(line); continue; }
-          if (!trimmed) { flushParagraph(); closeList(); continue; }
-          if (isHtmlStart(line)) {
-            flushParagraph(); closeList();
-            var htmlBlock = [line];
-            // Keep adjacent HTML lines together. DOMParser repairs ordinary omitted closes.
-            while (i + 1 < lines.length && lines[i + 1].trim() && (isHtmlStart(lines[i + 1]) || /^\s*</.test(lines[i + 1]))) htmlBlock.push(lines[++i]);
-            out.push(htmlBlock.join('\n'));
-            continue;
-          }
-          var heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
-          if (heading) { flushParagraph(); closeList(); var level = heading[1].length; out.push('<h' + level + '>' + inlineMarkdown(heading[2]) + '</h' + level + '>'); continue; }
-          if (/^(---+|\*\*\*+|___+)\s*$/.test(trimmed)) { flushParagraph(); closeList(); out.push('<hr>'); continue; }
-          if (/^>/.test(trimmed)) { flushParagraph(); closeList(); var quote = []; while (i < lines.length && /^\s*>/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, '')); i--; out.push('<blockquote><p>' + inlineMarkdown(quote.join('\n')).replace(/\n/g, '<br>') + '</p></blockquote>'); continue; }
-          var listMatch = trimmed.match(/^([-+*]|\d+[.)])\s+(.+)$/);
-          if (listMatch) {
-            flushParagraph(); var wanted = /^\d/.test(listMatch[1]) ? 'ol' : 'ul';
-            if (listType !== wanted) { closeList(); out.push('<' + wanted + '>'); listType = wanted; }
-            out.push('<li>' + inlineMarkdown(listMatch[2]) + '</li>'); continue;
-          }
-          closeList(); paragraph.push(line);
-        }
-        if (inCode) out.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
-        flushParagraph(); closeList();
-        return out.join('\n');
-      }
+      // 1. Markdown Images: ![alt](url) -> Safe parsing with proxy + direct fallback
+      body = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, inner) {
+        var cleanAlt = (alt || 'Image').replace(/"/g, '&quot;');
+        var parts = inner.trim().split(/\s+/);
+        var url = parts[0].replace(/^["'<]|["'>]$/g, '');
+        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
+        if (!cleanUrl) return match;
+        if (cleanUrl.startsWith('//')) cleanUrl = 'https:' + cleanUrl;
+        if (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('ipfs://')) return match;
+        
+        var primaryUrl = cleanUrl;
+        var fallbackUrl = cleanUrl;
 
-      var generated = renderMarkdownBlocks(body);
-      var parsed = new DOMParser().parseFromString('<!doctype html><html><body>' + generated + '</body></html>', 'text/html');
-      var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DIV DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO'.split(' ');
-      var blocked = 'SCRIPT STYLE OBJECT EMBED FORM INPUT BUTTON TEXTAREA LINK META BASE SVG MATH'.split(' ');
-      var safeFrameHosts = ['youtube.com', 'www.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com', 'player.vimeo.com', '3speak.tv', '3speak.online'];
-
-      function safeUrl(value, imageMode) {
-        var url = String(value || '').trim().replace(/[\u0000-\u0020]+/g, '');
-        if (!url) return '';
-        if (url.indexOf('//') === 0) url = 'https:' + url;
-        if (/^ipfs:\/\//i.test(url)) return 'https://ipfs.io/ipfs/' + url.slice(7).replace(/^ipfs\//, '');
-        if (/^https?:\/\//i.test(url)) return url;
-        if (/^\/ipfs\//i.test(url)) return 'https://ipfs.io' + url;
-        if (/^\/(?!\/)/.test(url)) return url;
-        if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(url)) return 'https://' + url;
-        return '';
-      }
-      function cleanStyle(style) {
-        var safe = [];
-        String(style || '').split(';').forEach(function (decl) {
-          var pair = decl.split(':'); if (pair.length < 2) return;
-          var prop = pair.shift().trim().toLowerCase(); var val = pair.join(':').trim();
-          if (/^(color|background-color|text-align|font-size|font-weight|font-style|text-decoration|width|max-width|height|max-height|margin|padding|border|border-radius|display|vertical-align)$/.test(prop) && !/url\s*\(|expression|javascript:/i.test(val)) safe.push(prop + ':' + val);
-        });
-        return safe.join(';');
-      }
-      function sanitizeNode(node) {
-        var children = Array.prototype.slice.call(node.childNodes || []);
-        children.forEach(function (child) {
-          if (child.nodeType === 8) { child.parentNode.removeChild(child); return; }
-          if (child.nodeType !== 1) return;
-          var tag = child.tagName.toUpperCase();
-          if (blocked.indexOf(tag) !== -1) { child.parentNode.removeChild(child); return; }
-          if (allowed.indexOf(tag) === -1) {
-            var parent = child.parentNode;
-            while (child.firstChild) parent.insertBefore(child.firstChild, child);
-            parent.removeChild(child);
-            return;
-          }
-          Array.prototype.slice.call(child.attributes).forEach(function (attr) {
-            var name = attr.name.toLowerCase();
-            if (name.indexOf('on') === 0 || name === 'srcdoc' || name === 'formaction') { child.removeAttribute(attr.name); return; }
-            if (name === 'class') {
-              var safeClass = attr.value.split(/\\s+/).filter(function (c) { return /^[a-zA-Z0-9_-]{1,64}$/.test(c); }).join(' ');
-              if (safeClass) child.setAttribute('class', safeClass); else child.removeAttribute('class');
-              return;
-            }
-            if (name === 'style') { var cleaned = cleanStyle(attr.value); if (cleaned) child.setAttribute('style', cleaned); else child.removeAttribute('style'); return; }
-            if (['href','src','alt','title','width','height','colspan','rowspan','start','reversed','type','align','valign','dir','lang','border','cellpadding','cellspacing','controls','poster','allow','allowfullscreen','loading','target','rel','data-src','data-original','data-lazy-src','data-original-src','data-url','data-image','data-srcset','srcset'].indexOf(name) === -1 && name.indexOf('data-') !== 0) child.removeAttribute(attr.name);
-          });
-          if (tag === 'A') {
-            var href = safeUrl(child.getAttribute('href'));
-            if (href) { child.setAttribute('href', href); child.setAttribute('target', '_blank'); child.setAttribute('rel', 'noopener noreferrer'); }
-            else { child.removeAttribute('href'); }
-          }
-          if (tag === 'IMG' || tag === 'SOURCE' || tag === 'VIDEO' || tag === 'IFRAME') {
-            var rawSrc = child.getAttribute('src') || child.getAttribute('data-src') || child.getAttribute('data-original') || (child.getAttribute('srcset') || '').split(',')[0].trim().split(/\s+/)[0];
-            var src = safeUrl(rawSrc, tag === 'IMG' || tag === 'SOURCE');
-            child.removeAttribute('data-src'); child.removeAttribute('data-original'); child.removeAttribute('srcset');
-            if (tag === 'IFRAME') {
-              var host = '';
-              try { host = new URL(src, location.href).hostname.toLowerCase(); } catch (e) {}
-              var permitted = safeFrameHosts.some(function (h) { return host === h || host.endsWith('.' + h); });
-              if (!permitted) { child.parentNode.removeChild(child); return; }
-              child.setAttribute('loading', 'lazy');
-              child.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-              child.setAttribute('allowfullscreen', '');
-            } else if (src) {
-              if (tag === 'IMG') {
-                var candidates = [];
-                if (/^https?:\/\//i.test(src)) candidates.push(src);
-                var ipfsMatch = src.match(/\/ipfs\/([^?#]+)/i);
-                if (ipfsMatch) {
-                  var hash = ipfsMatch[1];
-                  candidates.push('https://ipfs.io/ipfs/' + hash, 'https://gateway.pinata.cloud/ipfs/' + hash, 'https://cloudflare-ipfs.com/ipfs/' + hash);
-                } else if (/^https?:\/\//i.test(src) && !/images\.hive\.blog\/0x0\//i.test(src)) {
-                  candidates.push('https://images.hive.blog/0x0/' + src);
-                } else if (/images\.hive\.blog\/0x0\//i.test(src)) {
-                  candidates.push(src.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, ''));
-                }
-                child.setAttribute('src', candidates.shift() || src);
-                child.setAttribute('loading', 'lazy');
-                child.setAttribute('decoding', 'async');
-                child.setAttribute('data-image-fallbacks', JSON.stringify(candidates));
-                child.style.maxWidth = '100%'; child.style.height = 'auto';
-              } else child.setAttribute('src', src);
-            } else if (tag !== 'IFRAME') child.removeAttribute('src');
-          }
-          sanitizeNode(child);
-        });
-      }
-      sanitizeNode(parsed.body);
-
-      // Return only sanitized body markup. A delegated error handler below survives
-      // serialization into readerContent.innerHTML and retries alternate gateways.
-      return parsed.body.innerHTML;
-    }
-
-    if (!window.__nectarHiveImageFallbackInstalled) {
-      document.addEventListener('error', function (event) {
-        var img = event.target;
-        if (!img || img.tagName !== 'IMG' || !img.hasAttribute('data-image-fallbacks')) return;
-        var list = [];
-        try { list = JSON.parse(img.getAttribute('data-image-fallbacks') || '[]'); } catch (e) {}
-        if (list.length) {
-          img.setAttribute('src', list.shift());
-          img.setAttribute('data-image-fallbacks', JSON.stringify(list));
+        if (cleanUrl.startsWith('ipfs://')) {
+          var ipfsHash = cleanUrl.replace('ipfs://', '');
+          primaryUrl = 'https://ipfs.io/ipfs/' + ipfsHash;
+          fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + ipfsHash;
+        } else if (cleanUrl.includes('/ipfs/')) {
+          var hashPart = cleanUrl.split('/ipfs/')[1];
+          primaryUrl = 'https://ipfs.io/ipfs/' + hashPart;
+          fallbackUrl = 'https://cloudflare-ipfs.com/ipfs/' + hashPart;
         } else {
-          img.removeAttribute('data-image-fallbacks');
-          img.alt = img.alt || 'Image could not be loaded';
-          img.style.border = '1px dashed var(--border)';
-          img.style.padding = '10px';
+          primaryUrl = 'https://images.hive.blog/0x0/' + cleanUrl;
+          fallbackUrl = cleanUrl;
         }
-      }, true);
-      window.__nectarHiveImageFallbackInstalled = true;
+
+        return '<br><img src="' + primaryUrl + '" alt="' + cleanAlt + '" onerror="if(this.src.indexOf(\'images.hive.blog\')!==-1){this.src=\'' + fallbackUrl + '\';}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}" style="max-width:100%; border-radius:8px; display:block; margin:16px auto;"><br>';
+      });
+
+      // 2. Safe handling of existing HTML <img> tags in posts without breaking attributes
+      body = body.replace(/<img\b([^>]*)>/gi, function(match, attrs) {
+        if (/onerror=/i.test(attrs)) {
+          return match;
+        }
+        return '<img ' + attrs + ' onerror="if(this.src && this.src.indexOf(\'images.hive.blog\')!==-1){this.src=this.src.replace(\'https://images.hive.blog/0x0/\', \'\');}else{this.alt=\'Image failed to load\';this.style.border=\'1px dashed var(--border)\';this.style.padding=\'16px\';}">';
+      });
+
+      // Markdown Links: [text](url)
+      body = body.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, inner) {
+        var parts = inner.trim().split(/\s+/);
+        var url = parts[0].replace(/^["'<]|["'>]$/g, '');
+        var cleanUrl = url.replace(/[\r\n\s|]+/g, '');
+        return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan); text-decoration:underline;">' + escapeHtml(text) + '</a>';
+      });
+
+      // Markdown Bold and Italic formatting support
+      body = body.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      body = body.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      body = body.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      body = body.replace(/_([^_]+)_/g, '<em>$1</em>');
+
+      // Table dividers and extra pipes cleanup
+      body = body.replace(/^\s*\|?\s*[-:]+[-| :]*\|?\s*$/gm, '');
+      body = body.replace(/^\s*[|]+\s*$/gm, '');
+      body = body.replace(/\|{2,}/g, '');
+
+      // Line-by-line parsing for blockquotes and heading hashes
+      var lines = body.split(/\r?\n/);
+      var processedLines = [];
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) {
+          processedLines.push('');
+          continue;
+        }
+
+        if (/^>/.test(line)) {
+          var quoteContent = line.replace(/^>\s*/, '').replace(/^#{1,6}\s*/, '');
+          processedLines.push('<blockquote>' + quoteContent + '</blockquote>');
+        } else if (/^#{1,6}\s+/.test(line)) {
+          var headingText = line.replace(/^#{1,6}\s+/, '');
+          processedLines.push('<h4>' + headingText + '</h4>');
+        } else {
+          processedLines.push(line);
+        }
+      }
+      body = processedLines.join('\n');
+
+      // Structural HTML elements
+      body = body.replace(/<center\b[^>]*>([\s\S]*?)<\/center>/gi, function(match, inner) {
+        return '<div style="text-align:center; margin: 12px 0;">' + inner + '</div>';
+      });
+      body = body.replace(/<details\b[^>]*>/gi, '<details style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:12px 0;">');
+      body = body.replace(/<\/details>/gi, '</details>');
+      body = body.replace(/<sub\b[^>]*>([\s\S]*?)<\/sub>/gi, function(match, inner) {
+        return '<sub style="font-size: 85%; color: var(--text-muted);">' + inner + '</sub>';
+      });
+      body = body.replace(/<div\b[^>]*>([\s\S]*?)<\/div>/gi, function(match, inner) {
+        return '<div style="margin: 12px 0;">' + inner + '</div>';
+      });
+      body = body.replace(/<br\s*\/?>/gi, '<br>');
+      body = body.replace(/&nbsp;/gi, ' ');
+
+      var paragraphs = body.split(/\n\s*\n/);
+      var htmlParts = [];
+      for (var i = 0; i < paragraphs.length; i++) {
+        var p = paragraphs[i].trim();
+        if (!p) continue;
+        p = p.replace(/^\|\s*|\s*\|$/g, '').trim();
+        if (!p) continue;
+
+        if (/^\s*</.test(p)) {
+          htmlParts.push(p);
+        } else {
+          htmlParts.push('<p>' + p.replace(/\n/g, '<br>') + '</p>');
+        }
+      }
+
+      return htmlParts.join('\n');
     }
 
     function cleanMarkdown(text) {
