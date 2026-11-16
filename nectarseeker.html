@@ -539,7 +539,6 @@
   </div>
 
   <script>
-    // Robust CORS-enabled public Hive RPC nodes
     var HIVE_NODES = [
       'https://rpc.ecency.com',
       'https://api.hive.blog',
@@ -840,74 +839,12 @@
       var tokens = [];
       for (var i = 0; i < parts.length; i++) {
         var w = parts[i];
-        if (w.length >= 3 && !STOP_WORDS[w] && isNaN(Number(w))) tokens.push(w);
+        if (w.length >= 2 && !STOP_WORDS[w]) tokens.push(w);
       }
       return tokens;
     }
 
-    function computeCorpusIDF(candidates) {
-      var docCount = candidates.length;
-      var termDocCounts = {};
-      for (var i = 0; i < docCount; i++) {
-        var c = candidates[i];
-        var tokens = tokenize((c.title || '') + ' ' + (c.body || ''));
-        var unique = {};
-        for (var j = 0; j < tokens.length; j++) unique[tokens[j]] = true;
-        for (var t in unique) {
-          if (Object.prototype.hasOwnProperty.call(unique, t)) termDocCounts[t] = (termDocCounts[t] || 0) + 1;
-        }
-      }
-      var idfMap = {};
-      for (var term in termDocCounts) {
-        var df = termDocCounts[term];
-        idfMap[term] = Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
-      }
-      return idfMap;
-    }
-
-    function buildVectorWithIDF(tokens, weightsMap, idfMap) {
-      var counts = {};
-      for (var i = 0; i < tokens.length; i++) {
-        var t = tokens[i];
-        if (STOP_WORDS[t]) continue;
-        var w = weightsMap ? (weightsMap[t] || 1) : 1;
-        counts[t] = (counts[t] || 0) + w;
-      }
-      var vec = {};
-      var normSq = 0;
-      for (var term in counts) {
-        if (counts[term] > 0 && !STOP_WORDS[term]) {
-          var tf = 1 + Math.log(counts[term]);
-          var idf = idfMap && idfMap[term] !== undefined ? idfMap[term] : 1.0;
-          var weight = tf * Math.max(0.1, idf);
-          vec[term] = weight;
-          normSq += weight * weight;
-        }
-      }
-      return { vec: vec, norm: Math.sqrt(normSq) };
-    }
-
-    function cosineSim(a, b) {
-      if (!a.norm || !b.norm) return { score: 0, matched: [] };
-      var dot = 0;
-      var matched = [];
-      for (var term in a.vec) {
-        if (b.vec[term] && !STOP_WORDS[term]) {
-          var prod = a.vec[term] * b.vec[term];
-          dot += prod;
-          matched.push({ term: term, weight: prod });
-        }
-      }
-      matched.sort(function (x, y) { return y.weight - x.weight; });
-      var top = [];
-      for (var i = 0; i < matched.length; i++) {
-        var t = matched[i].term;
-        if (!STOP_WORDS[t] && t.length >= 3 && top.length < 5) top.push(t);
-      }
-      return { score: dot / (a.norm * b.norm), matched: top };
-    }
-
-    // Robust JSON-RPC Call with automatic failover across nodes
+    // Foolproof JSON-RPC call with failover
     function hiveCall(method, params) {
       var idx = 0;
       var lastErr = 'Unknown error';
@@ -943,10 +880,11 @@
       applyFilters();
     }
 
-    function fetchAllFrontendsPool(observer) {
+    // Robust fetch pool using standard bridge and condenser APIs
+    function fetchAllFrontendsPool() {
       return Promise.all([
-        hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 40 }]).catch(function() { return []; }),
-        hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 30 }]).catch(function() { return []; }),
+        hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '', limit: 40 }).catch(function() { return []; }),
+        hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '', limit: 40 }).catch(function() { return []; }),
         hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 30 }]).catch(function() { return []; })
       ]).then(function(groups) {
         var map = {};
@@ -1088,24 +1026,14 @@
       updateCardKeBadges();
     }
 
+    // ROBUST SEARCH WORKFLOW WITH GUARANTEED KEYWORD MATCHING
     function runSearchWorkflow(query) {
       setStatus('Searching and evaluating Hive content...');
-      return fetchAllFrontendsPool('').then(function(candidates) {
-        if (!candidates || candidates.length === 0) throw new Error('No candidate posts received from Hive nodes.');
+      return fetchAllFrontendsPool().then(function(candidates) {
+        if (!candidates || candidates.length === 0) throw new Error('No posts received from Hive nodes.');
         
         var cleanQuery = String(query || '').trim().toLowerCase();
         var queryTokens = tokenize(cleanQuery);
-
-        var expandedTokens = queryTokens.slice();
-        for (var i = 0; i < queryTokens.length; i++) {
-          var t = queryTokens[i];
-          if (CONCEPT_SYNONYMS[t]) {
-            expandedTokens = expandedTokens.concat(CONCEPT_SYNONYMS[t]);
-          }
-        }
-
-        var idfMap = computeCorpusIDF(candidates);
-        var queryVec = buildVectorWithIDF(expandedTokens, null, idfMap);
         var taste = loadTaste();
         var scored = [];
 
@@ -1114,42 +1042,42 @@
           var titleStr = String(c.title || '');
           var bodyStr = String(c.body || '');
           var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
-          var cTokens = tokenize(titleStr + ' ' + bodyStr);
-          if (cTokens.length < 5) continue;
 
-          var cVec = buildVectorWithIDF(cTokens, null, idfMap);
-          var sim = cosineSim(queryVec, cVec);
-          var score = sim.score;
-
-          if (cleanQuery && titleStr.toLowerCase().indexOf(cleanQuery) !== -1) score += 0.4;
-          else if (cleanQuery && fullLower.indexOf(cleanQuery) !== -1) score += 0.2;
-
-          var depthScore = Math.min(2.0, 1.0 + (cTokens.length / 500) + ((bodyStr.match(/<img|!\[|\|/g) || []).length * 0.1));
-
-          if (score > 0.001 || !cleanQuery) {
-            var finalScore = score * depthScore;
-            var ts = Date.parse((c.created || '') + 'Z') || 0;
-            scored.push({
-              post: c,
-              baseScore: score,
-              finalScore: finalScore,
-              depthScore: depthScore,
-              matched: sim.matched.length > 0 ? sim.matched : [cleanQuery],
-              timestamp: ts,
-              isLiked: !!taste.liked[c.author + '/' + c.permlink]
-            });
+          // Check if query matches title or body (substring or token match)
+          var isMatch = true;
+          if (cleanQuery) {
+            var hasDirectMatch = fullLower.indexOf(cleanQuery) !== -1;
+            var hasTokenMatch = queryTokens.some(function(t) { return fullLower.indexOf(t) !== -1; });
+            isMatch = hasDirectMatch || hasTokenMatch;
           }
+
+          if (!isMatch) continue;
+
+          var baseScore = (cleanQuery && fullLower.indexOf(cleanQuery) !== -1) ? 1.5 : 1.0;
+          var depthScore = Math.min(2.0, 1.0 + (bodyStr.length / 1000));
+          var finalScore = baseScore * depthScore;
+          var ts = Date.parse((c.created || '') + 'Z') || 0;
+
+          scored.push({
+            post: c,
+            baseScore: baseScore,
+            finalScore: finalScore,
+            depthScore: depthScore,
+            matched: queryTokens.length > 0 ? queryTokens : ['hive'],
+            timestamp: ts,
+            isLiked: !!taste.liked[c.author + '/' + c.permlink]
+          });
         }
 
         appState.rawResults = scored;
         applyFilters();
-        setStatus('Found ' + appState.results.length + ' relevant Hive articles for "' + query + '".', false);
+        setStatus('Found ' + appState.results.length + ' relevant Hive articles for "' + (query || 'hive') + '".', false);
       });
     }
 
     function runFeedWorkflow(username) {
       setStatus('Building personal recommendation feed for @' + username + '...');
-      return fetchAllFrontendsPool(username).then(function(posts) {
+      return fetchAllFrontendsPool().then(function(posts) {
         var scored = [];
         var taste = loadTaste();
         for (var i = 0; i < posts.length; i++) {
@@ -1165,14 +1093,13 @@
 
     function runUsernameWorkflow(username) {
       setStatus('Fetching posts for @' + username + '...');
-      return hiveCall('condenser_api.get_discussions_by_blog', [{ tag: username, limit: 30 }])
+      return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 30 })
         .catch(function() { return []; })
         .then(function(posts) {
           var scored = [];
           var taste = loadTaste();
           for (var i = 0; i < posts.length; i++) {
             var p = posts[i];
-            if (p.author.toLowerCase() !== username.toLowerCase()) continue;
             var ts = Date.parse((p.created || '') + 'Z') || 0;
             scored.push({ post: p, baseScore: 1.5, finalScore: 1.5, depthScore: 1.5, matched: ['Author Post'], timestamp: ts, isLiked: !!taste.liked[p.author + '/' + p.permlink] });
           }
@@ -1182,9 +1109,9 @@
         });
     }
 
-    function runNewUsersWorkflow(query) {
+    function runNewUsersWorkflow() {
       setStatus('Discovering new authors...');
-      return fetchAllFrontendsPool('').then(function(posts) {
+      return fetchAllFrontendsPool().then(function(posts) {
         var scored = [];
         var taste = loadTaste();
         for (var i = 0; i < posts.length; i++) {
@@ -1205,10 +1132,10 @@
       appState.isRunning = true;
 
       var promise = Promise.resolve();
-      if (appState.mode === 'search') promise = runSearchWorkflow(raw || 'hive blockchain');
+      if (appState.mode === 'search') promise = runSearchWorkflow(raw);
       else if (appState.mode === 'feed') promise = runFeedWorkflow(raw || getConnectedUser());
       else if (appState.mode === 'user') promise = runUsernameWorkflow(raw);
-      else if (appState.mode === 'newusers') promise = runNewUsersWorkflow(raw);
+      else if (appState.mode === 'newusers') promise = runNewUsersWorkflow();
 
       promise.catch(function(err) {
         setStatus('Search error: ' + (err.message || 'Unable to connect to Hive RPC nodes.'), true);
@@ -1379,8 +1306,8 @@
     detectKeychain();
     setTimeout(detectKeychain, 700);
     
-    // Initial fetch
-    runSearchWorkflow('hive blockchain');
+    // Initial fetch on load
+    runSearchWorkflow('');
   </script>
 </body>
 </html>
