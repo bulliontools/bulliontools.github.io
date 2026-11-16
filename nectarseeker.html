@@ -559,12 +559,14 @@
     };
 
     var CONCEPT_SYNONYMS = {
+      silver: ['bullion', 'gold', 'coins', 'stacking', 'pm', 'precious', 'metals', 'silvergoldstackers'],
+      bullion: ['silver', 'gold', 'coins', 'stacking', 'pm', 'precious', 'metals', 'silvergoldstackers'],
+      gold: ['silver', 'bullion', 'coins', 'stacking', 'pm', 'precious', 'metals'],
       witness: ['node', 'server', 'infrastructure', 'producer', 'validator', 'config', 'monitoring', 'backup', 'security'],
       defi: ['swap', 'pool', 'yield', 'token', 'liquidity', 'stake', 'hive-engine', 'leo', 'dex'],
       development: ['code', 'api', 'app', 'javascript', 'python', 'script', 'github', 'smart', 'contract'],
       photography: ['camera', 'lens', 'image', 'shot', 'landscape', 'portrait', 'light', 'exposure'],
-      gaming: ['splinterlands', 'dbuzz', 'rising', 'star', 'player', 'deck', 'card', 'battle'],
-      bullion: ['silver', 'gold', 'coins', 'stacking', 'pm', 'precious', 'metals']
+      gaming: ['splinterlands', 'dbuzz', 'rising', 'star', 'player', 'deck', 'card', 'battle']
     };
 
     var appState = {
@@ -1080,7 +1082,7 @@
         var snippet = rawBody.length > 220 ? rawBody.slice(0, 220) + '...' : rawBody;
         var age = formatAge(p.created);
         var aiRes = analyzeAI((p.title || '') + ' ' + (p.body || ''));
-        var relPct = Math.min(99, Math.max(1, Math.round(item.relevanceScore * 30)));
+        var relPct = Math.min(99, Math.max(1, Math.round(item.relevanceScore * 20)));
         var persPct = Math.min(99, Math.max(1, Math.round((item.personalizationScore || 0) * 30)));
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
@@ -1111,7 +1113,7 @@
       updateCardKeBadges();
     }
 
-    // CONTEXT-AWARE SEARCH WORKFLOW (blends keyword search with user voting/commenting history without excluding relevant items)
+    // FIELD-WEIGHTED & CONTEXT-AWARE SEARCH WORKFLOW
     function runSearchWorkflow(query) {
       setStatus('Searching Hive blockchain & context-matching user history profile...');
       var cleanQuery = String(query || '').trim().toLowerCase();
@@ -1160,26 +1162,33 @@
 
         for (var i = 0; i < candidates.length; i++) {
           var c = candidates[i];
-          var titleStr = String(c.title || '');
-          var bodyStr = String(c.body || '');
-          var fullLower = (titleStr + ' ' + bodyStr).toLowerCase();
+          var titleStr = String(c.title || '').toLowerCase();
+          var bodyStr = String(c.body || '').toLowerCase();
+          var categoryStr = String(c.category || '').toLowerCase();
 
           var isAuthorMatch = possibleAuthor && c.author.toLowerCase() === possibleAuthor;
-          var matchCount = 0;
+          var titleMatchCount = 0;
+          var tagMatchCount = 0;
+          var bodyMatchCount = 0;
           var semanticMatches = 0;
 
           for (var term in expandedTokens) {
             if (Object.prototype.hasOwnProperty.call(expandedTokens, term)) {
-              if (fullLower.indexOf(term) !== -1) {
-                if (queryTokens.indexOf(term) !== -1) matchCount++;
-                else semanticMatches++;
-              }
+              if (titleStr.indexOf(term) !== -1) titleMatchCount++;
+              else if (categoryStr.indexOf(term) !== -1 || (c.json_metadata && JSON.stringify(c.json_metadata).toLowerCase().indexOf(term) !== -1)) tagMatchCount++;
+              else if (bodyStr.indexOf(term) !== -1) bodyMatchCount++;
+              else semanticMatches++;
             }
           }
 
-          var keywordScore = isAuthorMatch ? 10.0 : ((matchCount * 3.0) + (semanticMatches * 1.5));
-          var depthScore = Math.min(2.0, 1.0 + (bodyStr.length / 1000));
+          var keywordScore = isAuthorMatch ? 15.0 : ((titleMatchCount * 5.0) + (tagMatchCount * 4.0) + (bodyMatchCount * 1.5) + (semanticMatches * 0.5));
+          
+          // Strict relevance threshold to filter out unrelated noise
+          if (cleanQuery !== '' && !isAuthorMatch && keywordScore < 3.0) {
+            continue;
+          }
 
+          var depthScore = Math.min(2.0, 1.0 + (bodyStr.length / 1000));
           var personalizationScore = 0;
           var expReasons = [];
           
@@ -1197,15 +1206,15 @@
             expReasons.push('Community #' + c.category + ' matches your engagement history');
           }
           for (var tokKey in profile.topics) {
-            if (fullLower.indexOf(tokKey) !== -1) {
+            if ((titleStr + ' ' + bodyStr).indexOf(tokKey) !== -1) {
               personalizationScore += 1.2;
               if (expReasons.length < 2) expReasons.push('Matches topic keyword "' + tokKey + '" from your comment history');
             }
           }
 
-          var baseRel = (keywordScore > 0 ? keywordScore : 0.8) * depthScore;
+          var baseRel = (cleanQuery === '' ? 1.0 : keywordScore) * depthScore;
           var ts = Date.parse((c.created || '') + 'Z') || 0;
-          var explanation = expReasons.length > 0 ? expReasons.join(' & ') : (keywordScore > 0 ? 'Keyword & semantic match' : 'Contextual discovery match based on your history');
+          var explanation = expReasons.length > 0 ? expReasons.join(' & ') : 'Contextual relevance match';
 
           scored.push({
             post: c,
