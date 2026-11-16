@@ -1031,7 +1031,6 @@
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
     var searchCache = {};
-    // Search-only performance layer. It does not alter taste data or ranking weights.
     var nsCacheMemory = {};
     var nsCachePending = {};
     var nsCacheRefresh = {};
@@ -1093,7 +1092,6 @@
       });
     }
 
-    // Return fresh data immediately; stale data may be used while a refresh runs in the background.
     function loadNectarCached(key, ttlMs, staleGraceMs, loader) {
       if (nsCachePending[key]) return nsCachePending[key];
       var task = readNectarCache(key).then(function (record) {
@@ -1249,8 +1247,6 @@
       setStatus('Disconnected Hive Keychain account.', false);
     }
 
-    // KE Ratio follows the same HAFBE data source and calculation used by PeakD's
-    // community KE viewer: (posting_rewards + curation_rewards) / vesting_balance.
     var keCacheAt = {};
     var KE_CACHE_TTL_MS = 15 * 60 * 1000;
     var KE_ERROR_CACHE_TTL_MS = 30 * 1000;
@@ -1311,8 +1307,6 @@
         done(formatted);
       }).catch(function(error) {
         clearTimeout(timeoutId);
-        console.warn('Primary KE endpoint unavailable for @' + author + '; trying Hive RPC:', error);
-
         Promise.all([
           hiveCall('condenser_api.get_accounts', [[author]]),
           hiveCall('condenser_api.get_dynamic_global_properties', [])
@@ -1342,7 +1336,6 @@
           keCacheAt[author] = Date.now();
           done(fallbackFormatted);
         }).catch(function(fallbackError) {
-          console.warn('Hive RPC KE fallback also failed for @' + author + ':', fallbackError);
           appState.keCache[author] = 'N/A';
           keCacheAt[author] = Date.now();
           done('N/A');
@@ -1627,6 +1620,12 @@
         body = decoded;
       }
 
+      // Pre-process raw markdown to collapse multiline/broken image tags into a single line
+      body = body.replace(/!\[([^\]]*)\]\s*\(([^)]+?)\)/g, function (m, alt, url) {
+        var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
+        return '![' + alt + '](' + cleanUrl + ')';
+      });
+
       function inlineMarkdown(value) {
         var stash = [];
         function hold(markup) {
@@ -1639,13 +1638,12 @@
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
         
-        // Updated regex to handle multi-line image tags and URLs with newlines/spaces
         text = text.replace(/!\[([^\]]*)\]\s*\(([^)]+?)(?:\s+["']([^"']*)["'])?\)/g, function (m, alt, url, title) {
           var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
           return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>');
         });
 
-        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|ipfs:\/\/[^\s)]+|\/[^\s)]*)\)/g, function (m, label, url) {
+        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+\vert{}ipfs:\/\/[^\s)]+\vert{}\/[^\s)]*)\)/g, function (m, label, url) {
           return hold('<a href="' + escapeHtml(url) + '">' + escapeHtml(label) + '</a>');
         });
         text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
