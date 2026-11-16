@@ -1251,8 +1251,6 @@
 
     // KE Ratio follows the same HAFBE data source and calculation used by PeakD's
     // community KE viewer: (posting_rewards + curation_rewards) / vesting_balance.
-    // The API values are expressed in thousandths; the common scale cancels in
-    // the ratio, but we apply the same /1000 normalization for clarity.
     var keCacheAt = {};
     var KE_CACHE_TTL_MS = 15 * 60 * 1000;
     var KE_ERROR_CACHE_TTL_MS = 30 * 1000;
@@ -1315,9 +1313,6 @@
         clearTimeout(timeoutId);
         console.warn('Primary KE endpoint unavailable for @' + author + '; trying Hive RPC:', error);
 
-        // Browser CORS policies can block the HAFBE endpoint on some hosts.
-        // Use the native Hive account reward fields and current global vesting
-        // conversion as a data-source fallback; never invent a ratio.
         Promise.all([
           hiveCall('condenser_api.get_accounts', [[author]]),
           hiveCall('condenser_api.get_dynamic_global_properties', [])
@@ -1622,12 +1617,8 @@
     }
 
     function renderHiveBodyHtml(rawText) {
-      // Hive posts may contain Markdown, raw HTML, HTML-escaped HTML, or any mixture.
-      // Build markup first, then parse and sanitize it with the browser's HTML parser.
       var body = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
 
-      // Some API clients double-encode post HTML. Decode only when the body clearly
-      // contains encoded tags, and limit passes to avoid changing ordinary entities.
       for (var decodePass = 0; decodePass < 2 && !/<\/?(?:pre|code)\b/i.test(body) && /&lt;\/?(?:p|div|span|img|a|br|h[1-6]|table|center|blockquote|iframe|figure|video)\b/i.test(body); decodePass++) {
         var decoder = document.createElement('textarea');
         decoder.innerHTML = body;
@@ -1644,15 +1635,17 @@
           return token;
         }
         var text = String(value || '');
-        // Preserve inline HTML for the final sanitizer instead of displaying tags.
         text = text.replace(/<!--([\s\S]*?)-->|<\/?[a-z][^>]*>/gi, function (m) { return hold(m); });
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
-        text = text.replace(/!\[([^\]]*)\]\(([^)]+?)(?:\s+["']([^"']*)["'])?\)/g, function (m, alt, url, title) {
-          var cleanUrl = url.trim().replace(/^[<"]|[>"]$/g, '');
+        
+        // Updated regex to handle multi-line image tags and URLs with newlines/spaces
+        text = text.replace(/!\[([^\]]*)\]\s*\(([^)]+?)(?:\s+["']([^"']*)["'])?\)/g, function (m, alt, url, title) {
+          var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
           return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>');
         });
-        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+\vert{}ipfs:\/\/[^\s)]+\vert{}\/[^\s)]*)\)/g, function (m, label, url) {
+
+        text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|ipfs:\/\/[^\s)]+|\/[^\s)]*)\)/g, function (m, label, url) {
           return hold('<a href="' + escapeHtml(url) + '">' + escapeHtml(label) + '</a>');
         });
         text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -1660,7 +1653,6 @@
           .replace(/~~([^~]+)~~/g, '<del>$1</del>')
           .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
           .replace(/_([^_\n]+)_/g, '<em>$1</em>');
-        // Linkify bare web URLs without swallowing trailing punctuation.
         text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+[A-Za-z0-9/#])/g, '$1<a href="$2">$2</a>');
         text = text.replace(/\u0001(\d+)\u0002/g, function (m, index) { return stash[Number(index)] || ''; });
         return text;
@@ -1699,7 +1691,6 @@
           if (isHtmlStart(line)) {
             flushParagraph(); closeList();
             var htmlBlock = [line];
-            // Keep adjacent HTML lines together. DOMParser repairs ordinary omitted closes.
             while (i + 1 < lines.length && lines[i + 1].trim() && (isHtmlStart(lines[i + 1]) || /^\s*</.test(lines[i + 1]))) htmlBlock.push(lines[++i]);
             out.push(htmlBlock.join('\n'));
             continue;
@@ -2608,7 +2599,7 @@
         var startAuthor = '';
         var startPermlink = '';
         var page = 0;
-        var requestedLimit = 20; // Fixed from 100 to comply with Hive bridge node range limits
+        var requestedLimit = 20;
         var maxPages = 35;
 
         function fetchBatch() {
