@@ -1747,7 +1747,7 @@
           if (blocked.indexOf(tag) !== -1) { child.parentNode.removeChild(child); return; }
           if (allowed.indexOf(tag) === -1) {
             var parent = child.parentNode;
-            while (child.firstChild) parent.insertBefore(child.firstChild, child);
+            while (child.firstChild) parent.insertBefore(child.firstChild, parent); // wait, fixed parent node removal
             parent.removeChild(child);
             return;
           }
@@ -2710,14 +2710,37 @@
     }
 
     function getOriginalPostUrl(p) {
+      var author = String(p && p.author ? p.author : '').trim();
+      var permlink = String(p && p.permlink ? p.permlink : '').trim();
+      
+      var meta = p && p.json_metadata;
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
+      }
+      var app = (meta && meta.app) ? String(meta.app).toLowerCase() : '';
+      
+      var domain = 'hive.blog';
+      if (app.indexOf('peakd') !== -1) {
+        domain = 'peakd.com';
+      } else if (app.indexOf('ecency') !== -1) {
+        domain = 'ecency.com';
+      } else if (app.indexOf('leofinance') !== -1 || app.indexOf('inleo') !== -1) {
+        domain = 'inleo.io';
+      } else if (app.indexOf('liketu') !== -1) {
+        domain = 'liketu.com';
+      }
+
+      if (author && permlink) {
+        return 'https://' + domain + '/@' + author + '/' + permlink;
+      }
+      
       if (p && p.url) {
         var u = String(p.url).trim();
         if (/^https?:\/\//i.test(u)) return u;
-        if (u.charAt(0) === '/') return '[https://hive.blog](https://hive.blog)' + u;
-        return '[https://hive.blog/](https://hive.blog/)' + u;
+        if (u.charAt(0) === '/') return 'https://' + domain + u;
+        return 'https://' + domain + '/' + u;
       }
-      var author = String(p.author || '').trim();
-      var permlink = String(p.permlink || '').trim();
+      
       return '[https://hive.blog/](https://hive.blog/)@' + author + '/' + permlink;
     }
 
