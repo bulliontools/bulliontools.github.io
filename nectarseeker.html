@@ -1626,12 +1626,6 @@
         body = decoded;
       }
 
-      // Robustly handle markdown images split across newlines/whitespace using the /s flag
-      body = body.replace(/!\[([^\]]*?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, alt, url) {
-        var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
-        return '![' + alt + '](' + cleanUrl + ')';
-      });
-
       function inlineMarkdown(value) {
         var stash = [];
         function hold(markup) {
@@ -1644,16 +1638,18 @@
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
         
-        text = text.replace(/!\[([^\]]*?)\]\s*\(\s*([^)]+?)(?:\s+["']([^"']*)["'])?\s*\)/gs, function (m, alt, url, title) {
+        // Robust Image Parsing (handles spaces and newlines inside the URL parentheses)
+        text = text.replace(/!\[([^\]]*?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, alt, url) {
           var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
-          return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>');
+          return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">');
         });
 
-        // Link parsing for standard markdown links like [100 HP](https://www.example.com)
-        text = text.replace(/\[([^\]]+?)\]\s*\(\s*(https?:\/\/[^\s)]+\vert{}ipfs:\/\/[^\s)]+\vert{}\/[^\s)]*)\s*\)/gs, function (m, label, url) {
-          var cleanUrl = url.replace(/\s+/g, '');
+        // Robust Link Parsing (handles spaces and newlines inside the URL parentheses)
+        text = text.replace(/\[([^\]]+?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, label, url) {
+          var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
           return hold('<a href="' + escapeHtml(cleanUrl) + '">' + escapeHtml(label) + '</a>');
         });
+
         text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
           .replace(/__([^_]+)__/g, '<strong>$1</strong>')
           .replace(/~~([^~]+)~~/g, '<del>$1</del>')
