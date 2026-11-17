@@ -1661,6 +1661,9 @@
         body = decoded;
       }
 
+      // Clean literal &nbsp; entities outside code blocks
+      body = body.replace(/&nbsp;/gi, ' ');
+
       // 2. Stitch broken multiline image/link tags starting at ! (or [) through the closing )
       body = body.replace(/!\s*\[([^\]]*)\]\s*\(([\s\S]*?)\)/g, function(match, alt, rawUrl) {
         var cleanAlt = alt.replace(/\s+/g, ' ').trim();
@@ -1673,17 +1676,17 @@
         return '[' + label + '](' + cleanUrl + ')';
       });
 
-      // 3. Convert Markdown images to <img> BEFORE HTML block detection so <center>![](url)</center> works
+      // 3. Convert Markdown images to <img> tags
       body = body.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function(match, alt, url) {
         var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
         return '<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">';
       });
 
-      // 4. ENHANCED: Convert bare image URLs anywhere in text (including CDNs like digitaloceanspaces)
-      var imageUrlRegex = /(https?:\/\/[^\s<>"']+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"']+|\/[^\s<>"']*\?(?:[^s<>"']*img|format|w|h)=)[^\s<>"']*)/gi;
+      // 4. Convert ONLY bare image URLs (skip URLs already inside src=, href=, or Markdown links)
+      var imageUrlRegex = /(^|[\s|>])(https?:\/\/[^\s<>"'|]+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"'|]+|\/[^\s<>"'|]*\?(?:[^\s<>"'|]*img|format|w|h)=)[^\s<>"'|]*)/gi;
       
-      body = body.replace(imageUrlRegex, function(match, url) {
-        return '<img alt="Hive Image" src="' + escapeHtml(url) + '">';
+      body = body.replace(imageUrlRegex, function(match, prefix, url) {
+        return prefix + '<img alt="Hive Image" src="' + escapeHtml(url) + '">';
       });
 
       function inlineMarkdown(value) {
@@ -1789,11 +1792,7 @@
               tableHtml += '<tr>';
               for (var r = 0; r < headers.length; r++) {
                 var rAlign = aligns[r] ? ' style="text-align:' + aligns[r] + ';"' : '';
-                var cellContent = rowCells[r] || '';
-                if (imageUrlRegex.test(cellContent)) {
-                  cellContent = cellContent.replace(imageUrlRegex, '<img alt="Table Image" src="$1" style="max-width:100px; height:auto;">');
-                }
-                tableHtml += '<td' + rAlign + '>' + inlineMarkdown(cellContent) + '</td>';
+                tableHtml += '<td' + rAlign + '>' + inlineMarkdown(rowCells[r] || '') + '</td>';
               }
               tableHtml += '</tr>';
             }
