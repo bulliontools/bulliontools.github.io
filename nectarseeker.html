@@ -1618,6 +1618,7 @@
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
 
+      // 1. Decode HTML-encoded tags if the post body was escaped
       for (var decodePass = 0; decodePass < 2 && !/<\/?(?:pre|code)\b/i.test(body) && /&lt;\/?(?:p|div|span|img|a|br|h[1-6]|table|center|blockquote|iframe|figure|video)\b/i.test(body); decodePass++) {
         var decoder = document.createElement('textarea');
         decoder.innerHTML = body;
@@ -1626,10 +1627,27 @@
         body = decoded;
       }
 
-      // Robust Pre-stitch: Handles broken tags spanning across newlines/spaces between ![] and (url)
-      body = body.replace(/(!?\[[^\]]*?\])\s*[\r\n]+\s*\(\s*([^)]+?)\s*\)/gs, function(match, bracketPart, urlPart) {
-        var cleanUrl = urlPart.replace(/\s+/g, '');
-        return bracketPart + '(' + cleanUrl + ')';
+      // 2. Stitch broken multiline image/link tags starting at ! (or [) through the closing )
+      body = body.replace(/!\s*\[([^\]]*)\]\s*\(([\s\S]*?)\)/g, function(match, alt, rawUrl) {
+        var cleanAlt = alt.replace(/\s+/g, ' ').trim();
+        var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
+        return '![' + cleanAlt + '](' + cleanUrl + ')';
+      });
+
+      body = body.replace(/\[([^\]]+)\]\s*\(([\s\S]*?)\)/g, function(match, label, rawUrl) {
+        var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
+        return '[' + label + '](' + cleanUrl + ')';
+      });
+
+      // 3. Convert Markdown images to <img> BEFORE HTML block detection so <center>![](url)</center> works
+      body = body.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function(match, alt, url) {
+        var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
+        return '<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">';
+      });
+
+      // 4. Convert standalone bare image URLs on their own line into <img> tags
+      body = body.replace(/^[ \t]*(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp|avif)(?:\?[^\s<>"']*)?)[ \t]*$/gim, function(match, url) {
+        return '<img alt="Hive Image" src="' + escapeHtml(url) + '">';
       });
 
       function inlineMarkdown(value) {
@@ -1643,16 +1661,10 @@
         text = text.replace(/<!--([\s\S]*?)-->|<\/?[a-z][^>]*>/gi, function (m) { return hold(m); });
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
-        
-        // Robust Image Parsing
-        text = text.replace(/!\[([^\]]*?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, alt, url) {
-          var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
-          return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">');
-        });
 
-        // Robust Link Parsing
-        text = text.replace(/\[([^\]]+?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, label, url) {
-          var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
+        // Standard Markdown links
+        text = text.replace(/\[([^\]]+?)\]\(([^)\s]+)\)/g, function (m, label, url) {
+          var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
           return hold('<a href="' + escapeHtml(cleanUrl) + '">' + escapeHtml(label) + '</a>');
         });
 
@@ -1727,7 +1739,7 @@
       var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', '3speak.online'];
 
       function safeUrl(value) {
-        var url = String(value || '').trim().replace(/[\u0000-\u0020]+/g, '');
+        var url = String(value || '').trim().replace(/[\u0000-\u001F]+/g, '');
         if (!url) return '';
         if (url.indexOf('//') === 0) url = 'https:' + url;
         if (/^ipfs:\/\//i.test(url)) return '[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + url.slice(7).replace(/^ipfs\//, '');
@@ -1803,6 +1815,7 @@
                 child.setAttribute('src', candidates.shift() || src);
                 child.setAttribute('loading', 'lazy');
                 child.setAttribute('decoding', 'async');
+                child.setAttribute('referrerpolicy', 'no-referrer');
                 child.setAttribute('data-image-fallbacks', JSON.stringify(candidates));
                 child.style.maxWidth = '100%'; child.style.height = 'auto';
               } else child.setAttribute('src', src);
