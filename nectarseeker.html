@@ -640,12 +640,40 @@
     }
     #readerContent video, #readerContent iframe { max-width: 100%; width: 100%; border: 0; border-radius: 8px; }
     #readerContent video { height: auto; }
-    #readerContent table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; }
-    #readerContent th, #readerContent td { border: 1px solid var(--border); padding: 7px 10px; }
-    #readerContent th { background: var(--surface-2); color: var(--text-main); }
+    #readerContent table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; word-break: normal; }
+    #readerContent th, #readerContent td { border: 1px solid var(--border); padding: 10px 14px; color: var(--text-main); white-space: nowrap; }
+    #readerContent th { background: var(--surface-2); color: var(--text-muted); font-weight: 600; }
     #readerContent pre { overflow-x: auto; padding: 12px; border-radius: 8px; background: var(--surface-2); }
     #readerContent code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     #readerContent a { color: var(--accent-cyan); text-decoration: underline; overflow-wrap: anywhere; }
+    #readerContent a.hive-user-pill, .comment-body a.hive-user-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px 4px 5px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-1);
+      color: var(--accent-cyan);
+      text-decoration: none;
+      font-weight: 500;
+      vertical-align: middle;
+      overflow-wrap: normal;
+      white-space: nowrap;
+    }
+    #readerContent a.hive-user-pill:hover, .comment-body a.hive-user-pill:hover {
+      border-color: var(--accent-cyan);
+      text-decoration: none;
+    }
+    #readerContent a.hive-user-pill img, .comment-body a.hive-user-pill img {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin: 0;
+      display: inline-block;
+      flex-shrink: 0;
+    }
     #readerContent figure { margin: 16px 0; }
     #readerContent hr { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
 
@@ -1679,7 +1707,15 @@
           .replace(/~~([^~]+)~~/g, '<del>$1</del>')
           .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
           .replace(/_([^_\n]+)_/g, '<em>$1</em>');
-        text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+[A-Za-z0-9/#])/g, '$1<a href="$2">$2</a>');
+        text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+[A-Za-z0-9/#])/g, function (m, prefix, url) {
+          return prefix + hold('<a href="' + url + '">' + url + '</a>');
+        });
+        text = text.replace(/(^|[\s(>])@([a-z][a-z0-9.-]{2,15})(?=$|[\s)<.,!?:;])/g, function (m, prefix, user) {
+          if (user.slice(-1) === '.' || user.slice(-1) === '-') return m;
+          var avatarUrl = 'https://images.hive.blog/u/' + encodeURIComponent(user) + '/avatar/small';
+          var profileUrl = 'https://peakd.com/@' + encodeURIComponent(user);
+          return prefix + hold('<a class="hive-user-pill" href="' + profileUrl + '"><img src="' + avatarUrl + '" alt="@' + escapeHtml(user) + '"><span>@' + escapeHtml(user) + '</span></a>');
+        });
         text = text.replace(/\u0001(\d+)\u0002/g, function (m, index) { return stash[Number(index)] || ''; });
         return text;
       }
@@ -1702,6 +1738,22 @@
           if (listType) { out.push('</' + listType + '>'); listType = ''; }
         }
         function isHtmlStart(line) { return /^\s*<(?:!--|\/?(?:address|article|aside|audio|blockquote|br|center|div|details|figure|figcaption|footer|h[1-6]|hr|iframe|img|li|ol|p|pre|section|source|table|tbody|td|th|thead|tr|ul|video)\b)/i.test(line); }
+        function splitTableCells(rowLine) {
+          var row = rowLine.trim();
+          if (row.charAt(0) === '|') row = row.slice(1);
+          if (row.slice(-1) === '|') row = row.slice(0, -1);
+          return row.split('|').map(function (c) { return c.trim(); });
+        }
+        function isTableDelimiter(rowLine) {
+          var trimmedRow = rowLine.trim();
+          if (trimmedRow.indexOf('|') === -1) return false;
+          var cells = splitTableCells(trimmedRow);
+          if (!cells.length) return false;
+          for (var c = 0; c < cells.length; c++) {
+            if (!/^:?-{3,}:?$/.test(cells[c])) return false;
+          }
+          return true;
+        }
         for (var i = 0; i < lines.length; i++) {
           var line = lines[i];
           var trimmed = line.trim();
@@ -1714,6 +1766,35 @@
           }
           if (inCode) { codeLines.push(line); continue; }
           if (!trimmed) { flushParagraph(); closeList(); continue; }
+          if (trimmed.indexOf('|') !== -1 && i + 1 < lines.length && isTableDelimiter(lines[i + 1])) {
+            flushParagraph(); closeList();
+            var headers = splitTableCells(trimmed);
+            var delims = splitTableCells(lines[++i]);
+            var aligns = delims.map(function (d) {
+              if (d.charAt(0) === ':' && d.slice(-1) === ':') return 'center';
+              if (d.slice(-1) === ':') return 'right';
+              if (d.charAt(0) === ':') return 'left';
+              return '';
+            });
+            var tableHtml = '<table><thead><tr>';
+            for (var h = 0; h < headers.length; h++) {
+              var hAlign = aligns[h] ? ' style="text-align:' + aligns[h] + ';"' : '';
+              tableHtml += '<th' + hAlign + '>' + inlineMarkdown(headers[h]) + '</th>';
+            }
+            tableHtml += '</tr></thead><tbody>';
+            while (i + 1 < lines.length && lines[i + 1].trim() && lines[i + 1].indexOf('|') !== -1 && !isHtmlStart(lines[i + 1])) {
+              var rowCells = splitTableCells(lines[++i]);
+              tableHtml += '<tr>';
+              for (var r = 0; r < headers.length; r++) {
+                var rAlign = aligns[r] ? ' style="text-align:' + aligns[r] + ';"' : '';
+                tableHtml += '<td' + rAlign + '>' + inlineMarkdown(rowCells[r] || '') + '</td>';
+              }
+              tableHtml += '</tr>';
+            }
+            tableHtml += '</tbody></table>';
+            out.push(tableHtml);
+            continue;
+          }
           if (isHtmlStart(line)) {
             flushParagraph(); closeList();
             var htmlBlock = [line];
@@ -1823,7 +1904,9 @@
                 child.setAttribute('decoding', 'async');
                 child.setAttribute('referrerpolicy', 'no-referrer');
                 child.setAttribute('data-image-fallbacks', JSON.stringify(candidates));
-                child.style.maxWidth = '100%'; child.style.height = 'auto';
+                if (!child.closest('.hive-user-pill')) {
+                  child.style.maxWidth = '100%'; child.style.height = 'auto';
+                }
               } else child.setAttribute('src', src);
             } else if (tag !== 'IFRAME') child.removeAttribute('src');
           }
