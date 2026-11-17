@@ -1626,8 +1626,11 @@
         body = decoded;
       }
 
-      // Pre-stitch broken image/link tags split across lines or newlines
-      body = body.replace(/(!?\[[^\]]*?\])\s*\n\s*\(\s*([^)]+?)\s*\)/gs, '$1($2)');
+      // Robust Pre-stitch: Handles broken tags spanning across newlines/spaces between ![] and (url)
+      body = body.replace(/(!?\[[^\]]*?\])\s*[\r\n]+\s*\(\s*([^)]+?)\s*\)/gs, function(match, bracketPart, urlPart) {
+        var cleanUrl = urlPart.replace(/\s+/g, '');
+        return bracketPart + '(' + cleanUrl + ')';
+      });
 
       function inlineMarkdown(value) {
         var stash = [];
@@ -1641,13 +1644,13 @@
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
         
-        // Robust Image Parsing (handles spaces and newlines across multiple lines inside parentheses)
+        // Robust Image Parsing
         text = text.replace(/!\[([^\]]*?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, alt, url) {
           var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
           return hold('<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">');
         });
 
-        // Robust Link Parsing (handles spaces and newlines across multiple lines inside parentheses)
+        // Robust Link Parsing
         text = text.replace(/\[([^\]]+?)\]\s*\(\s*([^)]+?)\s*\)/gs, function (m, label, url) {
           var cleanUrl = url.replace(/\s+/g, '').replace(/^[<"]|[>"]$/g, '');
           return hold('<a href="' + escapeHtml(cleanUrl) + '">' + escapeHtml(label) + '</a>');
