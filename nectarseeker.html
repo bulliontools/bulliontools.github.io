@@ -1679,8 +1679,10 @@
         return '<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">';
       });
 
-      // 4. Convert standalone bare image URLs on their own line into <img> tags
-      body = body.replace(/^[ \t]*(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp|avif)(?:\?[^\s<>"']*)?)[ \t]*$/gim, function(match, url) {
+      // 4. ENHANCED: Convert bare image URLs anywhere in text (including CDNs like digitaloceanspaces)
+      var imageUrlRegex = /(https?:\/\/[^\s<>"']+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"']+|\/[^\s<>"']*\?(?:[^s<>"']*img|format|w|h)=)[^\s<>"']*)/gi;
+      
+      body = body.replace(imageUrlRegex, function(match, url) {
         return '<img alt="Hive Image" src="' + escapeHtml(url) + '">';
       });
 
@@ -1787,7 +1789,11 @@
               tableHtml += '<tr>';
               for (var r = 0; r < headers.length; r++) {
                 var rAlign = aligns[r] ? ' style="text-align:' + aligns[r] + ';"' : '';
-                tableHtml += '<td' + rAlign + '>' + inlineMarkdown(rowCells[r] || '') + '</td>';
+                var cellContent = rowCells[r] || '';
+                if (imageUrlRegex.test(cellContent)) {
+                  cellContent = cellContent.replace(imageUrlRegex, '<img alt="Table Image" src="$1" style="max-width:100px; height:auto;">');
+                }
+                tableHtml += '<td' + rAlign + '>' + inlineMarkdown(cellContent) + '</td>';
               }
               tableHtml += '</tr>';
             }
