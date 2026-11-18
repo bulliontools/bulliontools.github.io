@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -715,7 +714,7 @@
       overflow-wrap: anywhere;
     }
 
-    #tipModal {
+    #tipModal, #userProfileModal {
       display: none;
       position: fixed;
       top: 0;
@@ -846,7 +845,7 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive (Rewards / HP) displayed on every preview and reader view.
+        <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive (Rewards / HP) displayed in author profiles and reader view.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
@@ -980,6 +979,19 @@
     </div>
   </div>
 
+  <!-- USER PROFILE MODAL -->
+  <div id="userProfileModal">
+    <div class="tip-modal-container">
+      <h3 id="profileModalTitle" style="margin:0 0 12px 0; color:var(--text-main); font-size:18px;">User Profile</h3>
+      <div id="profileModalContent" style="font-size:14px; color:var(--text-muted); display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
+        Loading profile...
+      </div>
+      <div style="display:flex; justify-content:flex-end;">
+        <button type="button" class="kc-btn" onclick="closeUserProfileModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function () {
       var st = document.getElementById('status');
@@ -1029,6 +1041,7 @@
       mode: 'feed',
       sort: 'relevant',
       results: [],
+      visibleCount: 25,
       isRunning: false,
       kcUser: '',
       accountData: null,
@@ -1251,7 +1264,7 @@
       try { localStorage.removeItem(KC_USER_KEY); } catch (e) {}
       updateKeychainUI();
       if (appState.results.length > 0) {
-        renderCards(appState.results.slice(0, 100));
+        renderCards(appState.results.slice(0, appState.visibleCount));
       }
       setStatus('Disconnected Hive Keychain account.', false);
     }
@@ -1352,18 +1365,65 @@
       });
     }
 
-    function updateCardKeBadges() {
-      var elements = document.querySelectorAll('.ke-badge-placeholder');
-      for (var i = 0; i < elements.length; i++) {
-        var el = elements[i];
-        var author = el.getAttribute('data-author');
-        if (!author) continue;
-        (function(targetEl, auth) {
-          getAuthorKeRatio(auth, function(keVal) {
-            targetEl.textContent = 'KE: ' + keVal;
-          });
-        })(el, author);
-      }
+    function formatReputation(rep) {
+      if (rep == null) return '25';
+      var repStr = String(rep);
+      var neg = repStr.charAt(0) === '-';
+      if (neg) repStr = repStr.substring(1);
+      var leadingDigits = parseInt(repStr.substring(0, 4));
+      if (isNaN(leadingDigits) || leadingDigits === 0) return '25';
+      var log = Math.log10(leadingDigits) + (repStr.length - 4);
+      var out = log - 9;
+      out = Math.max(0, out * 9 + 25);
+      if (neg) out = -out;
+      return Math.round(out * 10) / 10;
+    }
+
+    function openUserProfile(username) {
+      var author = stripLeadingAt(username);
+      if (!author) return;
+      var modal = document.getElementById('userProfileModal');
+      var titleEl = document.getElementById('profileModalTitle');
+      var contentEl = document.getElementById('profileModalContent');
+      
+      if (titleEl) titleEl.textContent = '@' + author + ' Profile';
+      if (contentEl) contentEl.innerHTML = 'Loading profile data...';
+      if (modal) modal.style.display = 'flex';
+
+      Promise.all([
+        hiveCall('condenser_api.get_accounts', [[author]]).catch(function() { return []; }),
+        new Promise(function(resolve) {
+          getAuthorKeRatio(author, function(ke) { resolve(ke); });
+        })
+      ]).then(function(res) {
+        var accs = res[0];
+        var ke = res[1];
+        var acc = accs && accs[0] ? accs[0] : null;
+
+        var rep = '25';
+        var joined = 'Unknown';
+
+        if (acc) {
+          if (acc.reputation != null) {
+            rep = formatReputation(acc.reputation);
+          }
+          if (acc.created) {
+            joined = new Date(acc.created + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+          }
+        }
+
+        contentEl.innerHTML = 
+          '<div><strong>Reputation Score:</strong> ' + rep + '</div>' +
+          '<div><strong>KE Ratio:</strong> ' + ke + '</div>' +
+          '<div><strong>Joined Hive:</strong> ' + joined + '</div>';
+      }).catch(function() {
+        contentEl.innerHTML = '<div style="color:var(--accent-danger);">Failed to load profile details.</div>';
+      });
+    }
+
+    function closeUserProfileModal() {
+      var modal = document.getElementById('userProfileModal');
+      if (modal) modal.style.display = 'none';
     }
 
     function getUserVoteInfo(post, username) {
@@ -1431,7 +1491,7 @@
       function nextBatch() {
         if (idx >= toCheck.length) {
           if (anyUpdated && getConnectedUser() === user) {
-            renderCards(appState.results.slice(0, 100));
+            renderCards(appState.results.slice(0, appState.visibleCount));
           }
           return;
         }
@@ -2942,7 +3002,10 @@
       }
 
       appState.results = activeList;
-      var topSlice = activeList.slice(0, 100);
+      appState.visibleCount = Math.min(appState.visibleCount, activeList.length);
+      if (appState.visibleCount < 25 && activeList.length > 0) appState.visibleCount = 25;
+      
+      var topSlice = activeList.slice(0, appState.visibleCount);
       renderCards(topSlice);
       syncVotesForRenderedPosts(topSlice);
     }
@@ -3026,7 +3089,7 @@
 
               html += '<div class="comment-item" style="margin-left:' + indent + 'px;">';
               html += '<div class="comment-header">';
-              html += '<span><strong>@' + escapeHtml(c.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + '</span>';
+              html += '<span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(c.author) + '\')">@' + escapeHtml(c.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + '</span>';
               html += '<button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(c.author) + '\', \'' + escapeHtml(c.permlink) + '\')">💬 Reply</button>';
               html += '</div>';
               html += '<div class="comment-body">' + bodyHtml + '</div>';
@@ -3046,7 +3109,7 @@
               var oc = allNodes[j];
               var oAge = formatAge(oc.created);
               html += '<div class="comment-item">';
-              html += '<div class="comment-header"><span><strong>@' + escapeHtml(oc.author) + '</strong>' + (oAge ? ' &middot; ' + escapeHtml(oAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(oc.author) + '\', \'' + escapeHtml(oc.permlink) + '\')">💬 Reply</button></div>';
+              html += '<div class="comment-header"><span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(oc.author) + '\')">@' + escapeHtml(oc.author) + '</strong>' + (oAge ? ' &middot; ' + escapeHtml(oAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(oc.author) + '\', \'' + escapeHtml(oc.permlink) + '\')">💬 Reply</button></div>';
               html += '<div class="comment-body">' + renderHiveBodyHtml(oc.body || '') + '</div>';
               html += '</div>';
             }
@@ -3068,7 +3131,7 @@
                 var r = replies[i];
                 var rAge = formatAge(r.created);
                 html += '<div class="comment-item">';
-                html += '<div class="comment-header"><span><strong>@' + escapeHtml(r.author) + '</strong>' + (rAge ? ' &middot; ' + escapeHtml(rAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(r.author) + '\', \'' + escapeHtml(r.permlink) + '\')">💬 Reply</button></div>';
+                html += '<div class="comment-header"><span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(r.author) + '\')">@' + escapeHtml(r.author) + '</strong>' + (rAge ? ' &middot; ' + escapeHtml(rAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(r.author) + '\', \'' + escapeHtml(r.permlink) + '\')">💬 Reply</button></div>';
                 html += '<div class="comment-body">' + renderHiveBodyHtml(r.body || '') + '</div>';
                 html += '</div>';
               }
@@ -3106,7 +3169,7 @@
       if (metaEl) {
         var dapp = detectFrontend(p);
         var age = formatAge(p.created);
-        metaEl.innerHTML = '<div>by <strong>@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span> <span class="ke-badge reader-ke-top" data-author="' + escapeHtml(p.author) + '">KE: Loading...</span></div>';
+        metaEl.innerHTML = '<div>by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(p.author) + '\')">@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span></div>';
       }
       if (contentEl) {
         contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
@@ -3115,8 +3178,6 @@
         readerKeBottomVal.textContent = 'Loading...';
         getAuthorKeRatio(p.author, function(ke) {
           readerKeBottomVal.textContent = ke;
-          var topKeEl = document.querySelector('.reader-ke-top');
-          if (topKeEl) topKeEl.textContent = 'KE: ' + ke;
         });
       }
       
@@ -3222,7 +3283,7 @@
               delete taste.disliked[key];
               saveTaste(taste);
             }
-            renderCards(appState.results.slice(0, 100));
+            renderCards(appState.results.slice(0, appState.visibleCount));
           } else {
             setStatus('Vote cancelled or failed.', true);
           }
@@ -3606,7 +3667,6 @@
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
         html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
-        html += '<span class="ke-badge ke-badge-placeholder" data-author="' + escapeHtml(p.author) + '">KE: ...</span>';
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
 
@@ -3614,7 +3674,7 @@
         
         html += '</div>';
 
-        html += '<div class="meta">by <strong>@' + escapeHtml(p.author) + '</strong>';
+        html += '<div class="meta">by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(p.author) + '\')">@' + escapeHtml(p.author) + '</strong>';
         if (age) html += ' &middot; ' + escapeHtml(age);
         html += ' &middot; Relevance: <strong>' + pct + '%</strong></div>';
 
@@ -3635,8 +3695,18 @@
         html += '</div>';
       }
 
+      if (appState.visibleCount < appState.results.length) {
+        html += '<div style="margin-top: 16px; text-align: center;"><button type="button" class="primary-btn" onclick="loadMorePosts()" style="width: 100%;">See More</button></div>';
+      }
+
       feedEl.innerHTML = html;
-      updateCardKeBadges();
+    }
+
+    function loadMorePosts() {
+      appState.visibleCount += 25;
+      var slice = appState.results.slice(0, appState.visibleCount);
+      renderCards(slice);
+      syncVotesForRenderedPosts(slice);
     }
 
     function runUsernameWorkflow(username) {
@@ -3697,8 +3767,9 @@
               }
             }
             appState.results = scored;
+            appState.visibleCount = 25;
             rerankAndRender();
-            var shown = Math.min(100, appState.results.length);
+            var shown = Math.min(appState.visibleCount, appState.results.length);
             setStatus('Showing ' + ownPosts.length + ' posts by @' + username + ' and ' + Math.max(0, shown - ownPosts.length) + ' recommendations informed by votes, comments, and author interests.', false);
           });
         });
@@ -3744,8 +3815,9 @@
               }
             }
             appState.results = scored;
+            appState.visibleCount = 25;
             rerankAndRender();
-            var shown = Math.min(100, appState.results.length);
+            var shown = Math.min(appState.visibleCount, appState.results.length);
             setStatus('Showing up to ' + shown + ' personalized recommendations using up to 730 days of Hive activity.', false);
           });
         });
@@ -3817,8 +3889,9 @@
             }
           }
           appState.results = scored;
+          appState.visibleCount = 25;
           rerankAndRender();
-          return Math.min(100, appState.results.length);
+          return Math.min(appState.visibleCount, appState.results.length);
         }
 
         var initialShown = scoreAndRender(candidates, null);
@@ -3907,8 +3980,9 @@
           }
 
           appState.results = scored;
+          appState.visibleCount = 25;
           rerankAndRender();
-          var shown = Math.min(100, appState.results.length);
+          var shown = Math.min(appState.visibleCount, appState.results.length);
           var msg = cleanQuery ?
             'Found ' + shown + ' posts from new users matching "' + cleanQuery + '".' :
             'Found ' + shown + ' posts from users who joined in the last 12 months.';
@@ -3982,7 +4056,7 @@
               updateKeychainUI();
               setStatus('Connected as @' + verifiedUser + '. Vote status badges are now active.', false);
               if (appState.results.length > 0) {
-                var topSlice = appState.results.slice(0, 100);
+                var topSlice = appState.results.slice(0, appState.visibleCount);
                 renderCards(topSlice);
                 syncVotesForRenderedPosts(topSlice);
               }
