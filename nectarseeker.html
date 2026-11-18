@@ -412,15 +412,6 @@
       padding: 3px 8px;
       border-radius: 5px;
     }
-    .ke-badge {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--accent-warn);
-      background-color: rgba(251, 191, 36, 0.12);
-      border: 1px solid rgba(251, 191, 36, 0.35);
-      padding: 3px 7px;
-      border-radius: 5px;
-    }
     .vote-status-badge {
       font-size: 11px;
       font-weight: 700;
@@ -2033,7 +2024,7 @@
 
       for (var i = 0; i < docCount; i++) {
         var c = candidates[i];
-        var tokens = tokenize((c.title || '') + ' ' + (c.body || ''));
+        var tokens = tokenize((c.title || '') + ' ' + (c.body || '').slice(0, 1500));
         var uniqueTokens = {};
         for (var j = 0; j < tokens.length; j++) {
           uniqueTokens[tokens[j]] = true;
@@ -2304,13 +2295,14 @@
       return merged;
     }
 
-    function fetchUserBehaviorProfile(username, idfMap, ownPosts) {
+    function fetchUserBehaviorProfile(username, idfMap, ownPosts, months) {
       if (!username) return Promise.resolve(null);
+      var m = months || 24;
       var terms = Object.keys(idfMap || {});
       var corpusKey = terms.length + ':' + (terms[0] || '') + ':' + (terms[terms.length - 1] || '');
-      var cacheKey = 'behavior-profile-v2:' + username + ':' + corpusKey;
+      var cacheKey = 'behavior-profile-v2:' + username + ':' + m + ':' + corpusKey;
       return loadNectarCached(cacheKey, 20 * 60 * 1000, 60 * 60 * 1000, function () {
-        return getAccountHistory(username, 24).then(function (history) {
+        return getAccountHistory(username, m).then(function (history) {
           history = history || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {} };
           return Promise.all([
             fetchSeedPosts(history.seeds || [], history.skipKeys || {}),
@@ -2741,8 +2733,8 @@
         var startAuthor = '';
         var startPermlink = '';
         var page = 0;
-        var requestedLimit = 20;
-        var maxPages = 35;
+        var requestedLimit = 100; // Optimized from 20 to 100 per request
+        var maxPages = 5;         // Optimized from 35 down to 5 (gets 500 candidate posts instantly)
 
         function fetchBatch() {
           page++;
@@ -2756,7 +2748,6 @@
             return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: requestedLimit, start_author: startAuthor, start_permlink: startPermlink }]);
           }).then(function (posts) {
             if (!Array.isArray(posts) || posts.length === 0) return collected;
-            if (page === 1) maxPages = Math.max(1, Math.ceil(700 / posts.length));
             var reachedCutoff = false;
             for (var i = 0; i < posts.length; i++) {
               var p = posts[i];
@@ -3845,7 +3836,7 @@
             var cp = candidates[ci];
             if (!cp || !cp.author || !cp.permlink) continue;
             var ckey = cp.author + '/' + cp.permlink;
-            var ctokens = tokenize((cp.title || '') + ' ' + (cp.body || ''));
+            var ctokens = tokenize((cp.title || '') + ' ' + (cp.body || '').slice(0, 1500));
             preparedVectors[ckey] = { tokens: ctokens, vector: buildVectorWithIDF(ctokens, null, preparedIdf) };
           }
           prepared = { signature: corpusSignature, idfMap: preparedIdf, vectors: preparedVectors };
@@ -3897,7 +3888,7 @@
         var initialShown = scoreAndRender(candidates, null);
         if (username) setStatus('Showing ' + initialShown + ' initial matches while your Hive interests are refreshed…', false);
 
-        var profilePromise = username ? fetchUserBehaviorProfile(username, idfMap, []) : Promise.resolve(null);
+        var profilePromise = username ? fetchUserBehaviorProfile(username, idfMap, [], 3) : Promise.resolve(null);
         return profilePromise.then(function (profile) {
           if (!profile) {
             var shownWithoutProfile = initialShown;
