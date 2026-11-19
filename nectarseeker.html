@@ -2923,16 +2923,23 @@
       return loadNectarCached(cacheKey, 30 * 60 * 1000, 2 * 60 * 60 * 1000, function () {
         var collected = [];
         var index = 0;
+        var batchSize = 12;
         function nextBatch() {
           if (index >= names.length) return Promise.resolve(collected);
-          var batch = names.slice(index, index + 6);
-          index += 6;
+          var batch = names.slice(index, index + batchSize);
+          index += batchSize;
           return Promise.all(batch.map(function (entry) {
-            return hiveCall('bridge.get_account_posts', { sort: 'blog', account: entry.name, limit: 8, observer: observer || getConnectedUser() || '' })
-              .catch(function () {
-                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: observer || getConnectedUser() || '' });
+            var obs = observer || getConnectedUser() || '';
+            return hiveCall('bridge.get_account_posts', { sort: 'blog', account: entry.name, limit: 8, observer: obs })
+              .then(function (posts) {
+                if (Array.isArray(posts) && posts.length > 0) return posts;
+                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: obs })
+                  .catch(function () { return []; });
               })
-              .catch(function () { return []; });
+              .catch(function () {
+                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: obs })
+                  .catch(function () { return []; });
+              });
           })).then(function (groups) {
             for (var g = 0; g < groups.length; g++) {
               var posts = groups[g] || [];
@@ -3009,7 +3016,7 @@
         if (window.fetch) {
           var controller = window.AbortController ? new AbortController() : null;
           var startedAt = Date.now();
-          var timer = controller ? setTimeout(function () { controller.abort(); }, 7000) : null;
+          var timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
           return fetch(node, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3038,7 +3045,7 @@
           var xhr = new XMLHttpRequest();
           xhr.open('POST', node, true);
           var startedAt = Date.now();
-          xhr.timeout = 7000;
+          xhr.timeout = 3500;
           xhr.setRequestHeader('Content-Type', 'application/json');
           xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) return;
@@ -3342,7 +3349,7 @@
     function fetchSeedPosts(seeds, skipKeys) {
       var results = [];
       var idx = 0;
-      var batchSize = 12;
+      var batchSize = 25;
 
       function nextBatch() {
         if (idx >= seeds.length) return Promise.resolve(results);
@@ -3710,7 +3717,13 @@
 
       var topSlice = activeList.slice(0, appState.visibleCount);
       renderCards(topSlice);
-      syncVotesForRenderedPosts(topSlice);
+      if (appState.sort === 'newest') {
+        setTimeout(function () {
+          syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
+        }, 0);
+      } else {
+        syncVotesForRenderedPosts(topSlice);
+      }
     }
 
     function setReplyTarget(author, permlink) {
@@ -4508,9 +4521,12 @@
           var negativeSeeds = groups[1] || [];
           return fetchRelatedAuthorPosts(history.authorAffinity || {}, username).then(function (relatedPosts) {
             var candidates = mergePostPools(groups[2], relatedPosts);
-            var idfMap = computeCorpusIDF(candidates);
-            var profile = buildBehaviorProfile(history, positiveSeeds, negativeSeeds, [], idfMap);
-            if (!profile.positive.norm) throw new Error('Could not extract enough text from your voting, reblog, or comment history. Try again after interacting with more Hive content.');
+            var isNewestSort = appState.sort === 'newest';
+            var idfMap = isNewestSort ? {} : computeCorpusIDF(candidates);
+            var profile = isNewestSort ? null : buildBehaviorProfile(history, positiveSeeds, negativeSeeds, [], idfMap);
+            if (!isNewestSort && (!profile || !profile.positive.norm)) {
+              throw new Error('Could not extract enough text from your voting, reblog, or comment history. Try again after interacting with more Hive content.');
+            }
 
             var taste = loadTaste();
             var scored = [];
@@ -4518,12 +4534,26 @@
               var candidate = candidates[i];
               var key = candidate.author + '/' + candidate.permlink;
               if (candidate.author === username || skipKeys[key] || taste.disliked[key] || hasVoted(candidate, username)) continue;
+              var ts = Date.parse((candidate.created || '').replace(/Z$/, '') + 'Z') || 0;
+              if (isNewestSort) {
+                var titleTokens = tokenize(candidate.title || '');
+                scored.push({
+                  post: candidate,
+                  baseScore: 0.5,
+                  finalScore: 0.5,
+                  matched: [],
+                  tokens: titleTokens,
+                  timestamp: ts,
+                  isLiked: !!taste.liked[key],
+                  personalized: false
+                });
+                continue;
+              }
               var tokens = tokenize((candidate.title || '') + ' ' + (candidate.body || ''));
               if (tokens.length < 12) continue;
               var behavior = scoreAgainstBehaviorProfile(candidate, profile, idfMap);
               var score = behavior.score;
               if (score > 0.005) {
-                var ts = Date.parse((candidate.created || '').replace(/Z$/, '') + 'Z') || 0;
                 var ageDays = ts ? Math.max(0, (Date.now() - ts) / 86400000) : 365;
                 score += 0.025 * Math.exp(-ageDays / 120);
                 if (!behavior.author) score += 0.012;
