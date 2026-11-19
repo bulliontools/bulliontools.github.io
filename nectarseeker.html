@@ -661,6 +661,7 @@
       color: var(--text-main);
     }
     #readerContent video, #readerContent iframe { max-width: 100%; width: 100%; border: 0; border-radius: 8px; }
+    #readerContent iframe { aspect-ratio: 16 / 9; min-height: 260px; margin: 16px 0; background: var(--bg-dark); }
     #readerContent video { height: auto; }
     #readerContent table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; word-break: normal; }
     #readerContent th, #readerContent td { border: 1px solid var(--border); padding: 10px 14px; color: var(--text-main); white-space: nowrap; }
@@ -2053,17 +2054,29 @@
     }
 
     function formatReputation(rep) {
-      if (rep == null) return '25';
-      var repStr = String(rep);
+      if (rep == null || rep === '') return '25';
+      var repNum = Number(rep);
+      if (Number.isFinite(repNum)) {
+        if (repNum === 0) return '25';
+        var negNum = repNum < 0;
+        var absNum = Math.abs(repNum);
+        var scoreNum = ((Math.log10(absNum) - 9) * 9) + 25;
+        if (negNum) scoreNum = 50 - scoreNum;
+        if (!Number.isFinite(scoreNum)) return '25';
+        return String(Math.round(scoreNum * 10) / 10);
+      }
+      var repStr = String(rep).trim();
       var neg = repStr.charAt(0) === '-';
-      if (neg) repStr = repStr.substring(1);
-      var leadingDigits = parseInt(repStr.substring(0, 4));
-      if (isNaN(leadingDigits) || leadingDigits === 0) return '25';
-      var log = Math.log10(leadingDigits) + (repStr.length - 4);
-      var out = log - 9;
-      out = Math.max(0, out * 9 + 25);
-      if (neg) out = -out;
-      return Math.round(out * 10) / 10;
+      if (neg) repStr = repStr.slice(1);
+      var digits = repStr.replace(/\D/g, '');
+      if (!digits || /^0+$/.test(digits)) return '25';
+      var leadingDigits = parseInt(digits.slice(0, 4), 10);
+      if (isNaN(leadingDigits) || leadingDigits <= 0) return '25';
+      var log10Val = (Math.log(leadingDigits) / Math.LN10) + (digits.length - 1) - (Math.min(digits.length, 4) - 1);
+      var out = ((log10Val - 9) * 9) + 25;
+      if (neg) out = 50 - out;
+      if (!Number.isFinite(out)) return '25';
+      return String(Math.round(out * 10) / 10);
     }
 
     function openUserProfile(username) {
@@ -2310,6 +2323,37 @@
       return s;
     }
 
+    function buildThreeSpeakEmbedUrl(rawUrl) {
+      var str = String(rawUrl || '').trim();
+      if (!str) return '';
+      try {
+        var parsed = new URL(str, 'https://play.3speak.tv');
+        var host = parsed.hostname.toLowerCase();
+        var isThreeSpeak = host === '3speak.tv' || host.endsWith('.3speak.tv') ||
+          host === '3speak.online' || host.endsWith('.3speak.online') ||
+          host === '3speak.co' || host.endsWith('.3speak.co');
+        if (!isThreeSpeak) return '';
+
+        var videoId = parsed.searchParams.get('v') || '';
+        if (!videoId) {
+          var pathMatch = parsed.pathname.match(/\/(?:watch|embed|v)\/([^/?#]+\/[^/?#]+)/i);
+          if (pathMatch) videoId = pathMatch[1];
+        }
+        if (!videoId) return '';
+
+        var embedUrl = new URL('https://play.3speak.tv/embed');
+        embedUrl.searchParams.set('v', videoId);
+        if (!parsed.searchParams.has('mode')) {
+          embedUrl.searchParams.set('mode', 'iframe');
+        } else {
+          embedUrl.searchParams.set('mode', parsed.searchParams.get('mode'));
+        }
+        return embedUrl.toString();
+      } catch (e) {
+        return '';
+      }
+    }
+
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
 
@@ -2331,6 +2375,10 @@
 
       body = body.replace(/\[([^\]]+)\]\s*\(([\s\S]*?)\)/g, function(match, label, rawUrl) {
         var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
+        var threeSpeakEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
+        if (threeSpeakEmbed) {
+          return '<iframe src="' + escapeHtml(threeSpeakEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
+        }
         return '[' + label + '](' + cleanUrl + ')';
       });
 
@@ -2359,6 +2407,10 @@
 
         text = text.replace(/\[([^\]]+?)\]\(([^)\s]+)\)/g, function (m, label, url) {
           var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
+          var tsEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
+          if (tsEmbed) {
+            return hold('<iframe src="' + escapeHtml(tsEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>');
+          }
           return hold('<a href="' + escapeHtml(cleanUrl) + '">' + escapeHtml(label) + '</a>');
         });
 
@@ -2367,7 +2419,11 @@
           .replace(/~~([^~]+)~~/g, '<del>$1</del>')
           .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
           .replace(/_([^_\n]+)_/g, '<em>$1</em>');
-        text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+[A-Za-z0-9/#])/g, function (m, prefix, url) {
+        text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+[A-Za-z0-9/#?=&-])/g, function (m, prefix, url) {
+          var tsEmbed = buildThreeSpeakEmbedUrl(url);
+          if (tsEmbed) {
+            return prefix + hold('<iframe src="' + escapeHtml(tsEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>');
+          }
           return prefix + hold('<a href="' + url + '">' + url + '</a>');
         });
         text = text.replace(/(^|[\s(>])@([a-z][a-z0-9.-]{2,15})(?=$|[\s)<.,!?:;])/g, function (m, prefix, user) {
@@ -2481,9 +2537,9 @@
 
       var generated = renderMarkdownBlocks(body);
       var parsed = new DOMParser().parseFromString('<!doctype html><html><body>' + generated + '</body></html>', 'text/html');
-      var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO'.split(' ');
+      var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO IFRAME'.split(' ');
       var blocked = 'SCRIPT STYLE OBJECT EMBED FORM INPUT BUTTON TEXTAREA LINK META BASE SVG MATH'.split(' ');
-      var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', '3speak.online'];
+      var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', 'play.3speak.tv', '3speak.online', '3speak.co'];
 
       function safeUrl(value) {
         var url = String(value || '').trim().replace(/[\u0000-\u001F]+/g, '');
@@ -2535,6 +2591,16 @@
           });
           if (tag === 'A') {
             var href = safeUrl(child.getAttribute('href'));
+            var tsLinkEmbed = buildThreeSpeakEmbedUrl(href);
+            if (tsLinkEmbed && !child.querySelector('img')) {
+              var iframeEl = parsed.createElement('iframe');
+              iframeEl.setAttribute('src', tsLinkEmbed);
+              iframeEl.setAttribute('loading', 'lazy');
+              iframeEl.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+              iframeEl.setAttribute('allowfullscreen', '');
+              child.parentNode.replaceChild(iframeEl, child);
+              return;
+            }
             if (href) { child.setAttribute('href', href); child.setAttribute('target', '_blank'); child.setAttribute('rel', 'noopener noreferrer'); }
             else { child.removeAttribute('href'); }
           }
@@ -2543,10 +2609,12 @@
             var src = safeUrl(rawSrc);
             child.removeAttribute('data-src'); child.removeAttribute('data-original');
             if (tag === 'IFRAME') {
+              var tsSrc = buildThreeSpeakEmbedUrl(src) || src;
               var host = '';
-              try { host = new URL(src, location.href).hostname.toLowerCase(); } catch (e) {}
+              try { host = new URL(tsSrc, location.href).hostname.toLowerCase(); } catch (e) {}
               var permitted = safeFrameHosts.some(function (h) { return host === h || host.endsWith('.' + h); });
               if (!permitted) { child.parentNode.removeChild(child); return; }
+              child.setAttribute('src', tsSrc);
               child.setAttribute('loading', 'lazy');
               child.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
               child.setAttribute('allowfullscreen', '');
