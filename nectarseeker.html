@@ -2058,8 +2058,11 @@
       var repNum = Number(rep);
       if (Number.isFinite(repNum)) {
         if (repNum === 0) return '25';
-        var negNum = repNum < 0;
         var absNum = Math.abs(repNum);
+        if (absNum < 1000000) {
+          return String(Math.round(repNum * 10) / 10);
+        }
+        var negNum = repNum < 0;
         var scoreNum = ((Math.log10(absNum) - 9) * 9) + 25;
         if (negNum) scoreNum = 50 - scoreNum;
         if (!Number.isFinite(scoreNum)) return '25';
@@ -2070,6 +2073,10 @@
       if (neg) repStr = repStr.slice(1);
       var digits = repStr.replace(/\D/g, '');
       if (!digits || /^0+$/.test(digits)) return '25';
+      if (digits.length <= 6) {
+        var smallVal = parseFloat((neg ? '-' : '') + repStr);
+        return Number.isFinite(smallVal) ? String(Math.round(smallVal * 10) / 10) : '25';
+      }
       var leadingDigits = parseInt(digits.slice(0, 4), 10);
       if (isNaN(leadingDigits) || leadingDigits <= 0) return '25';
       var log10Val = (Math.log(leadingDigits) / Math.LN10) + (digits.length - 1) - (Math.min(digits.length, 4) - 1);
@@ -2092,24 +2099,28 @@
 
       Promise.all([
         hiveCall('condenser_api.get_accounts', [[author]]).catch(function() { return []; }),
+        hiveCall('bridge.get_profile', { account: author }).catch(function() { return null; }),
         new Promise(function(resolve) {
           getAuthorKeRatio(author, function(ke) { resolve(ke); });
         })
       ]).then(function(res) {
         var accs = res[0];
-        var ke = res[1];
+        var bridgeProfile = res[1];
+        var ke = res[2];
         var acc = accs && accs[0] ? accs[0] : null;
 
         var rep = '25';
         var joined = 'Unknown';
 
-        if (acc) {
-          if (acc.reputation != null) {
-            rep = formatReputation(acc.reputation);
-          }
-          if (acc.created) {
-            joined = new Date(acc.created + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-          }
+        if (bridgeProfile && bridgeProfile.reputation != null) {
+          rep = formatReputation(bridgeProfile.reputation);
+        } else if (acc && acc.reputation != null) {
+          rep = formatReputation(acc.reputation);
+        }
+        if (acc && acc.created) {
+          joined = new Date(acc.created + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+        } else if (bridgeProfile && bridgeProfile.created) {
+          joined = new Date(bridgeProfile.created + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
         }
 
         contentEl.innerHTML =
