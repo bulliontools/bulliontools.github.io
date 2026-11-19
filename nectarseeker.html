@@ -183,6 +183,12 @@
       font-size: 13px;
       color: var(--text-muted);
     }
+    .options-group-left {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
     .toggle-label {
       display: inline-flex;
       align-items: center;
@@ -753,7 +759,7 @@
       overflow-wrap: anywhere;
     }
 
-    #tipModal, #userProfileModal {
+    #tipModal, #userProfileModal, #phishingWarningModal {
       display: none;
       position: fixed;
       top: 0;
@@ -766,6 +772,9 @@
       align-items: center;
       padding: 16px;
     }
+    #phishingWarningModal {
+      z-index: 3000;
+    }
     .tip-modal-container {
       background: var(--surface-1);
       border: 1px solid var(--border);
@@ -774,6 +783,73 @@
       width: 100%;
       max-width: 420px;
       box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+    }
+    .phishing-modal-container {
+      background: var(--surface-1);
+      border: 2px solid var(--accent-danger);
+      border-radius: 14px;
+      padding: 24px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 18px 45px rgba(0,0,0,0.45);
+    }
+    .phishing-alert-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--accent-danger);
+      margin: 0 0 10px 0;
+      font-size: 19px;
+    }
+    .phishing-url-box {
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--accent-warn);
+      word-break: break-all;
+      margin: 12px 0;
+    }
+    .phishing-meta-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .phishing-flagger-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .phishing-flagger-chip {
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(248, 113, 113, 0.14);
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      color: var(--text-main);
+    }
+    .phishing-danger-btn {
+      background: transparent;
+      color: var(--accent-danger);
+      border: 1px solid var(--accent-danger);
+      padding: 9px 14px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .phishing-danger-btn:hover {
+      background: rgba(248, 113, 113, 0.15);
     }
 
     @media (max-width: 640px) {
@@ -858,10 +934,16 @@
     </div>
 
     <div class="search-options-row" id="searchOptionsRow">
-      <label class="toggle-label">
-        <input type="checkbox" id="useVotingHistorySearchToggle" checked onchange="toggleSearchVotingHistory(this.checked)">
-        <span>Use voting history in search results</span>
-      </label>
+      <div class="options-group-left">
+        <label class="toggle-label">
+          <input type="checkbox" id="useVotingHistorySearchToggle" checked onchange="toggleSearchVotingHistory(this.checked)">
+          <span>Use voting history in search results</span>
+        </label>
+        <label class="toggle-label">
+          <input type="checkbox" id="phishingShieldToggle" checked onchange="togglePhishingShield(this.checked)">
+          <span>🛡️ Anti-phishing link warnings</span>
+        </label>
+      </div>
       <span id="searchVotingHistoryStatus">Voting history, reblogs &amp; comments active for search ranking</span>
     </div>
 
@@ -899,6 +981,9 @@
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">Hive Keychain Vote Status:</strong> Connect your account via Hive Keychain to automatically see a badge on every post showing whether you have already voted on it.
+      </div>
+      <div>
+        <strong style="color:var(--accent-cyan);">Anti-Phishing Shield:</strong> Intercepts outbound links in posts and comments against known lookalike domains and HP-weighted on-chain phishing flags, with frontend overrides and user opt-out.
       </div>
     </div>
   </details>
@@ -1067,6 +1152,22 @@
     </div>
   </div>
 
+  <!-- ANTI-PHISHING WARNING MODAL -->
+  <div id="phishingWarningModal">
+    <div class="phishing-modal-container">
+      <h3 class="phishing-alert-header">⚠️ Caution: Community Security Warning</h3>
+      <p id="phishingWarningSummary" style="margin:0 0 8px 0; font-size:14px; color:var(--text-main);">
+        This link has been flagged as a potential phishing or impersonation risk. Engaging with untrusted sites can expose your Hive keys.
+      </p>
+      <div class="phishing-url-box" id="phishingTargetUrl"></div>
+      <div class="phishing-meta-box" id="phishingSignalDetails"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <button type="button" class="phishing-danger-btn" id="phishingProceedBtn" onclick="proceedToPhishingUrl()">Proceed Anyway</button>
+        <button type="button" class="primary-btn" onclick="closePhishingWarningModal()" style="padding:9px 16px; font-size:13px;">Go Back (Safe)</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function () {
       var st = document.getElementById('status');
@@ -1116,10 +1217,52 @@
     var KC_USER_KEY = 'nectarseeker_kc_user';
     var THEME_KEY = 'nectarseeker_theme';
     var SEARCH_VOTING_HISTORY_KEY = 'nectarseeker_search_voting_history';
+    var PHISHING_SHIELD_KEY = 'nectarseeker_phishing_shield_enabled';
+
+    var PHISHING_HP_THRESHOLD = 150000;
+    var PHISHING_CUSTOM_JSON_ID = 'nectarseeker_phishing_report';
+    var PHISHING_REPORTER_ACCOUNTS = ['hivewatchers', 'spaminator', 'dlmmqb76'];
+    var PHISHING_EXCLUDED_REPORTERS = {};
+    var PHISHING_SAFE_DOMAINS = [
+      'hive.blog',
+      'peakd.com',
+      'ecency.com',
+      'inleo.io',
+      'leofinance.io',
+      'liketu.com',
+      '3speak.tv',
+      '3speak.online',
+      'actifit.io',
+      'worldmappin.com',
+      'pinmapple.com',
+      'hive-engine.com',
+      'hiveblocks.com',
+      'hivetasks.com',
+      'youtube.com',
+      'www.youtube.com',
+      'youtu.be',
+      'vimeo.com',
+      'ipfs.io'
+    ];
+    var PHISHING_KNOWN_BAD_DOMAINS = {
+      'hive.blog.reward': { reason: 'Fake Hive reward / impersonation domain', estimatedHp: 250000, reporters: ['hivewatchers'] },
+      'peakd.reward': { reason: 'Lookalike reward phishing domain', estimatedHp: 220000, reporters: ['hivewatchers'] },
+      'ecency.reward': { reason: 'Lookalike reward phishing domain', estimatedHp: 220000, reporters: ['hivewatchers'] },
+      'hive-airdrop.com': { reason: 'Fake airdrop key-stealing domain', estimatedHp: 200000, reporters: ['spaminator'] },
+      'hiveblog.reward': { reason: 'Typosquatted Hive login/reward domain', estimatedHp: 240000, reporters: ['hivewatchers'] }
+    };
 
     function loadSearchVotingHistoryPref() {
       try {
         var raw = localStorage.getItem(SEARCH_VOTING_HISTORY_KEY);
+        if (raw === 'false') return false;
+      } catch (e) {}
+      return true;
+    }
+
+    function loadPhishingShieldPref() {
+      try {
+        var raw = localStorage.getItem(PHISHING_SHIELD_KEY);
         if (raw === 'false') return false;
       } catch (e) {}
       return true;
@@ -1138,10 +1281,12 @@
       userVotesCache: {},
       keCache: {},
       useVotingHistoryInSearch: loadSearchVotingHistoryPref(),
+      phishingShieldEnabled: loadPhishingShieldPref(),
       readerOriginalTitle: '',
       readerOriginalHtml: '',
       isPostTranslated: false,
-      isTranslatingPost: false
+      isTranslatingPost: false,
+      pendingPhishingUrl: ''
     };
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
@@ -1153,6 +1298,10 @@
     var nsCacheDbPromise = null;
     var nsNodeHealth = {};
     var translationCache = {};
+    var phishingFlagsByHost = {};
+    var phishingFlagsLoadedAt = 0;
+    var phishingFlagsPending = null;
+    var accountHpCache = {};
 
     function openNectarCacheDb() {
       if (!window.indexedDB) return Promise.resolve(null);
@@ -1246,6 +1395,265 @@
       });
       nsHivePending[key] = request;
       return request;
+    }
+
+    function normalizeHostFromUrl(rawUrl) {
+      try {
+        var parsed = new URL(String(rawUrl || '').trim(), location.href);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+        return parsed.hostname.toLowerCase().replace(/\.+$/, '');
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function isSafeDomain(host) {
+      if (!host) return true;
+      for (var i = 0; i < PHISHING_SAFE_DOMAINS.length; i++) {
+        var safe = PHISHING_SAFE_DOMAINS[i].toLowerCase();
+        if (host === safe || host.endsWith('.' + safe)) return true;
+      }
+      return false;
+    }
+
+    function isLookalikeHiveHost(host) {
+      if (!host) return false;
+      if (isSafeDomain(host)) return false;
+      var compact = host.replace(/[^a-z0-9]/g, '');
+      if (compact.indexOf('hiveblog') !== -1 || compact.indexOf('peakd') !== -1 ||
+          compact.indexOf('ecency') !== -1 || compact.indexOf('hivereward') !== -1) {
+        return true;
+      }
+      return false;
+    }
+
+    function fetchReportersHpMap(reporters) {
+      var unique = [];
+      var uncached = [];
+      var out = {};
+      for (var i = 0; i < reporters.length; i++) {
+        var u = stripLeadingAt(reporters[i]);
+        if (!u || PHISHING_EXCLUDED_REPORTERS[u]) continue;
+        if (unique.indexOf(u) === -1) unique.push(u);
+        if (typeof accountHpCache[u] === 'number') {
+          out[u] = accountHpCache[u];
+        } else if (uncached.indexOf(u) === -1) {
+          uncached.push(u);
+        }
+      }
+      if (!uncached.length) return Promise.resolve(out);
+
+      return Promise.all([
+        hiveCall('condenser_api.get_accounts', [uncached]),
+        hiveCall('condenser_api.get_dynamic_global_properties', [])
+      ]).then(function (res) {
+        var accs = res[0] || [];
+        var props = res[1] || {};
+        var totalFund = parseFloat(props.total_vesting_fund_hive) || 0;
+        var totalShares = parseFloat(props.total_vesting_shares) || 1;
+        var ratio = totalFund / totalShares;
+
+        for (var j = 0; j < accs.length; j++) {
+          var acc = accs[j];
+          if (!acc || !acc.name) continue;
+          var vests = parseFloat(acc.vesting_shares) || 0;
+          var delegated = parseFloat(acc.delegated_vesting_shares) || 0;
+          var received = parseFloat(acc.received_vesting_shares) || 0;
+          var effectiveVests = Math.max(0, vests - delegated + received);
+          var hp = effectiveVests * ratio;
+          accountHpCache[acc.name] = hp;
+          out[acc.name] = hp;
+        }
+        return out;
+      }).catch(function () {
+        return out;
+      });
+    }
+
+    function loadOnChainPhishingFlags() {
+      var now = Date.now();
+      if (now - phishingFlagsLoadedAt < 10 * 60 * 1000 && Object.keys(phishingFlagsByHost).length > 0) {
+        return Promise.resolve(phishingFlagsByHost);
+      }
+      if (phishingFlagsPending) return phishingFlagsPending;
+
+      phishingFlagsPending = loadNectarCached('phishing_custom_json_v1', 10 * 60 * 1000, 30 * 60 * 1000, function () {
+        var collectedByHost = {};
+        return Promise.all(PHISHING_REPORTER_ACCOUNTS.map(function (reporter) {
+          var cleanRep = stripLeadingAt(reporter);
+          if (!cleanRep || PHISHING_EXCLUDED_REPORTERS[cleanRep]) return Promise.resolve([]);
+          return hiveCall('condenser_api.get_account_history', [cleanRep, -1, 150, 3])
+            .catch(function () { return []; });
+        })).then(function (histories) {
+          for (var h = 0; h < histories.length; h++) {
+            var entries = histories[h] || [];
+            for (var i = 0; i < entries.length; i++) {
+              var entry = entries[i];
+              if (!Array.isArray(entry) || entry.length < 2) continue;
+              var tx = entry[1];
+              var op = tx && tx.op;
+              if (!op) continue;
+              var opType = Array.isArray(op) ? op[0] : op.type;
+              var opData = Array.isArray(op) ? op[1] : op.value;
+              if ((opType === 'custom_json' || opType === 'custom_json_operation') &&
+                  opData && opData.id === PHISHING_CUSTOM_JSON_ID) {
+                var payload = null;
+                try {
+                  payload = typeof opData.json === 'string' ? JSON.parse(opData.json) : opData.json;
+                } catch (e) { payload = null; }
+                if (!payload || typeof payload !== 'object') continue;
+                var targetHost = normalizeHostFromUrl(payload.url || payload.domain || '');
+                if (!targetHost) continue;
+                var repName = stripLeadingAt(payload.reporter || (Array.isArray(opData.required_posting_auths) ? opData.required_posting_auths[0] : '') || PHISHING_REPORTER_ACCOUNTS[h] || '');
+                if (!repName || PHISHING_EXCLUDED_REPORTERS[repName]) continue;
+                if (!collectedByHost[targetHost]) {
+                  collectedByHost[targetHost] = { reporters: {}, reason: payload.reason || 'Reported via on-chain phishing flag' };
+                }
+                collectedByHost[targetHost].reporters[repName] = true;
+                if (payload.reason) collectedByHost[targetHost].reason = String(payload.reason);
+              }
+            }
+          }
+          return collectedByHost;
+        });
+      }).then(function (mapData) {
+        phishingFlagsByHost = mapData || {};
+        phishingFlagsLoadedAt = Date.now();
+        phishingFlagsPending = null;
+        return phishingFlagsByHost;
+      }).catch(function () {
+        phishingFlagsPending = null;
+        return phishingFlagsByHost;
+      });
+
+      return phishingFlagsPending;
+    }
+
+    function evaluateUrlPhishingRisk(rawUrl) {
+      var host = normalizeHostFromUrl(rawUrl);
+      if (!host || isSafeDomain(host)) {
+        return Promise.resolve({ flagged: false, host: host });
+      }
+
+      var knownBad = PHISHING_KNOWN_BAD_DOMAINS[host] || null;
+      var lookalike = isLookalikeHiveHost(host);
+
+      return loadOnChainPhishingFlags().then(function (flagsMap) {
+        var record = flagsMap && flagsMap[host] ? flagsMap[host] : null;
+        var activeReporters = [];
+        if (record && record.reporters) {
+          for (var r in record.reporters) {
+            if (Object.prototype.hasOwnProperty.call(record.reporters, r) && !PHISHING_EXCLUDED_REPORTERS[r]) {
+              activeReporters.push(r);
+            }
+          }
+        }
+
+        return fetchReportersHpMap(activeReporters).then(function (hpMap) {
+          var totalHp = 0;
+          var rankedReporters = [];
+          for (var i = 0; i < activeReporters.length; i++) {
+            var name = activeReporters[i];
+            var hp = hpMap[name] || 0;
+            totalHp += hp;
+            rankedReporters.push({ name: name, hp: hp });
+          }
+          rankedReporters.sort(function (a, b) { return b.hp - a.hp; });
+
+          if (knownBad && totalHp === 0) {
+            totalHp = knownBad.estimatedHp || PHISHING_HP_THRESHOLD;
+            if (!rankedReporters.length && Array.isArray(knownBad.reporters)) {
+              for (var k = 0; k < knownBad.reporters.length; k++) {
+                var kr = stripLeadingAt(knownBad.reporters[k]);
+                if (!PHISHING_EXCLUDED_REPORTERS[kr]) {
+                  rankedReporters.push({ name: kr, hp: totalHp });
+                }
+              }
+            }
+          }
+
+          var crossedThreshold = totalHp >= PHISHING_HP_THRESHOLD;
+          if (!crossedThreshold && !knownBad && !lookalike) {
+            return { flagged: false, host: host, totalHp: totalHp, reporters: rankedReporters };
+          }
+
+          var reasonText = (record && record.reason) ||
+            (knownBad && knownBad.reason) ||
+            (lookalike ? 'Domain resembles an official Hive interface or reward page' : 'Community phishing report');
+
+          return {
+            flagged: true,
+            host: host,
+            totalHp: Math.round(totalHp),
+            threshold: PHISHING_HP_THRESHOLD,
+            reason: reasonText,
+            reporters: rankedReporters
+          };
+        });
+      });
+    }
+
+    function openPhishingWarningModal(url, riskInfo) {
+      var modal = document.getElementById('phishingWarningModal');
+      var urlBox = document.getElementById('phishingTargetUrl');
+      var detailsBox = document.getElementById('phishingSignalDetails');
+      if (!modal || !urlBox || !detailsBox) return;
+
+      appState.pendingPhishingUrl = url;
+      urlBox.textContent = url;
+
+      var hpFormatted = Number(riskInfo.totalHp || 0).toLocaleString() + ' HP';
+      var thresholdFormatted = Number(riskInfo.threshold || PHISHING_HP_THRESHOLD).toLocaleString() + ' HP';
+      var chipsHtml = '';
+      if (riskInfo.reporters && riskInfo.reporters.length > 0) {
+        chipsHtml = '<div class="phishing-flagger-list">' +
+          riskInfo.reporters.slice(0, 5).map(function (rep) {
+            var hpLabel = rep.hp ? ' (' + Math.round(rep.hp).toLocaleString() + ' HP)' : '';
+            return '<span class="phishing-flagger-chip">@' + escapeHtml(rep.name) + escapeHtml(hpLabel) + '</span>';
+          }).join('') +
+          '</div>';
+      }
+
+      detailsBox.innerHTML =
+        '<div><strong>Domain:</strong> ' + escapeHtml(riskInfo.host || '') + '</div>' +
+        '<div><strong>Backing Stake:</strong> ' + escapeHtml(hpFormatted) + ' (Threshold: ' + escapeHtml(thresholdFormatted) + ')</div>' +
+        '<div><strong>Signal:</strong> ' + escapeHtml(riskInfo.reason || 'Potential phishing link') + '</div>' +
+        chipsHtml;
+
+      modal.style.display = 'flex';
+    }
+
+    function closePhishingWarningModal() {
+      var modal = document.getElementById('phishingWarningModal');
+      if (modal) modal.style.display = 'none';
+      appState.pendingPhishingUrl = '';
+    }
+
+    function proceedToPhishingUrl() {
+      var target = appState.pendingPhishingUrl;
+      closePhishingWarningModal();
+      if (target) {
+        window.open(target, '_blank', 'noopener,noreferrer');
+      }
+    }
+
+    function updatePhishingShieldUI() {
+      var cb = document.getElementById('phishingShieldToggle');
+      if (cb) cb.checked = !!appState.phishingShieldEnabled;
+    }
+
+    function togglePhishingShield(enabled) {
+      appState.phishingShieldEnabled = !!enabled;
+      try {
+        localStorage.setItem(PHISHING_SHIELD_KEY, String(appState.phishingShieldEnabled));
+      } catch (e) {}
+      updatePhishingShieldUI();
+      setStatus(
+        appState.phishingShieldEnabled
+          ? 'Anti-phishing link warnings enabled.'
+          : 'Anti-phishing link warnings turned off.',
+        false
+      );
     }
 
     function toggleTheme() {
@@ -2028,6 +2436,33 @@
         }
       }, true);
       window.__nectarHiveImageFallbackInstalled = true;
+    }
+
+    if (!window.__nectarPhishingClickGuardInstalled) {
+      document.addEventListener('click', function (event) {
+        if (!appState.phishingShieldEnabled) return;
+        var target = event.target;
+        var anchor = target && target.closest ? target.closest('#readerContent a[href], .comment-body a[href]') : null;
+        if (!anchor) return;
+        if (anchor.classList && anchor.classList.contains('hive-user-pill')) return;
+
+        var href = anchor.getAttribute('href');
+        if (!href || !/^https?:\/\//i.test(href)) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        evaluateUrlPhishingRisk(href).then(function (risk) {
+          if (risk && risk.flagged) {
+            openPhishingWarningModal(href, risk);
+          } else {
+            window.open(href, '_blank', 'noopener,noreferrer');
+          }
+        }).catch(function () {
+          window.open(href, '_blank', 'noopener,noreferrer');
+        });
+      }, true);
+      window.__nectarPhishingClickGuardInstalled = true;
     }
 
     function cleanMarkdown(text) {
@@ -3695,6 +4130,10 @@
         modalEl.scrollTop = 0;
       }
 
+      if (appState.phishingShieldEnabled) {
+        loadOnChainPhishingFlags();
+      }
+
       loadPostComments(p.author, p.permlink);
     }
 
@@ -4618,9 +5057,13 @@
     syncSliders(100);
     updateTasteBanner();
     updateSearchVotingHistoryUI();
+    updatePhishingShieldUI();
     updateThemeButton(document.documentElement.getAttribute('data-theme') || 'dark');
     detectKeychain();
     setTimeout(detectKeychain, 700);
+    if (appState.phishingShieldEnabled) {
+      loadOnChainPhishingFlags();
+    }
     setStatus('Ready. Enter your Hive username or select Feed mode to load your personalized recommendations.', false);
   </script>
 </body>
