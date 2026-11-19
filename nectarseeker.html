@@ -579,25 +579,18 @@
       flex-wrap: wrap;
       gap: 10px;
     }
-    .translator-controls {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-    .translation-banner {
-      display: none;
+    .report-phishing-link {
+      background: transparent;
+      border: none;
+      padding: 0;
       font-size: 12px;
-      color: var(--accent-cyan);
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      padding: 6px 12px;
-      border-radius: 6px;
-      margin-bottom: 14px;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
+      font-weight: 600;
+      color: var(--accent-danger);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .report-phishing-link:hover {
+      opacity: 0.85;
     }
     .reader-close {
       background-color: var(--hive-red);
@@ -759,7 +752,7 @@
       overflow-wrap: anywhere;
     }
 
-    #tipModal, #userProfileModal, #phishingWarningModal {
+    #tipModal, #userProfileModal, #phishingWarningModal, #reportPhishingModal {
       display: none;
       position: fixed;
       top: 0;
@@ -772,7 +765,7 @@
       align-items: center;
       padding: 16px;
     }
-    #phishingWarningModal {
+    #phishingWarningModal, #reportPhishingModal {
       z-index: 3000;
     }
     .tip-modal-container {
@@ -974,9 +967,6 @@
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Post Translator:</strong> Translate post titles and bodies into your chosen language directly inside the post reader modal, with one-click toggle back to the original post.
-      </div>
-      <div>
         <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive (Rewards / HP) displayed in author profiles and reader view.
       </div>
       <div>
@@ -1031,37 +1021,17 @@
 
         <div class="reader-sub-bar">
           <a id="stickyOriginalLink" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: var(--accent-cyan); text-decoration: underline;" title="Open original post">Page didn't load correctly? Click here!</a>
-
-          <div class="translator-controls">
-            <label for="translateTargetLang" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">🌐 Translate to:</label>
-            <select id="translateTargetLang" class="compact-select" aria-label="Target translation language">
-              <option value="en">English</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
-              <option value="de">German</option>
-              <option value="it">Italian</option>
-              <option value="pt">Portuguese</option>
-              <option value="nl">Dutch</option>
-              <option value="ru">Russian</option>
-              <option value="ja">Japanese</option>
-              <option value="ko">Korean</option>
-              <option value="zh-CN">Chinese (Simplified)</option>
-              <option value="ar">Arabic</option>
-              <option value="hi">Hindi</option>
-            </select>
-            <button type="button" class="kc-btn" id="translatePostBtn" onclick="translateCurrentPost()" style="padding: 5px 10px; font-size: 12px; border-color: var(--accent-cyan);">Translate</button>
-            <button type="button" class="kc-btn" id="showOriginalPostBtn" onclick="restoreOriginalPost()" style="padding: 5px 10px; font-size: 12px; display: none;">Show Original</button>
-          </div>
+          <button type="button" class="report-phishing-link" onclick="openReportPhishingModal()">🚨 Report phishing/scam</button>
         </div>
       </div>
 
       <h2 id="readerTitle"></h2>
       <div id="readerMeta"></div>
-      <div id="translationStatusBanner" class="translation-banner">
-        <span id="translationStatusText"></span>
-        <button type="button" class="kc-btn" onclick="restoreOriginalPost()" style="padding: 2px 8px; font-size: 11px;">Original Text</button>
-      </div>
       <div id="readerContent"></div>
+
+      <div style="margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end;">
+        <button type="button" class="report-phishing-link" onclick="openReportPhishingModal()">🚨 Report phishing/scam</button>
+      </div>
 
       <div class="reader-action-section" id="readerKeBottomSection" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <span style="font-size: 14px; color: var(--text-main);"><strong>Author Ecosystem Health (KE Ratio):</strong></span>
@@ -1164,6 +1134,36 @@
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <button type="button" class="phishing-danger-btn" id="phishingProceedBtn" onclick="proceedToPhishingUrl()">Proceed Anyway</button>
         <button type="button" class="primary-btn" onclick="closePhishingWarningModal()" style="padding:9px 16px; font-size:13px;">Go Back (Safe)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- REPORT PHISHING / SCAM MODAL -->
+  <div id="reportPhishingModal">
+    <div class="phishing-modal-container">
+      <h3 class="phishing-alert-header">🚨 Report Phishing / Scam</h3>
+      <p style="margin:0 0 12px 0; font-size:13px; color:var(--text-muted);">
+        Broadcast an on-chain <code>custom_json</code> phishing flag via Hive Keychain so frontends can weigh your stake toward community warnings.
+      </p>
+
+      <div id="reportDetectedLinksGroup" style="margin-bottom:12px; display:none;">
+        <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">Detected links in this post:</label>
+        <select id="reportDetectedLinkSelect" class="compact-select" style="width:100%;" onchange="onSelectDetectedPhishingLink(this.value)"></select>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">Suspicious URL or Post Link:</label>
+        <input type="text" id="reportPhishingUrlInput" placeholder="https://example-phishing-domain.com" />
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">Reason:</label>
+        <input type="text" id="reportPhishingReasonInput" placeholder="e.g. Fake Hive reward / key-stealing scam" />
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="kc-btn" onclick="closeReportPhishingModal()">Cancel</button>
+        <button type="button" class="primary-btn" onclick="submitPhishingReport()" style="padding:9px 16px; font-size:13px;">Broadcast Report</button>
       </div>
     </div>
   </div>
@@ -1282,10 +1282,6 @@
       keCache: {},
       useVotingHistoryInSearch: loadSearchVotingHistoryPref(),
       phishingShieldEnabled: loadPhishingShieldPref(),
-      readerOriginalTitle: '',
-      readerOriginalHtml: '',
-      isPostTranslated: false,
-      isTranslatingPost: false,
       pendingPhishingUrl: ''
     };
 
@@ -1297,7 +1293,6 @@
     var nsHivePending = {};
     var nsCacheDbPromise = null;
     var nsNodeHealth = {};
-    var translationCache = {};
     var phishingFlagsByHost = {};
     var phishingFlagsLoadedAt = 0;
     var phishingFlagsPending = null;
@@ -1477,9 +1472,15 @@
       }
       if (phishingFlagsPending) return phishingFlagsPending;
 
+      var reporterList = PHISHING_REPORTER_ACCOUNTS.slice();
+      var connected = getConnectedUser();
+      if (connected && reporterList.indexOf(connected) === -1) {
+        reporterList.push(connected);
+      }
+
       phishingFlagsPending = loadNectarCached('phishing_custom_json_v1', 10 * 60 * 1000, 30 * 60 * 1000, function () {
         var collectedByHost = {};
-        return Promise.all(PHISHING_REPORTER_ACCOUNTS.map(function (reporter) {
+        return Promise.all(reporterList.map(function (reporter) {
           var cleanRep = stripLeadingAt(reporter);
           if (!cleanRep || PHISHING_EXCLUDED_REPORTERS[cleanRep]) return Promise.resolve([]);
           return hiveCall('condenser_api.get_account_history', [cleanRep, -1, 150, 3])
@@ -1504,7 +1505,7 @@
                 if (!payload || typeof payload !== 'object') continue;
                 var targetHost = normalizeHostFromUrl(payload.url || payload.domain || '');
                 if (!targetHost) continue;
-                var repName = stripLeadingAt(payload.reporter || (Array.isArray(opData.required_posting_auths) ? opData.required_posting_auths[0] : '') || PHISHING_REPORTER_ACCOUNTS[h] || '');
+                var repName = stripLeadingAt(payload.reporter || (Array.isArray(opData.required_posting_auths) ? opData.required_posting_auths[0] : '') || reporterList[h] || '');
                 if (!repName || PHISHING_EXCLUDED_REPORTERS[repName]) continue;
                 if (!collectedByHost[targetHost]) {
                   collectedByHost[targetHost] = { reporters: {}, reason: payload.reason || 'Reported via on-chain phishing flag' };
@@ -1635,6 +1636,127 @@
       if (target) {
         window.open(target, '_blank', 'noopener,noreferrer');
       }
+    }
+
+    function openReportPhishingModal() {
+      var idx = appState.currentReaderIndex;
+      var item = (idx !== null && idx !== undefined) ? appState.results[idx] : null;
+      var modal = document.getElementById('reportPhishingModal');
+      var urlInput = document.getElementById('reportPhishingUrlInput');
+      var reasonInput = document.getElementById('reportPhishingReasonInput');
+      var detectedGroup = document.getElementById('reportDetectedLinksGroup');
+      var detectedSelect = document.getElementById('reportDetectedLinkSelect');
+      var contentEl = document.getElementById('readerContent');
+
+      if (!modal || !urlInput || !reasonInput) return;
+
+      var defaultUrl = item && item.post ? getOriginalPostUrl(item.post) : '';
+      var links = [];
+      if (contentEl) {
+        var anchors = contentEl.querySelectorAll('a[href]');
+        for (var i = 0; i < anchors.length; i++) {
+          var a = anchors[i];
+          if (a.classList && a.classList.contains('hive-user-pill')) continue;
+          var href = a.getAttribute('href') || '';
+          if (/^https?:\/\//i.test(href) && links.indexOf(href) === -1) {
+            links.push(href);
+          }
+        }
+      }
+
+      if (detectedGroup && detectedSelect) {
+        if (links.length > 0) {
+          detectedSelect.innerHTML = '<option value="">-- Select a link found in this post (or enter below) --</option>' +
+            links.map(function (u) {
+              return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>';
+            }).join('');
+          detectedGroup.style.display = 'block';
+          urlInput.value = links[0];
+        } else {
+          detectedGroup.style.display = 'none';
+          urlInput.value = defaultUrl;
+        }
+      } else {
+        urlInput.value = defaultUrl;
+      }
+
+      reasonInput.value = 'Suspected phishing / scam link';
+      modal.style.display = 'flex';
+    }
+
+    function onSelectDetectedPhishingLink(selectedUrl) {
+      var urlInput = document.getElementById('reportPhishingUrlInput');
+      if (urlInput && selectedUrl) {
+        urlInput.value = selectedUrl;
+      }
+    }
+
+    function closeReportPhishingModal() {
+      var modal = document.getElementById('reportPhishingModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function submitPhishingReport() {
+      if (!window.hive_keychain) {
+        setStatus('Hive Keychain extension or app browser was not detected.', true);
+        return;
+      }
+      var connectedUser = getConnectedUser();
+      if (!connectedUser) {
+        setStatus('Please connect Hive Keychain first to report phishing/scam links.', true);
+        return;
+      }
+
+      var urlInput = document.getElementById('reportPhishingUrlInput');
+      var reasonInput = document.getElementById('reportPhishingReasonInput');
+      var targetUrl = urlInput ? urlInput.value.trim() : '';
+      var reason = reasonInput ? reasonInput.value.trim() : '';
+
+      if (!targetUrl) {
+        alert('Please enter the suspicious URL or post link.');
+        return;
+      }
+      if (!/^https?:\/\//i.test(targetUrl)) {
+        targetUrl = 'https://' + targetUrl;
+      }
+      var host = normalizeHostFromUrl(targetUrl);
+      if (!host) {
+        alert('Please enter a valid http:// or https:// URL.');
+        return;
+      }
+
+      var idx = appState.currentReaderIndex;
+      var item = (idx !== null && idx !== undefined) ? appState.results[idx] : null;
+      var payloadObj = {
+        url: targetUrl,
+        domain: host,
+        reason: reason || 'Suspected phishing / scam link',
+        reporter: connectedUser
+      };
+      if (item && item.post) {
+        payloadObj.source_post = item.post.author + '/' + item.post.permlink;
+      }
+
+      window.hive_keychain.requestCustomJson(
+        connectedUser,
+        PHISHING_CUSTOM_JSON_ID,
+        'Posting',
+        JSON.stringify(payloadObj),
+        'Report phishing/scam: ' + host,
+        function (res) {
+          if (res && res.success) {
+            closeReportPhishingModal();
+            if (!phishingFlagsByHost[host]) {
+              phishingFlagsByHost[host] = { reporters: {}, reason: payloadObj.reason };
+            }
+            phishingFlagsByHost[host].reporters[connectedUser] = true;
+            phishingFlagsByHost[host].reason = payloadObj.reason;
+            setStatus('Phishing/scam report broadcast on-chain for ' + host + '!', false);
+          } else {
+            setStatus('Phishing/scam report cancelled or failed.', true);
+          }
+        }
+      );
     }
 
     function updatePhishingShieldUI() {
@@ -2937,399 +3059,6 @@
       });
     }
 
-    function splitTextForTranslation(text, maxChunkLen) {
-      var limit = maxChunkLen || 420;
-      var str = String(text || '');
-      if (str.length <= limit) return str ? [str] : [];
-      var chunks = [];
-      var start = 0;
-      while (start < str.length) {
-        var end = Math.min(str.length, start + limit);
-        if (end < str.length) {
-          var breakPos = str.lastIndexOf(' ', end);
-          if (breakPos > start + Math.floor(limit * 0.5)) {
-            end = breakPos;
-          }
-        }
-        var part = str.slice(start, end).trim();
-        if (part) chunks.push(part);
-        start = end;
-        while (start < str.length && /\s/.test(str.charAt(start))) start++;
-      }
-      return chunks;
-    }
-
-    var TRANSLATION_PROXY_URL = '';
-    var TRANSLATION_API_KEY = '';
-    var LIBRETRANSLATE_ENDPOINTS = [
-      '[https://libretranslate.com/translate](https://libretranslate.com/translate)',
-      '[https://translate.argosopentech.com/translate](https://translate.argosopentech.com/translate)'
-    ];
-
-    function normalizeTargetLangCode(lang) {
-      var raw = String(lang || 'en').trim();
-      var lower = raw.toLowerCase();
-      if (lower === 'zh-cn' || lower === 'zh-hans' || lower === 'zh') return 'zh';
-      return raw.split('-')[0].toLowerCase() || 'en';
-    }
-
-    function formatTranslationReason(err, statusCode) {
-      var msg = (err && err.message) ? String(err.message) : '';
-      if (err && err.name === 'AbortError') {
-        return statusCode ? 'Request timed out (HTTP ' + statusCode + ')' : 'Request timed out';
-      }
-      if (/failed to fetch|networkerror|load failed|cors/i.test(msg)) {
-        return 'Network/CORS block or unreachable host';
-      }
-      return msg || 'Endpoint error';
-    }
-
-    function translatePlainText(text, targetLang, metaOut) {
-      var clean = String(text || '').trim();
-      if (!clean) return Promise.resolve('');
-      var cacheKey = targetLang + '::' + clean;
-      if (translationCache[cacheKey]) {
-        if (metaOut) {
-          metaOut.translatedCount = (metaOut.translatedCount || 0) + 1;
-        }
-        return Promise.resolve(translationCache[cacheKey]);
-      }
-
-      var pieces = splitTextForTranslation(clean, 420);
-      var chain = Promise.resolve('');
-      var shortLang = normalizeTargetLangCode(targetLang);
-
-      function fetchWithTimeout(url, options, timeoutMs) {
-        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs || 6500) : null;
-        var opts = Object.assign({}, options || {});
-        if (controller) opts.signal = controller.signal;
-        return fetch(url, opts).finally(function () {
-          if (timer) clearTimeout(timer);
-        });
-      }
-
-      function translateSinglePiece(piece) {
-        var reasons = [];
-        var candidates = [];
-
-        if (TRANSLATION_PROXY_URL) {
-          candidates.push(function () {
-            var headers = { 'Content-Type': 'application/json' };
-            if (TRANSLATION_API_KEY) headers['Authorization'] = 'Bearer ' + TRANSLATION_API_KEY;
-            return fetchWithTimeout(TRANSLATION_PROXY_URL, {
-              method: 'POST',
-              headers: headers,
-              body: JSON.stringify({
-                q: piece,
-                source: 'auto',
-                target: targetLang,
-                format: 'text'
-              })
-            }, 7000).then(function (res) {
-              if (!res.ok) throw new Error('Proxy HTTP ' + res.status);
-              return res.json();
-            }).then(function (data) {
-              var outText = data && (data.translatedText || data.translation || (data.data && data.data.translatedText));
-              if (!outText) throw new Error('Empty proxy translation');
-              return String(outText).trim();
-            });
-          });
-        }
-
-        candidates.push(function () {
-          var url = '[https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=](https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=)' +
-            encodeURIComponent(targetLang) + '&dt=t&q=' + encodeURIComponent(piece);
-          return fetchWithTimeout(url, {}, 6500).then(function (res) {
-            if (!res.ok) throw new Error('Google HTTP ' + res.status);
-            return res.json();
-          }).then(function (data) {
-            if (!Array.isArray(data) || !Array.isArray(data[0])) {
-              throw new Error('Google unexpected payload');
-            }
-            var out = '';
-            for (var i = 0; i < data[0].length; i++) {
-              if (Array.isArray(data[0][i]) && data[0][i][0]) {
-                out += String(data[0][i][0]);
-              }
-            }
-            out = out.trim();
-            if (!out) throw new Error('Google empty translation');
-            return out;
-          });
-        });
-
-        candidates.push(function () {
-          var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
-            encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
-          return fetchWithTimeout(url, {}, 6500).then(function (res) {
-            if (!res.ok) throw new Error('MyMemory auto HTTP ' + res.status);
-            return res.json();
-          }).then(function (data) {
-            var statusCode = data && data.responseStatus ? Number(data.responseStatus) : 200;
-            var translated = (data && data.responseData && data.responseData.translatedText)
-              ? String(data.responseData.translatedText)
-              : '';
-            if (!translated || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID LANGUAGE PAIR/i.test(translated)) {
-              throw new Error(translated || ('MyMemory status ' + statusCode));
-            }
-            return translated;
-          });
-        });
-
-        candidates.push(function () {
-          var pairs = ['es|' + shortLang, 'en|' + shortLang, 'fr|' + shortLang, 'de|' + shortLang, 'pt|' + shortLang]
-            .filter(function (pair, pos, arr) {
-              var parts = pair.split('|');
-              return parts[0] !== parts[1] && arr.indexOf(pair) === pos;
-            });
-          var pIdx = 0;
-          var pairErrors = [];
-          function nextPair() {
-            if (pIdx >= pairs.length) {
-              return Promise.reject(new Error(pairErrors.length ? pairErrors[pairErrors.length - 1] : 'Pair fallback failed'));
-            }
-            var pair = pairs[pIdx++];
-            var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
-              encodeURIComponent(piece) + '&langpair=' + encodeURIComponent(pair);
-            return fetchWithTimeout(url, {}, 6500).then(function (res) {
-              if (!res.ok) throw new Error('MyMemory ' + pair + ' HTTP ' + res.status);
-              return res.json();
-            }).then(function (data) {
-              var translated = (data && data.responseData && data.responseData.translatedText)
-                ? String(data.responseData.translatedText)
-                : '';
-              if (!translated || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID LANGUAGE PAIR/i.test(translated)) {
-                pairErrors.push(translated || ('MyMemory ' + pair + ' quota/limit'));
-                return nextPair();
-              }
-              return translated;
-            }).catch(function (err) {
-              pairErrors.push(formatTranslationReason(err));
-              return nextPair();
-            });
-          }
-          return nextPair();
-        });
-
-        for (var l = 0; l < LIBRETRANSLATE_ENDPOINTS.length; l++) {
-          (function (ltUrl) {
-            candidates.push(function () {
-              var bodyObj = {
-                q: piece,
-                source: 'auto',
-                target: shortLang,
-                format: 'text'
-              };
-              if (TRANSLATION_API_KEY) bodyObj.api_key = TRANSLATION_API_KEY;
-              return fetchWithTimeout(ltUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(bodyObj)
-              }, 6500).then(function (res) {
-                if (!res.ok) throw new Error('LibreTranslate HTTP ' + res.status);
-                return res.json();
-              }).then(function (data) {
-                var outText = data && data.translatedText ? String(data.translatedText).trim() : '';
-                if (!outText) throw new Error('LibreTranslate empty response');
-                return outText;
-              });
-            });
-          })(LIBRETRANSLATE_ENDPOINTS[l]);
-        }
-
-        var idx = 0;
-        function tryNext() {
-          if (idx >= candidates.length) {
-            var detail = reasons.length ? reasons.slice(0, 3).join(' | ') : 'All endpoints failed';
-            var err = new Error(detail);
-            err.isChunkFailure = true;
-            return Promise.reject(err);
-          }
-          return candidates[idx++]().catch(function (err) {
-            reasons.push(formatTranslationReason(err));
-            return tryNext();
-          });
-        }
-        return tryNext();
-      }
-
-      for (var i = 0; i < pieces.length; i++) {
-        (function(piece) {
-          chain = chain.then(function(acc) {
-            return translateSinglePiece(piece).then(function(translated) {
-              if (metaOut) {
-                metaOut.translatedCount = (metaOut.translatedCount || 0) + 1;
-              }
-              return acc ? (acc + ' ' + translated) : translated;
-            }).catch(function(err) {
-              if (metaOut) {
-                metaOut.failedCount = (metaOut.failedCount || 0) + 1;
-                if (err && err.message && metaOut.reasons.indexOf(err.message) === -1 && metaOut.reasons.length < 3) {
-                  metaOut.reasons.push(err.message);
-                }
-              }
-              return acc ? (acc + ' ' + piece) : piece;
-            });
-          });
-        })(pieces[i]);
-      }
-
-      return chain.then(function(result) {
-        if (metaOut && (metaOut.translatedCount || 0) > 0) {
-          translationCache[cacheKey] = result;
-        }
-        return result;
-      });
-    }
-
-    function translateHtmlElementNodes(containerEl, targetLang, statsOut) {
-      if (!containerEl) return Promise.resolve();
-      var walker = document.createTreeWalker(containerEl, NodeFilter.SHOW_TEXT, null, false);
-      var textNodes = [];
-      var node;
-      while ((node = walker.nextNode())) {
-        var parentTag = node.parentElement ? node.parentElement.tagName.toUpperCase() : '';
-        if (parentTag === 'CODE' || parentTag === 'PRE' || parentTag === 'SCRIPT' || parentTag === 'STYLE') {
-          continue;
-        }
-        if (node.nodeValue && node.nodeValue.trim().length >= 2) {
-          textNodes.push(node);
-        }
-      }
-
-      var idx = 0;
-      var batchSize = 4;
-
-      function nextBatch() {
-        if (idx >= textNodes.length) return Promise.resolve();
-        var batch = textNodes.slice(idx, idx + batchSize);
-        idx += batchSize;
-
-        return Promise.all(batch.map(function(tn) {
-          var orig = tn.nodeValue;
-          var leadingSpace = (orig.match(/^\s*/) || [''])[0];
-          var trailingSpace = (orig.match(/\s*$/) || [''])[0];
-          return translatePlainText(orig.trim(), targetLang, statsOut)
-            .then(function(translated) {
-              if (translated) {
-                tn.nodeValue = leadingSpace + translated + trailingSpace;
-              }
-            })
-            .catch(function() {});
-        })).then(nextBatch);
-      }
-
-      return nextBatch();
-    }
-
-    function translateCurrentPost() {
-      var idx = appState.currentReaderIndex;
-      if (idx === null || idx === undefined || appState.isTranslatingPost) return;
-      var item = appState.results[idx];
-      if (!item || !item.post) return;
-
-      var selectEl = document.getElementById('translateTargetLang');
-      var btnEl = document.getElementById('translatePostBtn');
-      var origBtnEl = document.getElementById('showOriginalPostBtn');
-      var bannerEl = document.getElementById('translationStatusBanner');
-      var bannerTextEl = document.getElementById('translationStatusText');
-      var titleEl = document.getElementById('readerTitle');
-      var contentEl = document.getElementById('readerContent');
-
-      var targetLang = selectEl ? selectEl.value : 'en';
-      var langLabel = selectEl && selectEl.selectedIndex >= 0
-        ? selectEl.options[selectEl.selectedIndex].text
-        : targetLang;
-
-      if (!appState.isPostTranslated) {
-        appState.readerOriginalTitle = titleEl ? titleEl.textContent : (item.post.title || '(Untitled)');
-        appState.readerOriginalHtml = contentEl ? contentEl.innerHTML : renderHiveBodyHtml(item.post.body || '');
-      }
-
-      appState.isTranslatingPost = true;
-      if (btnEl) {
-        btnEl.disabled = true;
-        btnEl.textContent = 'Translating...';
-      }
-      if (bannerEl && bannerTextEl) {
-        bannerEl.style.display = 'flex';
-        bannerTextEl.textContent = 'Translating post into ' + langLabel + '...';
-      }
-
-      var stats = { translatedCount: 0, failedCount: 0, reasons: [] };
-      var rawTitle = item.post.title || '(Untitled)';
-
-      translatePlainText(rawTitle, targetLang, stats)
-        .then(function(translatedTitle) {
-          if (titleEl && translatedTitle) {
-            titleEl.textContent = translatedTitle;
-          }
-          if (contentEl) {
-            contentEl.innerHTML = appState.readerOriginalHtml;
-            return translateHtmlElementNodes(contentEl, targetLang, stats);
-          }
-        })
-        .then(function() {
-          if (stats.translatedCount === 0 && stats.failedCount > 0) {
-            if (titleEl) titleEl.textContent = appState.readerOriginalTitle;
-            if (contentEl) contentEl.innerHTML = appState.readerOriginalHtml;
-            appState.isPostTranslated = false;
-            if (origBtnEl) origBtnEl.style.display = 'none';
-            if (bannerEl && bannerTextEl) {
-              bannerEl.style.display = 'flex';
-              var reasonDetail = stats.reasons.length ? stats.reasons.join(' | ') : 'Providers did not respond';
-              bannerTextEl.textContent = 'Translation unavailable right now (' + reasonDetail + ').';
-            }
-            return;
-          }
-
-          appState.isPostTranslated = true;
-          if (origBtnEl) origBtnEl.style.display = 'inline-block';
-          if (bannerEl && bannerTextEl) {
-            bannerEl.style.display = 'flex';
-            if (stats.failedCount > 0) {
-              var partialReason = stats.reasons.length ? ' — some sections kept original text: ' + stats.reasons.join(' | ') : ' — some sections kept original text';
-              bannerTextEl.textContent = 'Partially translated to ' + langLabel + ' (' + stats.translatedCount + ' sections translated, ' + stats.failedCount + ' fallback' + partialReason + ')';
-            } else {
-              bannerTextEl.textContent = 'Translated to ' + langLabel + ' (Original post preserved)';
-            }
-          }
-        })
-        .catch(function(err) {
-          if (titleEl) titleEl.textContent = appState.readerOriginalTitle;
-          if (contentEl) contentEl.innerHTML = appState.readerOriginalHtml;
-          if (bannerEl && bannerTextEl) {
-            bannerEl.style.display = 'flex';
-            bannerTextEl.textContent = 'Translation unavailable right now: ' + formatTranslationReason(err);
-          }
-        })
-        .finally(function() {
-          appState.isTranslatingPost = false;
-          if (btnEl) {
-            btnEl.disabled = false;
-            btnEl.textContent = 'Translate';
-          }
-        });
-    }
-
-    function restoreOriginalPost() {
-      var titleEl = document.getElementById('readerTitle');
-      var contentEl = document.getElementById('readerContent');
-      var origBtnEl = document.getElementById('showOriginalPostBtn');
-      var bannerEl = document.getElementById('translationStatusBanner');
-
-      if (appState.readerOriginalTitle && titleEl) {
-        titleEl.textContent = appState.readerOriginalTitle;
-      }
-      if (appState.readerOriginalHtml && contentEl) {
-        contentEl.innerHTML = appState.readerOriginalHtml;
-      }
-      appState.isPostTranslated = false;
-      if (origBtnEl) origBtnEl.style.display = 'none';
-      if (bannerEl) bannerEl.style.display = 'none';
-    }
-
     function setMode(m) {
       appState.mode = m;
       var btns = document.querySelectorAll('#modeGroup .seg-btn');
@@ -4089,19 +3818,11 @@
       var commentInput = document.getElementById('commentBodyInput');
       var readerKeBottomVal = document.getElementById('readerKeBottomVal');
       var stickyOriginalLink = document.getElementById('stickyOriginalLink');
-      var origBtnEl = document.getElementById('showOriginalPostBtn');
-      var bannerEl = document.getElementById('translationStatusBanner');
 
       if (commentInput) commentInput.value = '';
-      appState.isPostTranslated = false;
-      appState.isTranslatingPost = false;
-      if (origBtnEl) origBtnEl.style.display = 'none';
-      if (bannerEl) bannerEl.style.display = 'none';
 
       var renderedTitle = p.title || '(Untitled)';
       var renderedHtml = renderHiveBodyHtml(p.body || '');
-      appState.readerOriginalTitle = renderedTitle;
-      appState.readerOriginalHtml = renderedHtml;
 
       if (titleEl) titleEl.textContent = renderedTitle;
       var originalUrl = getOriginalPostUrl(p);
@@ -4141,8 +3862,6 @@
       var modalEl = document.getElementById('postReaderModal');
       if (modalEl) modalEl.style.display = 'none';
       appState.currentReaderIndex = null;
-      appState.isPostTranslated = false;
-      appState.isTranslatingPost = false;
       cancelReplyTarget();
     }
 
