@@ -728,6 +728,12 @@
     .comment-header strong {
       color: var(--text-main);
     }
+    .comment-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .comment-body {
       font-size: 14px;
       color: var(--text-muted);
@@ -1147,12 +1153,12 @@
       </p>
 
       <div id="reportDetectedLinksGroup" style="margin-bottom:12px; display:none;">
-        <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">Detected links in this post:</label>
+        <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;">Detected links in this item:</label>
         <select id="reportDetectedLinkSelect" class="compact-select" style="width:100%;" onchange="onSelectDetectedPhishingLink(this.value)"></select>
       </div>
 
       <div style="margin-bottom:12px;">
-        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">Suspicious URL or Post Link:</label>
+        <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">Suspicious URL or Link:</label>
         <input type="text" id="reportPhishingUrlInput" placeholder="https://example-phishing-domain.com" />
       </div>
 
@@ -1282,7 +1288,8 @@
       keCache: {},
       useVotingHistoryInSearch: loadSearchVotingHistoryPref(),
       phishingShieldEnabled: loadPhishingShieldPref(),
-      pendingPhishingUrl: ''
+      pendingPhishingUrl: '',
+      reportContext: null
     };
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
@@ -1297,6 +1304,7 @@
     var phishingFlagsLoadedAt = 0;
     var phishingFlagsPending = null;
     var accountHpCache = {};
+    var commentsByKey = {};
 
     function openNectarCacheDb() {
       if (!window.indexedDB) return Promise.resolve(null);
@@ -1638,7 +1646,22 @@
       }
     }
 
-    function openReportPhishingModal() {
+    function extractHttpLinksFromContainer(container) {
+      var links = [];
+      if (!container) return links;
+      var anchors = container.querySelectorAll('a[href]');
+      for (var i = 0; i < anchors.length; i++) {
+        var a = anchors[i];
+        if (a.classList && a.classList.contains('hive-user-pill')) continue;
+        var href = a.getAttribute('href') || '';
+        if (/^https?:\/\//i.test(href) && links.indexOf(href) === -1) {
+          links.push(href);
+        }
+      }
+      return links;
+    }
+
+    function openReportPhishingModal(commentKey) {
       var idx = appState.currentReaderIndex;
       var item = (idx !== null && idx !== undefined) ? appState.results[idx] : null;
       var modal = document.getElementById('reportPhishingModal');
@@ -1650,23 +1673,39 @@
 
       if (!modal || !urlInput || !reasonInput) return;
 
-      var defaultUrl = item && item.post ? getOriginalPostUrl(item.post) : '';
+      var commentObj = commentKey && commentsByKey[commentKey] ? commentsByKey[commentKey] : null;
+      var defaultUrl = '';
       var links = [];
-      if (contentEl) {
-        var anchors = contentEl.querySelectorAll('a[href]');
-        for (var i = 0; i < anchors.length; i++) {
-          var a = anchors[i];
-          if (a.classList && a.classList.contains('hive-user-pill')) continue;
-          var href = a.getAttribute('href') || '';
-          if (/^https?:\/\//i.test(href) && links.indexOf(href) === -1) {
-            links.push(href);
+
+      if (commentObj) {
+        appState.reportContext = {
+          kind: 'comment',
+          author: commentObj.author || '',
+          permlink: commentObj.permlink || ''
+        };
+        defaultUrl = getOriginalPostUrl(commentObj);
+        var commentEl = document.querySelector('[data-comment-key="' + commentKey.replace(/"/g, '') + '"]');
+        links = extractHttpLinksFromContainer(commentEl ? commentEl.querySelector('.comment-body') : null);
+        if (!links.length && commentObj.body) {
+          var rawMatches = String(commentObj.body).match(/https?:\/\/[^\s<>"')]+/gi) || [];
+          for (var m = 0; m < rawMatches.length; m++) {
+            var cleanM = rawMatches[m].replace(/[.,!?:;]+$/, '');
+            if (cleanM && links.indexOf(cleanM) === -1) links.push(cleanM);
           }
         }
+      } else {
+        appState.reportContext = {
+          kind: 'post',
+          author: item && item.post ? item.post.author : '',
+          permlink: item && item.post ? item.post.permlink : ''
+        };
+        defaultUrl = item && item.post ? getOriginalPostUrl(item.post) : '';
+        links = extractHttpLinksFromContainer(contentEl);
       }
 
       if (detectedGroup && detectedSelect) {
         if (links.length > 0) {
-          detectedSelect.innerHTML = '<option value="">-- Select a link found in this post (or enter below) --</option>' +
+          detectedSelect.innerHTML = '<option value="">-- Select a link found in this ' + (commentObj ? 'comment' : 'post') + ' (or enter below) --</option>' +
             links.map(function (u) {
               return '<option value="' + escapeHtml(u) + '">' + escapeHtml(u) + '</option>';
             }).join('');
@@ -1680,7 +1719,9 @@
         urlInput.value = defaultUrl;
       }
 
-      reasonInput.value = 'Suspected phishing / scam link';
+      reasonInput.value = commentObj
+        ? 'Suspected phishing / scam link in comment by @' + (commentObj.author || '')
+        : 'Suspected phishing / scam link';
       modal.style.display = 'flex';
     }
 
@@ -1694,6 +1735,7 @@
     function closeReportPhishingModal() {
       var modal = document.getElementById('reportPhishingModal');
       if (modal) modal.style.display = 'none';
+      appState.reportContext = null;
     }
 
     function submitPhishingReport() {
@@ -1713,7 +1755,7 @@
       var reason = reasonInput ? reasonInput.value.trim() : '';
 
       if (!targetUrl) {
-        alert('Please enter the suspicious URL or post link.');
+        alert('Please enter the suspicious URL or link.');
         return;
       }
       if (!/^https?:\/\//i.test(targetUrl)) {
@@ -1727,12 +1769,16 @@
 
       var idx = appState.currentReaderIndex;
       var item = (idx !== null && idx !== undefined) ? appState.results[idx] : null;
+      var ctx = appState.reportContext;
       var payloadObj = {
         url: targetUrl,
         domain: host,
         reason: reason || 'Suspected phishing / scam link',
         reporter: connectedUser
       };
+      if (ctx && ctx.kind === 'comment' && ctx.author && ctx.permlink) {
+        payloadObj.source_comment = ctx.author + '/' + ctx.permlink;
+      }
       if (item && item.post) {
         payloadObj.source_post = item.post.author + '/' + item.post.permlink;
       }
@@ -3699,6 +3745,7 @@
       if (!listEl) return;
       listEl.innerHTML = 'Loading comments...';
       if (headerEl) headerEl.textContent = 'Comments';
+      commentsByKey = {};
 
       hiveCall('bridge.get_discussion', { author: author, permlink: permlink })
         .then(function (discussion) {
@@ -3709,7 +3756,11 @@
           var allNodes = [];
           for (var k in discussion) {
             if (Object.prototype.hasOwnProperty.call(discussion, k) && k !== rootKey) {
-              allNodes.push(discussion[k]);
+              var nodeItem = discussion[k];
+              allNodes.push(nodeItem);
+              if (nodeItem && nodeItem.author && nodeItem.permlink) {
+                commentsByKey[nodeItem.author + '/' + nodeItem.permlink] = nodeItem;
+              }
             }
           }
 
@@ -3748,10 +3799,13 @@
               var age = formatAge(c.created);
               var bodyHtml = renderHiveBodyHtml(c.body || '');
 
-              html += '<div class="comment-item" style="margin-left:' + indent + 'px;">';
+              html += '<div class="comment-item" data-comment-key="' + escapeHtml(cKey) + '" style="margin-left:' + indent + 'px;">';
               html += '<div class="comment-header">';
               html += '<span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(c.author) + '\')">@' + escapeHtml(c.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + '</span>';
+              html += '<div class="comment-actions">';
+              html += '<button type="button" class="report-phishing-link" onclick="openReportPhishingModal(\'' + escapeHtml(cKey) + '\')">🚨 Report phishing/scam</button>';
               html += '<button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(c.author) + '\', \'' + escapeHtml(c.permlink) + '\')">💬 Reply</button>';
+              html += '</div>';
               html += '</div>';
               html += '<div class="comment-body">' + bodyHtml + '</div>';
               html += '</div>';
@@ -3768,9 +3822,10 @@
             });
             for (var j = 0; j < allNodes.length; j++) {
               var oc = allNodes[j];
+              var ocKey = oc.author + '/' + oc.permlink;
               var oAge = formatAge(oc.created);
-              html += '<div class="comment-item">';
-              html += '<div class="comment-header"><span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(oc.author) + '\')">@' + escapeHtml(oc.author) + '</strong>' + (oAge ? ' &middot; ' + escapeHtml(oAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(oc.author) + '\', \'' + escapeHtml(oc.permlink) + '\')">💬 Reply</button></div>';
+              html += '<div class="comment-item" data-comment-key="' + escapeHtml(ocKey) + '">';
+              html += '<div class="comment-header"><span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(oc.author) + '\')">@' + escapeHtml(oc.author) + '</strong>' + (oAge ? ' &middot; ' + escapeHtml(oAge) : '') + '</span><div class="comment-actions"><button type="button" class="report-phishing-link" onclick="openReportPhishingModal(\'' + escapeHtml(ocKey) + '\')">🚨 Report phishing/scam</button><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(oc.author) + '\', \'' + escapeHtml(oc.permlink) + '\')">💬 Reply</button></div></div>';
               html += '<div class="comment-body">' + renderHiveBodyHtml(oc.body || '') + '</div>';
               html += '</div>';
             }
@@ -3790,9 +3845,11 @@
               var html = '';
               for (var i = 0; i < replies.length; i++) {
                 var r = replies[i];
+                var rKey = r.author + '/' + r.permlink;
+                commentsByKey[rKey] = r;
                 var rAge = formatAge(r.created);
-                html += '<div class="comment-item">';
-                html += '<div class="comment-header"><span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(r.author) + '\')">@' + escapeHtml(r.author) + '</strong>' + (rAge ? ' &middot; ' + escapeHtml(rAge) : '') + '</span><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(r.author) + '\', \'' + escapeHtml(r.permlink) + '\')">💬 Reply</button></div>';
+                html += '<div class="comment-item" data-comment-key="' + escapeHtml(rKey) + '">';
+                html += '<div class="comment-header"><span><strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(r.author) + '\')">@' + escapeHtml(r.author) + '</strong>' + (rAge ? ' &middot; ' + escapeHtml(rAge) : '') + '</span><div class="comment-actions"><button type="button" class="report-phishing-link" onclick="openReportPhishingModal(\'' + escapeHtml(rKey) + '\')">🚨 Report phishing/scam</button><button type="button" class="kc-btn" style="padding: 2px 8px; font-size: 11px;" onclick="setReplyTarget(\'' + escapeHtml(r.author) + '\', \'' + escapeHtml(r.permlink) + '\')">💬 Reply</button></div></div>';
                 html += '<div class="comment-body">' + renderHiveBodyHtml(r.body || '') + '</div>';
                 html += '</div>';
               }
