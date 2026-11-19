@@ -2535,25 +2535,87 @@
       var pieces = splitTextForTranslation(clean, 420);
       var chain = Promise.resolve('');
 
+      function translateSinglePiece(piece) {
+        var targetCode = String(targetLang || 'en').split('-')[0].toLowerCase();
+        var candidates = [
+          function () {
+            var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
+              encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
+            return fetch(url).then(function (res) {
+              if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+              return res.json();
+            }).then(function (data) {
+              var translated = (data && data.responseData && data.responseData.translatedText)
+                ? String(data.responseData.translatedText)
+                : '';
+              if (!translated || /MYMEMORY WARNING/i.test(translated)) {
+                throw new Error(translated || 'Empty translation');
+              }
+              return translated;
+            });
+          },
+          function () {
+            var pairs = ['en|' + targetCode, 'es|' + targetCode, 'fr|' + targetCode, 'de|' + targetCode];
+            var pIdx = 0;
+            function nextPair() {
+              if (pIdx >= pairs.length) {
+                return Promise.reject(new Error('Translation HTTP 404'));
+              }
+              var pair = pairs[pIdx++];
+              var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
+                encodeURIComponent(piece) + '&langpair=' + encodeURIComponent(pair);
+              return fetch(url).then(function (res) {
+                if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+                return res.json();
+              }).then(function (data) {
+                var translated = (data && data.responseData && data.responseData.translatedText)
+                  ? String(data.responseData.translatedText)
+                  : '';
+                if (!translated || /MYMEMORY WARNING/i.test(translated)) {
+                  return nextPair();
+                }
+                return translated;
+              }).catch(function () {
+                return nextPair();
+              });
+            }
+            return nextPair();
+          },
+          function () {
+            var lingvaUrl = '[https://lingva.ml/api/v1/auto/](https://lingva.ml/api/v1/auto/)' +
+              encodeURIComponent(targetCode) + '/' + encodeURIComponent(piece);
+            return fetch(lingvaUrl).then(function (res) {
+              if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+              return res.json();
+            }).then(function (data) {
+              if (!data || !data.translation) {
+                throw new Error('Empty Lingva translation');
+              }
+              return String(data.translation);
+            });
+          }
+        ];
+
+        var idx = 0;
+        var lastErr = new Error('Translation HTTP 404');
+        function tryNext() {
+          if (idx >= candidates.length) {
+            return Promise.reject(lastErr);
+          }
+          return candidates[idx++]().catch(function (err) {
+            lastErr = err || lastErr;
+            return tryNext();
+          });
+        }
+        return tryNext();
+      }
+
       for (var i = 0; i < pieces.length; i++) {
         (function(piece) {
           chain = chain.then(function(acc) {
-            var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
-              encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
-            return fetch(url)
-              .then(function(res) {
-                if (!res.ok) throw new Error('Translation HTTP ' + res.status);
-                return res.json();
-              })
-              .then(function(data) {
-                var translated = (data && data.responseData && data.responseData.translatedText)
-                  ? String(data.responseData.translatedText)
-                  : piece;
-                if (/MYMEMORY WARNING/i.test(translated)) {
-                  throw new Error(translated);
-                }
-                return acc ? (acc + ' ' + translated) : translated;
-              });
+            return translateSinglePiece(piece).then(function(translated) {
+              return acc ? (acc + ' ' + translated) : translated;
+            });
           });
         })(pieces[i]);
       }
