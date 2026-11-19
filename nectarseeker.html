@@ -945,7 +945,7 @@
         </div>
 
         <div class="reader-sub-bar">
-          <a id="stickyOriginalLink" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: var(--accent-cyan); text-decoration: underline;">Page didn't load correctly? Click here!</a>
+          <a id="stickyOriginalLink" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: var(--accent-cyan); text-decoration: underline;" title="Open original post or use your browser's built-in page translator">Page didn't load correctly? Click here! (Browser translate supported)</a>
 
           <div class="translator-controls">
             <label for="translateTargetLang" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">🌐 Translate to:</label>
@@ -2524,102 +2524,195 @@
       return chunks;
     }
 
-    function translatePlainText(text, targetLang) {
+    var TRANSLATION_PROXY_URL = '';
+    var TRANSLATION_API_KEY = '';
+    var LIBRETRANSLATE_ENDPOINTS = [
+      '[https://libretranslate.com/translate](https://libretranslate.com/translate)',
+      '[https://translate.argosopentech.com/translate](https://translate.argosopentech.com/translate)'
+    ];
+
+    function normalizeTargetLangCode(lang) {
+      var raw = String(lang || 'en').trim();
+      var lower = raw.toLowerCase();
+      if (lower === 'zh-cn' || lower === 'zh-hans' || lower === 'zh') return 'zh';
+      return raw.split('-')[0].toLowerCase() || 'en';
+    }
+
+    function formatTranslationReason(err, statusCode) {
+      var msg = (err && err.message) ? String(err.message) : '';
+      if (err && err.name === 'AbortError') {
+        return statusCode ? 'Request timed out (HTTP ' + statusCode + ')' : 'Request timed out';
+      }
+      if (/failed to fetch|networkerror|load failed|cors/i.test(msg)) {
+        return 'Network/CORS block or unreachable host';
+      }
+      return msg || 'Endpoint error';
+    }
+
+    function translatePlainText(text, targetLang, metaOut) {
       var clean = String(text || '').trim();
       if (!clean) return Promise.resolve('');
       var cacheKey = targetLang + '::' + clean;
       if (translationCache[cacheKey]) {
+        if (metaOut) {
+          metaOut.translatedCount = (metaOut.translatedCount || 0) + 1;
+        }
         return Promise.resolve(translationCache[cacheKey]);
       }
 
       var pieces = splitTextForTranslation(clean, 420);
       var chain = Promise.resolve('');
+      var shortLang = normalizeTargetLangCode(targetLang);
 
-      function fetchWithTimeout(url, timeoutMs) {
+      function fetchWithTimeout(url, options, timeoutMs) {
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs || 6500) : null;
-        return fetch(url, { signal: controller ? controller.signal : undefined }).finally(function () {
+        var opts = Object.assign({}, options || {});
+        if (controller) opts.signal = controller.signal;
+        return fetch(url, opts).finally(function () {
           if (timer) clearTimeout(timer);
         });
       }
 
       function translateSinglePiece(piece) {
-        var targetCode = String(targetLang || 'en').split('-')[0].toLowerCase();
-        var candidates = [
-          function () {
-            var url = '[https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=](https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=)' +
-              encodeURIComponent(targetLang) + '&dt=t&q=' + encodeURIComponent(piece);
-            return fetchWithTimeout(url, 6500).then(function (res) {
-              if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+        var reasons = [];
+        var candidates = [];
+
+        if (TRANSLATION_PROXY_URL) {
+          candidates.push(function () {
+            var headers = { 'Content-Type': 'application/json' };
+            if (TRANSLATION_API_KEY) headers['Authorization'] = 'Bearer ' + TRANSLATION_API_KEY;
+            return fetchWithTimeout(TRANSLATION_PROXY_URL, {
+              method: 'POST',
+              headers: headers,
+              body: JSON.stringify({
+                q: piece,
+                source: 'auto',
+                target: targetLang,
+                format: 'text'
+              })
+            }, 7000).then(function (res) {
+              if (!res.ok) throw new Error('Proxy HTTP ' + res.status);
               return res.json();
             }).then(function (data) {
-              if (!Array.isArray(data) || !Array.isArray(data[0])) {
-                throw new Error('Unexpected Google translate response');
-              }
-              var out = '';
-              for (var i = 0; i < data[0].length; i++) {
-                if (Array.isArray(data[0][i]) && data[0][i][0]) {
-                  out += String(data[0][i][0]);
-                }
-              }
-              out = out.trim();
-              if (!out) throw new Error('Empty Google translation');
-              return out;
+              var outText = data && (data.translatedText || data.translation || (data.data && data.data.translatedText));
+              if (!outText) throw new Error('Empty proxy translation');
+              return String(outText).trim();
             });
-          },
-          function () {
+          });
+        }
+
+        candidates.push(function () {
+          var url = '[https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=](https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=)' +
+            encodeURIComponent(targetLang) + '&dt=t&q=' + encodeURIComponent(piece);
+          return fetchWithTimeout(url, {}, 6500).then(function (res) {
+            if (!res.ok) throw new Error('Google HTTP ' + res.status);
+            return res.json();
+          }).then(function (data) {
+            if (!Array.isArray(data) || !Array.isArray(data[0])) {
+              throw new Error('Google unexpected payload');
+            }
+            var out = '';
+            for (var i = 0; i < data[0].length; i++) {
+              if (Array.isArray(data[0][i]) && data[0][i][0]) {
+                out += String(data[0][i][0]);
+              }
+            }
+            out = out.trim();
+            if (!out) throw new Error('Google empty translation');
+            return out;
+          });
+        });
+
+        candidates.push(function () {
+          var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
+            encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
+          return fetchWithTimeout(url, {}, 6500).then(function (res) {
+            if (!res.ok) throw new Error('MyMemory auto HTTP ' + res.status);
+            return res.json();
+          }).then(function (data) {
+            var statusCode = data && data.responseStatus ? Number(data.responseStatus) : 200;
+            var translated = (data && data.responseData && data.responseData.translatedText)
+              ? String(data.responseData.translatedText)
+              : '';
+            if (!translated || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID LANGUAGE PAIR/i.test(translated)) {
+              throw new Error(translated || ('MyMemory status ' + statusCode));
+            }
+            return translated;
+          });
+        });
+
+        candidates.push(function () {
+          var pairs = ['es|' + shortLang, 'en|' + shortLang, 'fr|' + shortLang, 'de|' + shortLang, 'pt|' + shortLang]
+            .filter(function (pair, pos, arr) {
+              var parts = pair.split('|');
+              return parts[0] !== parts[1] && arr.indexOf(pair) === pos;
+            });
+          var pIdx = 0;
+          var pairErrors = [];
+          function nextPair() {
+            if (pIdx >= pairs.length) {
+              return Promise.reject(new Error(pairErrors.length ? pairErrors[pairErrors.length - 1] : 'Pair fallback failed'));
+            }
+            var pair = pairs[pIdx++];
             var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
-              encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
-            return fetchWithTimeout(url, 6500).then(function (res) {
-              if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+              encodeURIComponent(piece) + '&langpair=' + encodeURIComponent(pair);
+            return fetchWithTimeout(url, {}, 6500).then(function (res) {
+              if (!res.ok) throw new Error('MyMemory ' + pair + ' HTTP ' + res.status);
               return res.json();
             }).then(function (data) {
               var translated = (data && data.responseData && data.responseData.translatedText)
                 ? String(data.responseData.translatedText)
                 : '';
-              if (!translated || /MYMEMORY WARNING/i.test(translated)) {
-                throw new Error(translated || 'Empty translation');
+              if (!translated || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID LANGUAGE PAIR/i.test(translated)) {
+                pairErrors.push(translated || ('MyMemory ' + pair + ' quota/limit'));
+                return nextPair();
               }
               return translated;
+            }).catch(function (err) {
+              pairErrors.push(formatTranslationReason(err));
+              return nextPair();
             });
-          },
-          function () {
-            var pairs = ['en|' + targetCode, 'es|' + targetCode, 'fr|' + targetCode, 'de|' + targetCode];
-            var pIdx = 0;
-            function nextPair() {
-              if (pIdx >= pairs.length) {
-                return Promise.reject(new Error('Translation unavailable'));
-              }
-              var pair = pairs[pIdx++];
-              var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
-                encodeURIComponent(piece) + '&langpair=' + encodeURIComponent(pair);
-              return fetchWithTimeout(url, 6500).then(function (res) {
-                if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+          }
+          return nextPair();
+        });
+
+        for (var l = 0; l < LIBRETRANSLATE_ENDPOINTS.length; l++) {
+          (function (ltUrl) {
+            candidates.push(function () {
+              var bodyObj = {
+                q: piece,
+                source: 'auto',
+                target: shortLang,
+                format: 'text'
+              };
+              if (TRANSLATION_API_KEY) bodyObj.api_key = TRANSLATION_API_KEY;
+              return fetchWithTimeout(ltUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bodyObj)
+              }, 6500).then(function (res) {
+                if (!res.ok) throw new Error('LibreTranslate HTTP ' + res.status);
                 return res.json();
               }).then(function (data) {
-                var translated = (data && data.responseData && data.responseData.translatedText)
-                  ? String(data.responseData.translatedText)
-                  : '';
-                if (!translated || /MYMEMORY WARNING/i.test(translated)) {
-                  return nextPair();
-                }
-                return translated;
-              }).catch(function () {
-                return nextPair();
+                var outText = data && data.translatedText ? String(data.translatedText).trim() : '';
+                if (!outText) throw new Error('LibreTranslate empty response');
+                return outText;
               });
-            }
-            return nextPair();
-          }
-        ];
+            });
+          })(LIBRETRANSLATE_ENDPOINTS[l]);
+        }
 
         var idx = 0;
-        var lastErr = new Error('Translation unavailable');
         function tryNext() {
           if (idx >= candidates.length) {
-            return Promise.reject(lastErr);
+            var detail = reasons.length ? reasons.slice(0, 3).join(' | ') : 'All endpoints failed';
+            var err = new Error(detail);
+            err.isChunkFailure = true;
+            return Promise.reject(err);
           }
           return candidates[idx++]().catch(function (err) {
-            lastErr = err || lastErr;
+            reasons.push(formatTranslationReason(err));
             return tryNext();
           });
         }
@@ -2630,19 +2723,32 @@
         (function(piece) {
           chain = chain.then(function(acc) {
             return translateSinglePiece(piece).then(function(translated) {
+              if (metaOut) {
+                metaOut.translatedCount = (metaOut.translatedCount || 0) + 1;
+              }
               return acc ? (acc + ' ' + translated) : translated;
+            }).catch(function(err) {
+              if (metaOut) {
+                metaOut.failedCount = (metaOut.failedCount || 0) + 1;
+                if (err && err.message && metaOut.reasons.indexOf(err.message) === -1 && metaOut.reasons.length < 3) {
+                  metaOut.reasons.push(err.message);
+                }
+              }
+              return acc ? (acc + ' ' + piece) : piece;
             });
           });
         })(pieces[i]);
       }
 
       return chain.then(function(result) {
-        translationCache[cacheKey] = result;
+        if (metaOut && (metaOut.translatedCount || 0) > 0) {
+          translationCache[cacheKey] = result;
+        }
         return result;
       });
     }
 
-    function translateHtmlElementNodes(containerEl, targetLang) {
+    function translateHtmlElementNodes(containerEl, targetLang, statsOut) {
       if (!containerEl) return Promise.resolve();
       var walker = document.createTreeWalker(containerEl, NodeFilter.SHOW_TEXT, null, false);
       var textNodes = [];
@@ -2669,7 +2775,7 @@
           var orig = tn.nodeValue;
           var leadingSpace = (orig.match(/^\s*/) || [''])[0];
           var trailingSpace = (orig.match(/\s*$/) || [''])[0];
-          return translatePlainText(orig.trim(), targetLang)
+          return translatePlainText(orig.trim(), targetLang, statsOut)
             .then(function(translated) {
               if (translated) {
                 tn.nodeValue = leadingSpace + translated + trailingSpace;
@@ -2716,23 +2822,43 @@
         bannerTextEl.textContent = 'Translating post into ' + langLabel + '...';
       }
 
+      var stats = { translatedCount: 0, failedCount: 0, reasons: [] };
       var rawTitle = item.post.title || '(Untitled)';
-      translatePlainText(rawTitle, targetLang)
+
+      translatePlainText(rawTitle, targetLang, stats)
         .then(function(translatedTitle) {
           if (titleEl && translatedTitle) {
             titleEl.textContent = translatedTitle;
           }
           if (contentEl) {
             contentEl.innerHTML = appState.readerOriginalHtml;
-            return translateHtmlElementNodes(contentEl, targetLang);
+            return translateHtmlElementNodes(contentEl, targetLang, stats);
           }
         })
         .then(function() {
+          if (stats.translatedCount === 0 && stats.failedCount > 0) {
+            if (titleEl) titleEl.textContent = appState.readerOriginalTitle;
+            if (contentEl) contentEl.innerHTML = appState.readerOriginalHtml;
+            appState.isPostTranslated = false;
+            if (origBtnEl) origBtnEl.style.display = 'none';
+            if (bannerEl && bannerTextEl) {
+              bannerEl.style.display = 'flex';
+              var reasonDetail = stats.reasons.length ? stats.reasons.join(' | ') : 'Providers did not respond';
+              bannerTextEl.textContent = 'Translation unavailable right now (' + reasonDetail + '). You can also use your browser\'s built-in page translator.';
+            }
+            return;
+          }
+
           appState.isPostTranslated = true;
           if (origBtnEl) origBtnEl.style.display = 'inline-block';
           if (bannerEl && bannerTextEl) {
             bannerEl.style.display = 'flex';
-            bannerTextEl.textContent = 'Translated to ' + langLabel + ' (Original post preserved)';
+            if (stats.failedCount > 0) {
+              var partialReason = stats.reasons.length ? ' — some sections kept original text: ' + stats.reasons.join(' | ') : ' — some sections kept original text';
+              bannerTextEl.textContent = 'Partially translated to ' + langLabel + ' (' + stats.translatedCount + ' sections translated, ' + stats.failedCount + ' fallback' + partialReason + ')';
+            } else {
+              bannerTextEl.textContent = 'Translated to ' + langLabel + ' (Original post preserved)';
+            }
           }
         })
         .catch(function(err) {
@@ -2740,7 +2866,7 @@
           if (contentEl) contentEl.innerHTML = appState.readerOriginalHtml;
           if (bannerEl && bannerTextEl) {
             bannerEl.style.display = 'flex';
-            bannerTextEl.textContent = 'Translation unavailable right now: ' + ((err && err.message) ? err.message : 'Request failed');
+            bannerTextEl.textContent = 'Translation unavailable right now: ' + formatTranslationReason(err);
           }
         })
         .finally(function() {
