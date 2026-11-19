@@ -171,7 +171,34 @@
       margin-bottom: 8px;
       flex-wrap: wrap;
     }
-    input[type="text"], input[type="number"] {
+    .search-options-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .toggle-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      color: var(--text-main);
+      font-weight: 500;
+      user-select: none;
+    }
+    .toggle-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--hive-red);
+      cursor: pointer;
+    }
+    input[type="text"], input[type="number"], select {
       flex: 1;
       min-width: 0;
       padding: 12px 14px;
@@ -182,8 +209,14 @@
       border-radius: 8px;
       outline: none;
     }
+    select.compact-select {
+      flex: 0 0 auto;
+      padding: 6px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
     input[type="text"]::placeholder, input[type="number"]::placeholder { color: var(--text-muted); }
-    input[type="text"]:focus, input[type="number"]:focus {
+    input[type="text"]:focus, input[type="number"]:focus, select:focus {
       border-color: var(--hive-red);
     }
     input[type="range"] {
@@ -277,6 +310,10 @@
     }
     .kc-btn:hover {
       background-color: var(--border);
+    }
+    .kc-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
     .kc-badge {
       font-size: 12px;
@@ -433,25 +470,6 @@
       background-color: var(--surface-2);
       border: 1px solid var(--border);
     }
-    .ai-badge {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--accent-green);
-      background-color: rgba(52, 211, 153, 0.12);
-      border: 1px solid rgba(52, 211, 153, 0.3);
-      padding: 3px 7px;
-      border-radius: 5px;
-    }
-    .ai-badge.warning {
-      color: var(--accent-warn);
-      background-color: rgba(251, 191, 36, 0.15);
-      border: 1px solid rgba(251, 191, 36, 0.35);
-    }
-    .ai-badge.danger {
-      color: var(--accent-danger);
-      background-color: rgba(248, 113, 113, 0.18);
-      border: 1px solid rgba(248, 113, 113, 0.4);
-    }
     .meta {
       font-size: 13px;
       color: var(--text-muted);
@@ -544,6 +562,36 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+    }
+    .reader-sub-bar {
+      width: 100%;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .translator-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .translation-banner {
+      display: none;
+      font-size: 12px;
+      color: var(--accent-cyan);
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 6px 12px;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     .reader-close {
       background-color: var(--hive-red);
@@ -809,6 +857,14 @@
       <button type="button" class="primary-btn" id="runBtn" onclick="startApp()">Discover</button>
     </div>
 
+    <div class="search-options-row" id="searchOptionsRow">
+      <label class="toggle-label">
+        <input type="checkbox" id="useVotingHistorySearchToggle" checked onchange="toggleSearchVotingHistory(this.checked)">
+        <span>Use voting history in search results</span>
+      </label>
+      <span id="searchVotingHistoryStatus">Voting history, reblogs &amp; comments active for search ranking</span>
+    </div>
+
     <div class="kc-row" id="kcRow" style="display:none;">
       <div class="kc-left">
         <button type="button" class="kc-btn" id="keychainBtn" onclick="loginKeychain()">Connect Hive Keychain</button>
@@ -824,16 +880,19 @@
     <summary>How It Works</summary>
     <div style="font-size:14px;color:var(--text-muted);display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:14px;">
       <div>
-        <strong style="color:var(--accent-cyan);">Feed Mode:</strong> Scans your past 3 months of upvotes, comments, and posts to construct a personal taste vector, recommending unread articles tailored to your interests.
+        <strong style="color:var(--accent-cyan);">Feed Mode:</strong> Scans your past 24 months of upvotes, reblogs, comments, and posts to construct a personal taste vector, recommending unread articles tailored to your interests.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Username Mode:</strong> Looks up any Hive user to display their authored posts at the top, alongside personalized content recommendations based on their activity.
+        <strong style="color:var(--accent-cyan);">Username Mode:</strong> Looks up any Hive user to display their authored posts at the top, alongside personalized content recommendations based on their votes, reblogs, and activity.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Search Term Mode:</strong> Indexes and searches Hive content using corpus-wide IDF weighting to score and rank articles matching your keywords or phrases rapidly.
+        <strong style="color:var(--accent-cyan);">Search Term Mode:</strong> Indexes and searches Hive content using corpus-wide IDF weighting, factoring in your reblogs, comments, and optional voting history.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
+      </div>
+      <div>
+        <strong style="color:var(--accent-cyan);">Post Translator:</strong> Translate post titles and bodies into your chosen language directly inside the post reader modal, with one-click toggle back to the original post.
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">KE Ratio:</strong> Evaluates author sustainability on Hive (Rewards / HP) displayed in author profiles and reader view.
@@ -854,7 +913,7 @@
 
   <div id="postReaderModal">
     <div class="reader-container">
-      
+
       <div class="reader-sticky-nav">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%;">
           <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -870,7 +929,7 @@
             <button type="button" class="vote-btn up" onclick="castCustomVoteFromSticky(1)" style="padding: 4px 8px; font-size: 12px;">👍 Up</button>
             <button type="button" class="vote-btn down" onclick="castCustomVoteFromSticky(-1)" style="padding: 4px 8px; font-size: 12px;">👎 Down</button>
             <button type="button" class="kc-btn" onclick="scrollToCommentBox()" style="padding: 4px 8px; font-size: 12px; border-color: var(--accent-cyan);">💬 Comment</button>
-            
+
             <button type="button" class="kc-btn" onclick="reblogPost()" style="padding: 4px 8px; font-size: 12px; background: rgba(56,189,248,0.15); border-color: var(--accent-cyan);" title="Reblog Post">🔁 Reblog</button>
 
             <div style="display:inline-flex; align-items:center; gap:6px;">
@@ -885,15 +944,40 @@
           </div>
         </div>
 
-        <div style="width: 100%; border-top: 1px solid var(--border); padding-top: 8px;">
+        <div class="reader-sub-bar">
           <a id="stickyOriginalLink" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: var(--accent-cyan); text-decoration: underline;">Page didn't load correctly? Click here!</a>
+
+          <div class="translator-controls">
+            <label for="translateTargetLang" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">🌐 Translate to:</label>
+            <select id="translateTargetLang" class="compact-select" aria-label="Target translation language">
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+              <option value="pt">Portuguese</option>
+              <option value="nl">Dutch</option>
+              <option value="ru">Russian</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="zh-CN">Chinese (Simplified)</option>
+              <option value="ar">Arabic</option>
+              <option value="hi">Hindi</option>
+            </select>
+            <button type="button" class="kc-btn" id="translatePostBtn" onclick="translateCurrentPost()" style="padding: 5px 10px; font-size: 12px; border-color: var(--accent-cyan);">Translate</button>
+            <button type="button" class="kc-btn" id="showOriginalPostBtn" onclick="restoreOriginalPost()" style="padding: 5px 10px; font-size: 12px; display: none;">Show Original</button>
+          </div>
         </div>
       </div>
 
       <h2 id="readerTitle"></h2>
       <div id="readerMeta"></div>
+      <div id="translationStatusBanner" class="translation-banner">
+        <span id="translationStatusText"></span>
+        <button type="button" class="kc-btn" onclick="restoreOriginalPost()" style="padding: 2px 8px; font-size: 11px;">Original Text</button>
+      </div>
       <div id="readerContent"></div>
-      
+
       <div class="reader-action-section" id="readerKeBottomSection" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <span style="font-size: 14px; color: var(--text-main);"><strong>Author Ecosystem Health (KE Ratio):</strong></span>
         <span id="readerKeBottomVal" class="ke-badge" style="font-size: 13px; padding: 5px 12px;">Calculating...</span>
@@ -922,7 +1006,7 @@
 
       <div class="reader-action-section">
         <h4 id="commentBoxHeader" style="margin:0 0 10px 0; color:var(--text-main); font-size:15px;">Leave a Comment</h4>
-        
+
         <div id="replyTargetIndicator" style="display:none; margin-bottom:10px; font-size:13px; color:var(--accent-cyan); background:var(--surface-1); padding:8px 12px; border-radius:6px; border:1px solid var(--border); align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
           <span>Replying to <strong id="replyTargetAuthor"></strong></span>
           <button type="button" class="kc-btn" onclick="cancelReplyTarget()" style="padding:3px 8px; font-size:11px;">Cancel Reply</button>
@@ -944,7 +1028,7 @@
     <div class="tip-modal-container">
       <h3 id="tipModalTitle" style="margin:0 0 8px 0; color:var(--text-main); font-size:18px;">Tip Author</h3>
       <div id="tipModalBalance" style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">Available Balance: Loading...</div>
-      
+
       <div id="tipSymbolSection" style="margin-bottom:14px; display:none;">
         <label style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:6px;">Token Symbol:</label>
         <div style="display:flex; gap:8px;">
@@ -1017,7 +1101,7 @@
       large:1,spell:1,add:1,even:1,land:1,here:1,must:1,big:1,high:1,such:1,follow:1,act:1,why:1,
       ask:1,men:1,change:1,went:1,light:1,kind:1,off:1,need:1,house:1,picture:1,try:1,again:1,
       one:1,they:1,his:1,her:1,she:1,he:1,it:1,its:1,ours:1,your:1,yours:1,theirs:1,
-      me:1,us:1,whom:1,whose:1,that:1,those:1,into:1,onto:1,upon:1,out:1,
+      me:1,us:1,whom:1,whose:1,those:1,into:1,onto:1,upon:1,out:1,
       because:1,since:1,although:1,though:1,while:1,both:1,either:1,neither:1,nor:1,so:1,
       el:1,la:1,los:1,las:1,un:1,una:1,unos:1,unas:1,y:1,o:1,de:1,del:1,al:1,en:1,por:1,para:1,con:1,sin:1,
       su:1,sus:1,tu:1,tus:1,mi:1,mis:1,es:1,son:1,fue:1,era:1,que:1,quien:1,como:1,mas:1,pero:1,si:1,
@@ -1025,8 +1109,21 @@
       um:1,uma:1,os:1,as:1,na:1,com:1,sem:1,foi:1,sao:1,seria:1,dos:1,das:1,porque:1,todo:1,toda:1,
       todos:1,todas:1,esta:1,este:1,esto:1,estas:1,estos:1,sino:1,desde:1,dentro:1,poder:1,
       der:1,die:1,das:1,dem:1,den:1,des:1,ein:1,eine:1,und:1,oder:1,ist:1,sind:1,war:1,waren:1,
-      il:1,lo:1,i:1,gli:1,le:1,uno:1,e:1,di:1,da:1,su:1,per:1,tra:1,fra:1
+      il:1,i:1,gli:1,le:1,uno:1,e:1,di:1,da:1,su:1,per:1,tra:1,fra:1
     };
+
+    var TASTE_KEY = 'nectarseeker_taste_v1';
+    var KC_USER_KEY = 'nectarseeker_kc_user';
+    var THEME_KEY = 'nectarseeker_theme';
+    var SEARCH_VOTING_HISTORY_KEY = 'nectarseeker_search_voting_history';
+
+    function loadSearchVotingHistoryPref() {
+      try {
+        var raw = localStorage.getItem(SEARCH_VOTING_HISTORY_KEY);
+        if (raw === 'false') return false;
+      } catch (e) {}
+      return true;
+    }
 
     var appState = {
       mode: 'feed',
@@ -1039,7 +1136,12 @@
       currentReaderIndex: null,
       activeReplyTarget: null,
       userVotesCache: {},
-      keCache: {}
+      keCache: {},
+      useVotingHistoryInSearch: loadSearchVotingHistoryPref(),
+      readerOriginalTitle: '',
+      readerOriginalHtml: '',
+      isPostTranslated: false,
+      isTranslatingPost: false
     };
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
@@ -1050,6 +1152,7 @@
     var nsHivePending = {};
     var nsCacheDbPromise = null;
     var nsNodeHealth = {};
+    var translationCache = {};
 
     function openNectarCacheDb() {
       if (!window.indexedDB) return Promise.resolve(null);
@@ -1145,10 +1248,6 @@
       return request;
     }
 
-    var TASTE_KEY = 'nectarseeker_taste_v1';
-    var KC_USER_KEY = 'nectarseeker_kc_user';
-    var THEME_KEY = 'nectarseeker_theme';
-
     function toggleTheme() {
       var current = document.documentElement.getAttribute('data-theme') || 'dark';
       var next = current === 'dark' ? 'light' : 'dark';
@@ -1161,6 +1260,32 @@
       var btn = document.getElementById('themeToggleBtn');
       if (btn) {
         btn.textContent = theme === 'dark' ? '☀️ Light Theme' : '🌙 Dark Theme';
+      }
+    }
+
+    function updateSearchVotingHistoryUI() {
+      var cb = document.getElementById('useVotingHistorySearchToggle');
+      var statusEl = document.getElementById('searchVotingHistoryStatus');
+      if (cb) cb.checked = !!appState.useVotingHistoryInSearch;
+      if (statusEl) {
+        statusEl.textContent = appState.useVotingHistoryInSearch
+          ? 'Voting history, reblogs & comments active for search ranking'
+          : 'Voting history excluded from search ranking (reblogs & comments still active)';
+      }
+    }
+
+    function toggleSearchVotingHistory(enabled) {
+      appState.useVotingHistoryInSearch = !!enabled;
+      try {
+        localStorage.setItem(SEARCH_VOTING_HISTORY_KEY, String(appState.useVotingHistoryInSearch));
+      } catch (e) {}
+      updateSearchVotingHistoryUI();
+      if (appState.mode === 'search' && appState.results.length > 0 && !appState.isRunning) {
+        var qInput = document.getElementById('queryInput');
+        var currentQuery = qInput ? qInput.value.trim() : '';
+        if (currentQuery) {
+          startApp();
+        }
       }
     }
 
@@ -1219,7 +1344,7 @@
           var elapsedSecs = (Date.now() - lastVoteTime) / 1000;
           var vp = acc.voting_power + (elapsedSecs * 10000 / 432000);
           vp = Math.min(10000, vp) / 100;
-          
+
           hiveCall('rc_api.find_rc_accounts', { accounts: [username] }).then(function(rcRes) {
             var rcPct = vp;
             if (rcRes && rcRes.rc_accounts && rcRes.rc_accounts[0]) {
@@ -1318,7 +1443,7 @@
         appState.keCache[author] = formatted;
         keCacheAt[author] = Date.now();
         done(formatted);
-      }).catch(function(error) {
+      }).catch(function() {
         clearTimeout(timeoutId);
         Promise.all([
           hiveCall('condenser_api.get_accounts', [[author]]),
@@ -1348,7 +1473,7 @@
           appState.keCache[author] = fallbackFormatted;
           keCacheAt[author] = Date.now();
           done(fallbackFormatted);
-        }).catch(function(fallbackError) {
+        }).catch(function() {
           appState.keCache[author] = 'N/A';
           keCacheAt[author] = Date.now();
           done('N/A');
@@ -1376,7 +1501,7 @@
       var modal = document.getElementById('userProfileModal');
       var titleEl = document.getElementById('profileModalTitle');
       var contentEl = document.getElementById('profileModalContent');
-      
+
       if (titleEl) titleEl.textContent = '@' + author + ' Profile';
       if (contentEl) contentEl.innerHTML = 'Loading profile data...';
       if (modal) modal.style.display = 'flex';
@@ -1403,7 +1528,7 @@
           }
         }
 
-        contentEl.innerHTML = 
+        contentEl.innerHTML =
           '<div><strong>Reputation Score:</strong> ' + rep + '</div>' +
           '<div><strong>KE Ratio:</strong> ' + ke + '</div>' +
           '<div><strong>Joined Hive:</strong> ' + joined + '</div>';
@@ -1517,61 +1642,6 @@
       }
 
       nextBatch();
-    }
-
-    function analyzeAI(text) {
-      if (!text || text.length < 60) return { score: 10, label: 'AI Prob: 10%', className: 'ai-badge' };
-      
-      var aiWords = [
-        'delve', 'tapestry', 'beacon', 'testament', 'paramount', 'meticulously', 
-        'furthermore', 'conclusion', 'noteworthy', 'realm', 'nexus', 'revolutionize', 
-        'multifaceted', 'leverage', 'robust', 'seamlessly', 'holistic', 'embark', 
-        'paradigm', 'synergy', 'crucial', 'vital', 'testament to', 'in summary'
-      ];
-      
-      var lower = text.toLowerCase();
-      var words = lower.split(/\s+/);
-      var wordCount = words.length;
-      if (wordCount === 0) return { score: 10, label: 'AI Prob: 10%', className: 'ai-badge' };
-
-      var matchCount = 0;
-      for (var i = 0; i < aiWords.length; i++) {
-        var regex = new RegExp('\\b' + aiWords[i] + '\\b', 'g');
-        var matches = lower.match(regex);
-        if (matches) {
-          matchCount += matches.length;
-        }
-      }
-
-      var wordFreqRatio = (matchCount / wordCount) * 100;
-      var sentences = text.split(/[.!?]+/).filter(function(s) { return s.trim().length > 0; });
-      var totalScore = 15;
-      
-      if (sentences.length > 3) {
-        var lengths = sentences.map(function(s) { return s.trim().split(/\s+/).length; });
-        var mean = lengths.reduce(function(a,b){return a+b;},0) / lengths.length;
-        var variance = lengths.reduce(function(a,b){return a + Math.pow(b - mean, 2);},0) / lengths.length;
-        var stdDev = Math.sqrt(variance);
-        var cv = mean > 0 ? stdDev / mean : 1; 
-        
-        var uniformityScore = Math.max(0, (0.45 - cv) * 140);
-        var keywordScore = Math.min(65, wordFreqRatio * 45);
-        totalScore = Math.min(98, Math.max(8, Math.round(keywordScore + uniformityScore)));
-      } else {
-        totalScore = Math.min(90, Math.max(10, Math.round(wordFreqRatio * 55)));
-      }
-
-      var badgeClass = 'ai-badge';
-      var label = 'AI Prob: ' + totalScore + '%';
-      if (totalScore >= 75) {
-        badgeClass = 'ai-badge danger';
-        label = '⚠️ AI Prob: ' + totalScore + '%';
-      } else if (totalScore >= 50) {
-        badgeClass = 'ai-badge warning';
-        label = '⚠️ AI Prob: ' + totalScore + '%';
-      }
-
-      return { score: totalScore, label: label, className: badgeClass };
     }
 
     function loadTaste() {
@@ -1699,7 +1769,7 @@
       });
 
       var imageUrlRegex = /(^|[\s|>])(https?:\/\/[^\s<>"'|]+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"'|]+|\/[^\s<>"'|]*\?(?:[^\s<>"'|]*img|format|w|h)=)[^\s<>"'|]*)/gi;
-      
+
       body = body.replace(imageUrlRegex, function(match, prefix, url) {
         return prefix + '<img alt="Hive Image" src="' + escapeHtml(url) + '">';
       });
@@ -2251,7 +2321,7 @@
       }
       names.sort(function (a, b) { return b.weight - a.weight; });
       names = names.slice(0, 12);
-      var cacheKey = 'related-authors-v2:' + (observer || getConnectedUser() || 'anon') + ':' + names.map(function (x) { return x.name; }).join(',');
+      var cacheKey = 'related-authors-v3:' + (observer || getConnectedUser() || 'anon') + ':' + names.map(function (x) { return x.name; }).join(',');
       return loadNectarCached(cacheKey, 30 * 60 * 1000, 2 * 60 * 60 * 1000, function () {
         var collected = [];
         var index = 0;
@@ -2295,14 +2365,15 @@
       return merged;
     }
 
-    function fetchUserBehaviorProfile(username, idfMap, ownPosts, months) {
+    function fetchUserBehaviorProfile(username, idfMap, ownPosts, months, includeVotes) {
       if (!username) return Promise.resolve(null);
       var m = months || 24;
+      var withVotes = includeVotes !== false;
       var terms = Object.keys(idfMap || {});
       var corpusKey = terms.length + ':' + (terms[0] || '') + ':' + (terms[terms.length - 1] || '');
-      var cacheKey = 'behavior-profile-v2:' + username + ':' + m + ':' + corpusKey;
+      var cacheKey = 'behavior-profile-v4:' + username + ':' + m + ':' + (withVotes ? 'votes' : 'novotes') + ':' + corpusKey;
       return loadNectarCached(cacheKey, 20 * 60 * 1000, 60 * 60 * 1000, function () {
-        return getAccountHistory(username, m).then(function (history) {
+        return getAccountHistory(username, m, { includeVotes: withVotes }).then(function (history) {
           history = history || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {} };
           return Promise.all([
             fetchSeedPosts(history.seeds || [], history.skipKeys || {}),
@@ -2431,6 +2502,195 @@
       });
     }
 
+    function splitTextForTranslation(text, maxChunkLen) {
+      var limit = maxChunkLen || 420;
+      var str = String(text || '');
+      if (str.length <= limit) return str ? [str] : [];
+      var chunks = [];
+      var start = 0;
+      while (start < str.length) {
+        var end = Math.min(str.length, start + limit);
+        if (end < str.length) {
+          var breakPos = str.lastIndexOf(' ', end);
+          if (breakPos > start + Math.floor(limit * 0.5)) {
+            end = breakPos;
+          }
+        }
+        var part = str.slice(start, end).trim();
+        if (part) chunks.push(part);
+        start = end;
+        while (start < str.length && /\s/.test(str.charAt(start))) start++;
+      }
+      return chunks;
+    }
+
+    function translatePlainText(text, targetLang) {
+      var clean = String(text || '').trim();
+      if (!clean) return Promise.resolve('');
+      var cacheKey = targetLang + '::' + clean;
+      if (translationCache[cacheKey]) {
+        return Promise.resolve(translationCache[cacheKey]);
+      }
+
+      var pieces = splitTextForTranslation(clean, 420);
+      var chain = Promise.resolve('');
+
+      for (var i = 0; i < pieces.length; i++) {
+        (function(piece) {
+          chain = chain.then(function(acc) {
+            var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
+              encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
+            return fetch(url)
+              .then(function(res) {
+                if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+                return res.json();
+              })
+              .then(function(data) {
+                var translated = (data && data.responseData && data.responseData.translatedText)
+                  ? String(data.responseData.translatedText)
+                  : piece;
+                if (/MYMEMORY WARNING/i.test(translated)) {
+                  throw new Error(translated);
+                }
+                return acc ? (acc + ' ' + translated) : translated;
+              });
+          });
+        })(pieces[i]);
+      }
+
+      return chain.then(function(result) {
+        translationCache[cacheKey] = result;
+        return result;
+      });
+    }
+
+    function translateHtmlElementNodes(containerEl, targetLang) {
+      if (!containerEl) return Promise.resolve();
+      var walker = document.createTreeWalker(containerEl, NodeFilter.SHOW_TEXT, null, false);
+      var textNodes = [];
+      var node;
+      while ((node = walker.nextNode())) {
+        var parentTag = node.parentElement ? node.parentElement.tagName.toUpperCase() : '';
+        if (parentTag === 'CODE' || parentTag === 'PRE' || parentTag === 'SCRIPT' || parentTag === 'STYLE') {
+          continue;
+        }
+        if (node.nodeValue && node.nodeValue.trim().length >= 2) {
+          textNodes.push(node);
+        }
+      }
+
+      var idx = 0;
+      var batchSize = 4;
+
+      function nextBatch() {
+        if (idx >= textNodes.length) return Promise.resolve();
+        var batch = textNodes.slice(idx, idx + batchSize);
+        idx += batchSize;
+
+        return Promise.all(batch.map(function(tn) {
+          var orig = tn.nodeValue;
+          var leadingSpace = (orig.match(/^\s*/) || [''])[0];
+          var trailingSpace = (orig.match(/\s*$/) || [''])[0];
+          return translatePlainText(orig.trim(), targetLang)
+            .then(function(translated) {
+              if (translated) {
+                tn.nodeValue = leadingSpace + translated + trailingSpace;
+              }
+            })
+            .catch(function() {});
+        })).then(nextBatch);
+      }
+
+      return nextBatch();
+    }
+
+    function translateCurrentPost() {
+      var idx = appState.currentReaderIndex;
+      if (idx === null || idx === undefined || appState.isTranslatingPost) return;
+      var item = appState.results[idx];
+      if (!item || !item.post) return;
+
+      var selectEl = document.getElementById('translateTargetLang');
+      var btnEl = document.getElementById('translatePostBtn');
+      var origBtnEl = document.getElementById('showOriginalPostBtn');
+      var bannerEl = document.getElementById('translationStatusBanner');
+      var bannerTextEl = document.getElementById('translationStatusText');
+      var titleEl = document.getElementById('readerTitle');
+      var contentEl = document.getElementById('readerContent');
+
+      var targetLang = selectEl ? selectEl.value : 'en';
+      var langLabel = selectEl && selectEl.selectedIndex >= 0
+        ? selectEl.options[selectEl.selectedIndex].text
+        : targetLang;
+
+      if (!appState.isPostTranslated) {
+        appState.readerOriginalTitle = titleEl ? titleEl.textContent : (item.post.title || '(Untitled)');
+        appState.readerOriginalHtml = contentEl ? contentEl.innerHTML : renderHiveBodyHtml(item.post.body || '');
+      }
+
+      appState.isTranslatingPost = true;
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Translating...';
+      }
+      if (bannerEl && bannerTextEl) {
+        bannerEl.style.display = 'flex';
+        bannerTextEl.textContent = 'Translating post into ' + langLabel + '...';
+      }
+
+      var rawTitle = item.post.title || '(Untitled)';
+      translatePlainText(rawTitle, targetLang)
+        .then(function(translatedTitle) {
+          if (titleEl && translatedTitle) {
+            titleEl.textContent = translatedTitle;
+          }
+          if (contentEl) {
+            contentEl.innerHTML = appState.readerOriginalHtml;
+            return translateHtmlElementNodes(contentEl, targetLang);
+          }
+        })
+        .then(function() {
+          appState.isPostTranslated = true;
+          if (origBtnEl) origBtnEl.style.display = 'inline-block';
+          if (bannerEl && bannerTextEl) {
+            bannerEl.style.display = 'flex';
+            bannerTextEl.textContent = 'Translated to ' + langLabel + ' (Original post preserved)';
+          }
+        })
+        .catch(function(err) {
+          if (titleEl) titleEl.textContent = appState.readerOriginalTitle;
+          if (contentEl) contentEl.innerHTML = appState.readerOriginalHtml;
+          if (bannerEl && bannerTextEl) {
+            bannerEl.style.display = 'flex';
+            bannerTextEl.textContent = 'Translation unavailable right now: ' + ((err && err.message) ? err.message : 'Request failed');
+          }
+        })
+        .finally(function() {
+          appState.isTranslatingPost = false;
+          if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.textContent = 'Translate';
+          }
+        });
+    }
+
+    function restoreOriginalPost() {
+      var titleEl = document.getElementById('readerTitle');
+      var contentEl = document.getElementById('readerContent');
+      var origBtnEl = document.getElementById('showOriginalPostBtn');
+      var bannerEl = document.getElementById('translationStatusBanner');
+
+      if (appState.readerOriginalTitle && titleEl) {
+        titleEl.textContent = appState.readerOriginalTitle;
+      }
+      if (appState.readerOriginalHtml && contentEl) {
+        contentEl.innerHTML = appState.readerOriginalHtml;
+      }
+      appState.isPostTranslated = false;
+      if (origBtnEl) origBtnEl.style.display = 'none';
+      if (bannerEl) bannerEl.style.display = 'none';
+    }
+
     function setMode(m) {
       appState.mode = m;
       var btns = document.querySelectorAll('#modeGroup .seg-btn');
@@ -2487,7 +2747,29 @@
       return Promise.reject(new Error('Please select a mode and enter your input.'));
     }
 
-    function getAccountHistory(username, months) {
+    function parseReblogPayload(opData) {
+      if (!opData) return null;
+      var rawJson = opData.json;
+      var parsed = null;
+      if (typeof rawJson === 'string') {
+        try { parsed = JSON.parse(rawJson); } catch (e) { return null; }
+      } else if (Array.isArray(rawJson)) {
+        parsed = rawJson;
+      }
+      if (!Array.isArray(parsed) || parsed.length < 2) return null;
+      if (String(parsed[0] || '').toLowerCase() !== 'reblog') return null;
+      var payload = parsed[1];
+      if (!payload || typeof payload !== 'object') return null;
+      var author = stripLeadingAt(payload.author || '');
+      var permlink = String(payload.permlink || '').trim();
+      var account = stripLeadingAt(payload.account || '');
+      if (!author || !permlink) return null;
+      return { account: account, author: author, permlink: permlink };
+    }
+
+    function getAccountHistory(username, months, options) {
+      var opts = options || {};
+      var includeVotes = opts.includeVotes !== false;
       var days = months * 30.5;
       var cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
       var skipKeys = {};
@@ -2548,7 +2830,7 @@
               var opData = Array.isArray(op) ? op[1] : op.value;
               if (!opData) continue;
 
-              if (opType === 'vote' || opType === 'vote_operation') {
+              if (includeVotes && (opType === 'vote' || opType === 'vote_operation')) {
                 if (opData.voter === username && opData.author && opData.permlink) {
                   var vKey = opData.author + '/' + opData.permlink;
                   skipKeys[vKey] = true;
@@ -2588,6 +2870,27 @@
                       weightedSeeds[cKey] = { author: opData.parent_author, permlink: opData.parent_permlink, weight: 1.5, timestamp: tx.timestamp || '' };
                     }
                     authorAffinity[opData.parent_author] = (authorAffinity[opData.parent_author] || 0) + 0.5;
+                  }
+                }
+              } else if (opType === 'custom_json' || opType === 'custom_json_operation') {
+                if (opData.id === 'follow') {
+                  var reblogInfo = parseReblogPayload(opData);
+                  if (reblogInfo) {
+                    var rebloggedByUser = (!reblogInfo.account || reblogInfo.account === username);
+                    if (rebloggedByUser && reblogInfo.author !== username) {
+                      var rKey = reblogInfo.author + '/' + reblogInfo.permlink;
+                      if (!weightedSeeds[rKey]) {
+                        weightedSeeds[rKey] = {
+                          author: reblogInfo.author,
+                          permlink: reblogInfo.permlink,
+                          weight: 0,
+                          timestamp: tx.timestamp || ''
+                        };
+                      }
+                      weightedSeeds[rKey].weight += 1.25;
+                      weightedSeeds[rKey].timestamp = tx.timestamp || weightedSeeds[rKey].timestamp;
+                      authorAffinity[reblogInfo.author] = (authorAffinity[reblogInfo.author] || 0) + 0.85;
+                    }
                   }
                 }
               }
@@ -2845,13 +3148,13 @@
     function getOriginalPostUrl(p) {
       var author = String(p && p.author ? p.author : '').trim();
       var permlink = String(p && p.permlink ? p.permlink : '').trim();
-      
+
       var meta = p && p.json_metadata;
       if (typeof meta === 'string') {
         try { meta = JSON.parse(meta); } catch (e) { meta = {}; }
       }
       var app = (meta && meta.app) ? String(meta.app).toLowerCase() : '';
-      
+
       var domain = 'hive.blog';
       if (app.indexOf('peakd') !== -1) {
         domain = 'peakd.com';
@@ -2866,14 +3169,14 @@
       if (author && permlink) {
         return 'https://' + domain + '/@' + author + '/' + permlink;
       }
-      
+
       if (p && p.url) {
         var u = String(p.url).trim();
         if (/^https?:\/\//i.test(u)) return u;
         if (u.charAt(0) === '/') return 'https://' + domain + u;
         return 'https://' + domain + '/' + u;
       }
-      
+
       return '[https://hive.blog/](https://hive.blog/)@' + author + '/' + permlink;
     }
 
@@ -2995,7 +3298,7 @@
       appState.results = activeList;
       appState.visibleCount = Math.min(appState.visibleCount, activeList.length);
       if (appState.visibleCount < 25 && activeList.length > 0) appState.visibleCount = 25;
-      
+
       var topSlice = activeList.slice(0, appState.visibleCount);
       renderCards(topSlice);
       syncVotesForRenderedPosts(topSlice);
@@ -3035,7 +3338,6 @@
             throw new Error('Invalid discussion response');
           }
           var rootKey = author + '/' + permlink;
-          var rootNode = discussion[rootKey];
           var allNodes = [];
           for (var k in discussion) {
             if (Object.prototype.hasOwnProperty.call(discussion, k) && k !== rootKey) {
@@ -3140,7 +3442,7 @@
       appState.currentReaderIndex = idx;
       cancelReplyTarget();
       var p = item.post;
-      
+
       var titleEl = document.getElementById('readerTitle');
       var metaEl = document.getElementById('readerMeta');
       var contentEl = document.getElementById('readerContent');
@@ -3148,9 +3450,21 @@
       var commentInput = document.getElementById('commentBodyInput');
       var readerKeBottomVal = document.getElementById('readerKeBottomVal');
       var stickyOriginalLink = document.getElementById('stickyOriginalLink');
+      var origBtnEl = document.getElementById('showOriginalPostBtn');
+      var bannerEl = document.getElementById('translationStatusBanner');
+
       if (commentInput) commentInput.value = '';
-      
-      if (titleEl) titleEl.textContent = p.title || '(Untitled)';
+      appState.isPostTranslated = false;
+      appState.isTranslatingPost = false;
+      if (origBtnEl) origBtnEl.style.display = 'none';
+      if (bannerEl) bannerEl.style.display = 'none';
+
+      var renderedTitle = p.title || '(Untitled)';
+      var renderedHtml = renderHiveBodyHtml(p.body || '');
+      appState.readerOriginalTitle = renderedTitle;
+      appState.readerOriginalHtml = renderedHtml;
+
+      if (titleEl) titleEl.textContent = renderedTitle;
       var originalUrl = getOriginalPostUrl(p);
 
       if (stickyOriginalLink) {
@@ -3163,7 +3477,7 @@
         metaEl.innerHTML = '<div>by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(p.author) + '\')">@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span></div>';
       }
       if (contentEl) {
-        contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+        contentEl.innerHTML = renderedHtml;
       }
       if (readerKeBottomVal) {
         readerKeBottomVal.textContent = 'Loading...';
@@ -3171,7 +3485,7 @@
           readerKeBottomVal.textContent = ke;
         });
       }
-      
+
       if (modalEl) {
         modalEl.style.display = 'block';
         modalEl.scrollTop = 0;
@@ -3184,6 +3498,8 @@
       var modalEl = document.getElementById('postReaderModal');
       if (modalEl) modalEl.style.display = 'none';
       appState.currentReaderIndex = null;
+      appState.isPostTranslated = false;
+      appState.isTranslatingPost = false;
       cancelReplyTarget();
     }
 
@@ -3636,8 +3952,7 @@
         var snippet = rawBody.length > 220 ? rawBody.slice(0, 220) + '...' : rawBody;
         var pct = Math.min(99, Math.max(1, Math.round(item.finalScore * 100)));
         var age = formatAge(p.created);
-        
-        var aiRes = analyzeAI((p.title || '') + ' ' + (p.body || ''));
+
         var voteBadgeHtml = '';
         if (connectedUser) {
           var vInfo = getUserVoteInfo(p, connectedUser);
@@ -3654,15 +3969,14 @@
 
         html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
-        
+
         html += '<div class="badge-group">';
         html += voteBadgeHtml;
-        html += '<span class="' + aiRes.className + '">' + escapeHtml(aiRes.label) + '</span>';
         html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
         html += '</div>';
 
         html += '<h3><span class="rank-num">' + (i + 1) + '.</span><a href="#" onclick="openPostReader(' + i + '); return false;">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
-        
+
         html += '</div>';
 
         html += '<div class="meta">by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(p.author) + '\')">@' + escapeHtml(p.author) + '</strong>';
@@ -3702,7 +4016,7 @@
 
     function runUsernameWorkflow(username) {
       if (!username) return Promise.reject(new Error('Please enter a valid Hive username.'));
-      setStatus('Fetching posts and up to 730 days of activity for @' + username + '...');
+      setStatus('Fetching posts and up to 730 days of votes, reblogs, and activity for @' + username + '...');
       var obs = getConnectedUser() || username;
       var ownPostsPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20, observer: obs })
         .catch(function () { return hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 20, observer: obs }); })
@@ -3761,7 +4075,7 @@
             appState.visibleCount = 25;
             rerankAndRender();
             var shown = Math.min(appState.visibleCount, appState.results.length);
-            setStatus('Showing ' + ownPosts.length + ' posts by @' + username + ' and ' + Math.max(0, shown - ownPosts.length) + ' recommendations informed by votes, comments, and author interests.', false);
+            setStatus('Showing ' + ownPosts.length + ' posts by @' + username + ' and ' + Math.max(0, shown - ownPosts.length) + ' recommendations informed by votes, reblogs, comments, and author interests.', false);
           });
         });
       });
@@ -3769,7 +4083,7 @@
 
     function runFeedWorkflow(username) {
       if (!username) return Promise.reject(new Error('Please enter your Hive username to load your personal Feed.'));
-      setStatus('Learning from upvotes, comments, and voting history for @' + username + '...');
+      setStatus('Learning from upvotes, reblogs, comments, and voting history for @' + username + '...');
       return getAccountHistory(username, 24).then(function (history) {
         history = history || {};
         var skipKeys = history.skipKeys || {};
@@ -3784,7 +4098,7 @@
             var candidates = mergePostPools(groups[2], relatedPosts);
             var idfMap = computeCorpusIDF(candidates);
             var profile = buildBehaviorProfile(history, positiveSeeds, negativeSeeds, [], idfMap);
-            if (!profile.positive.norm) throw new Error('Could not extract enough text from your voting or comment history. Try again after interacting with more Hive content.');
+            if (!profile.positive.norm) throw new Error('Could not extract enough text from your voting, reblog, or comment history. Try again after interacting with more Hive content.');
 
             var taste = loadTaste();
             var scored = [];
@@ -3809,7 +4123,7 @@
             appState.visibleCount = 25;
             rerankAndRender();
             var shown = Math.min(appState.visibleCount, appState.results.length);
-            setStatus('Showing up to ' + shown + ' personalized recommendations using up to 730 days of Hive activity.', false);
+            setStatus('Showing up to ' + shown + ' personalized recommendations using up to 730 days of votes, reblogs, and Hive activity.', false);
           });
         });
       });
@@ -3819,6 +4133,7 @@
       var cleanQuery = String(query || '').trim();
       if (!cleanQuery) return Promise.reject(new Error('Please enter a search term.'));
       var lowerPhrase = cleanQuery.toLowerCase();
+      var includeVotingHistory = !!appState.useVotingHistoryInSearch;
       var username = getConnectedUser();
 
       return fetchSearchPool24Months().then(function (baseCandidates) {
@@ -3865,10 +4180,10 @@
             if (titleLower.indexOf(lowerPhrase) !== -1) queryScore += 0.35;
             else if (fullLower.indexOf(lowerPhrase) !== -1) queryScore += 0.20;
 
-            var behavior = profile ? scoreAgainstBehaviorProfile(candidate, profile, idfMap, candidateVector) : null;
+            var behavior = (profile && profile.positive && profile.positive.norm > 0) ? scoreAgainstBehaviorProfile(candidate, profile, idfMap, candidateVector) : null;
             var score = queryScore;
             var matchedTerms = semantic.matched.length > 0 ? semantic.matched.slice(0) : [lowerPhrase];
-            if (profile && queryScore > 0.01) {
+            if (behavior && queryScore > 0.01) {
               score = (queryScore * 0.80) + (Math.min(1, behavior.score) * 0.20);
               if (behavior.positive >= 0.12 || behavior.author >= 0.35) matchedTerms.push('Your Hive interests');
             }
@@ -3876,7 +4191,7 @@
               var ts = Date.parse((candidate.created || '').replace(/Z$/, '') + 'Z') || 0;
               scored.push({ post: candidate, baseScore: score, finalScore: score,
                 matched: matchedTerms.slice(0, 6), tokens: tokens,
-                timestamp: ts, isLiked: !!taste.liked[key], personalized: !!profile });
+                timestamp: ts, isLiked: !!taste.liked[key], personalized: !!behavior });
             }
           }
           appState.results = scored;
@@ -3886,19 +4201,36 @@
         }
 
         var initialShown = scoreAndRender(candidates, null);
-        if (username) setStatus('Showing ' + initialShown + ' initial matches while your Hive interests are refreshed…', false);
+        if (username) {
+          setStatus(
+            includeVotingHistory
+              ? 'Showing ' + initialShown + ' initial matches while your Hive voting, reblog & comment interests are refreshed…'
+              : 'Showing ' + initialShown + ' initial matches while your reblog & comment interests are refreshed (voting history excluded)…',
+            false
+          );
+        }
 
-        var profilePromise = username ? fetchUserBehaviorProfile(username, idfMap, [], 3) : Promise.resolve(null);
+        var profilePromise = username ? fetchUserBehaviorProfile(username, idfMap, [], 3, includeVotingHistory) : Promise.resolve(null);
         return profilePromise.then(function (profile) {
-          if (!profile) {
+          if (!profile || !profile.positive || !profile.positive.norm) {
             var shownWithoutProfile = initialShown;
-            setStatus('Found ' + shownWithoutProfile + ' relevant Hive articles for "' + cleanQuery + '".', false);
+            setStatus(
+              includeVotingHistory
+                ? 'Found ' + shownWithoutProfile + ' relevant Hive articles for "' + cleanQuery + '".'
+                : 'Found ' + shownWithoutProfile + ' relevant Hive articles for "' + cleanQuery + '" (voting history excluded).',
+              false
+            );
             return;
           }
           return fetchRelatedAuthorPosts(profile.authorAffinity || {}, username).then(function (relatedPosts) {
             var enrichedCandidates = mergePostPools(candidates, relatedPosts);
             var shown = scoreAndRender(enrichedCandidates, profile);
-            setStatus('Found ' + shown + ' relevant Hive articles for "' + cleanQuery + '", personalized with your Hive activity.', false);
+            setStatus(
+              includeVotingHistory
+                ? 'Found ' + shown + ' relevant Hive articles for "' + cleanQuery + '", personalized with your voting, reblog & comment history.'
+                : 'Found ' + shown + ' relevant Hive articles for "' + cleanQuery + '", personalized with your reblog & comment history (voting history excluded).',
+              false
+            );
           });
         });
       });
@@ -4028,7 +4360,7 @@
         setStatus('Hive Keychain extension or app browser was not detected.', true);
         return;
       }
-      
+
       var input = document.getElementById('queryInput');
       var enteredUser = input ? stripLeadingAt(input.value) : '';
       var targetAccount = enteredUser || getConnectedUser() || null;
@@ -4081,6 +4413,7 @@
 
     syncSliders(100);
     updateTasteBanner();
+    updateSearchVotingHistoryUI();
     updateThemeButton(document.documentElement.getAttribute('data-theme') || 'dark');
     detectKeychain();
     setTimeout(detectKeychain, 700);
