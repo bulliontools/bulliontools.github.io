@@ -2535,13 +2535,42 @@
       var pieces = splitTextForTranslation(clean, 420);
       var chain = Promise.resolve('');
 
+      function fetchWithTimeout(url, timeoutMs) {
+        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs || 6500) : null;
+        return fetch(url, { signal: controller ? controller.signal : undefined }).finally(function () {
+          if (timer) clearTimeout(timer);
+        });
+      }
+
       function translateSinglePiece(piece) {
         var targetCode = String(targetLang || 'en').split('-')[0].toLowerCase();
         var candidates = [
           function () {
+            var url = '[https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=](https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=)' +
+              encodeURIComponent(targetLang) + '&dt=t&q=' + encodeURIComponent(piece);
+            return fetchWithTimeout(url, 6500).then(function (res) {
+              if (!res.ok) throw new Error('Translation HTTP ' + res.status);
+              return res.json();
+            }).then(function (data) {
+              if (!Array.isArray(data) || !Array.isArray(data[0])) {
+                throw new Error('Unexpected Google translate response');
+              }
+              var out = '';
+              for (var i = 0; i < data[0].length; i++) {
+                if (Array.isArray(data[0][i]) && data[0][i][0]) {
+                  out += String(data[0][i][0]);
+                }
+              }
+              out = out.trim();
+              if (!out) throw new Error('Empty Google translation');
+              return out;
+            });
+          },
+          function () {
             var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
               encodeURIComponent(piece) + '&langpair=autodetect|' + encodeURIComponent(targetLang);
-            return fetch(url).then(function (res) {
+            return fetchWithTimeout(url, 6500).then(function (res) {
               if (!res.ok) throw new Error('Translation HTTP ' + res.status);
               return res.json();
             }).then(function (data) {
@@ -2559,12 +2588,12 @@
             var pIdx = 0;
             function nextPair() {
               if (pIdx >= pairs.length) {
-                return Promise.reject(new Error('Translation HTTP 404'));
+                return Promise.reject(new Error('Translation unavailable'));
               }
               var pair = pairs[pIdx++];
               var url = '[https://api.mymemory.translated.net/get?q=](https://api.mymemory.translated.net/get?q=)' +
                 encodeURIComponent(piece) + '&langpair=' + encodeURIComponent(pair);
-              return fetch(url).then(function (res) {
+              return fetchWithTimeout(url, 6500).then(function (res) {
                 if (!res.ok) throw new Error('Translation HTTP ' + res.status);
                 return res.json();
               }).then(function (data) {
@@ -2580,24 +2609,11 @@
               });
             }
             return nextPair();
-          },
-          function () {
-            var lingvaUrl = '[https://lingva.ml/api/v1/auto/](https://lingva.ml/api/v1/auto/)' +
-              encodeURIComponent(targetCode) + '/' + encodeURIComponent(piece);
-            return fetch(lingvaUrl).then(function (res) {
-              if (!res.ok) throw new Error('Translation HTTP ' + res.status);
-              return res.json();
-            }).then(function (data) {
-              if (!data || !data.translation) {
-                throw new Error('Empty Lingva translation');
-              }
-              return String(data.translation);
-            });
           }
         ];
 
         var idx = 0;
-        var lastErr = new Error('Translation HTTP 404');
+        var lastErr = new Error('Translation unavailable');
         function tryNext() {
           if (idx >= candidates.length) {
             return Promise.reject(lastErr);
