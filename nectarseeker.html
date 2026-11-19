@@ -1039,11 +1039,6 @@
         <button type="button" class="report-phishing-link" onclick="openReportPhishingModal()">🚨 Report phishing/scam</button>
       </div>
 
-      <div class="reader-action-section" id="readerKeBottomSection" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-        <span style="font-size: 14px; color: var(--text-main);"><strong>Author Ecosystem Health (KE Ratio):</strong></span>
-        <span id="readerKeBottomVal" class="ke-badge" style="font-size: 13px; padding: 5px 12px;">Calculating...</span>
-      </div>
-
       <div class="reader-action-section">
         <h4 style="margin:0 0 10px 0; color:var(--text-main); font-size:15px;">Cast Vote via Hive Keychain</h4>
         <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
@@ -1912,7 +1907,7 @@
 
     function fetchUserMana(username) {
       if (!username) return;
-      hiveCall('condenser_api.get_accounts', [[username]]).then(function(accs) {
+      hiveCallUncached('condenser_api.get_accounts', [[username]]).then(function(accs) {
         if (accs && accs[0]) {
           var acc = accs[0];
           appState.accountData = acc;
@@ -1921,7 +1916,7 @@
           var vp = acc.voting_power + (elapsedSecs * 10000 / 432000);
           vp = Math.min(10000, vp) / 100;
 
-          hiveCall('rc_api.find_rc_accounts', { accounts: [username] }).then(function(rcRes) {
+          hiveCallUncached('rc_api.find_rc_accounts', { accounts: [username] }).then(function(rcRes) {
             var rcPct = vp;
             if (rcRes && rcRes.rc_accounts && rcRes.rc_accounts[0]) {
               var rcAcc = rcRes.rc_accounts[0];
@@ -3873,7 +3868,6 @@
       var contentEl = document.getElementById('readerContent');
       var modalEl = document.getElementById('postReaderModal');
       var commentInput = document.getElementById('commentBodyInput');
-      var readerKeBottomVal = document.getElementById('readerKeBottomVal');
       var stickyOriginalLink = document.getElementById('stickyOriginalLink');
 
       if (commentInput) commentInput.value = '';
@@ -3895,12 +3889,6 @@
       }
       if (contentEl) {
         contentEl.innerHTML = renderedHtml;
-      }
-      if (readerKeBottomVal) {
-        readerKeBottomVal.textContent = 'Loading...';
-        getAuthorKeRatio(p.author, function(ke) {
-          readerKeBottomVal.textContent = ke;
-        });
       }
 
       if (modalEl) {
@@ -4002,6 +3990,11 @@
 
             setStatus('Successfully cast ' + (direction > 0 ? 'upvote' : 'downvote') + ' (' + signedPct + '%) on @' + item.post.author + '/' + item.post.permlink, false);
             fetchUserMana(connectedUser);
+            setTimeout(function () {
+              if (getConnectedUser() === connectedUser) {
+                fetchUserMana(connectedUser);
+              }
+            }, 3200);
 
             if (direction > 0) {
               var taste = loadTaste();
