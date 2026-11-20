@@ -267,8 +267,10 @@ const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 
 const RPC_ENDPOINTS = [
 "https://api.hive-engine.com/rpc",
+"https://herpc.dtools.dev",
 "https://engine.rishipanthee.com",
-"https://herpc.dtools.dev"
+"https://he.atexoras.com:2083",
+"https://hive-engine.avyukth.com"
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -296,25 +298,46 @@ const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
 return Number(num || 0).toFixed(p);
 }
 
-async function rpcCall(contractOrEndpoint, payload) {
-let lastErr;
+function buildCandidateUrls(base, route) {
+const cleanBase = base.replace(/\/+$/, "");
+const cleanRoute = route.replace(/^\/+/, "");
+if (cleanBase.endsWith("/rpc")) {
+return [`${cleanBase}/${cleanRoute}`];
+}
+return [`${cleanBase}/${cleanRoute}`, `${cleanBase}/rpc/${cleanRoute}`];
+}
+
+async function rpcCall(route, payload) {
+const errors = [];
 for (const base of RPC_ENDPOINTS) {
-const url = base.endsWith("/rpc") ? `${base}/${contractOrEndpoint}` : `${base}/rpc/${contractOrEndpoint}`;
+const urls = buildCandidateUrls(base, route);
+for (const url of urls) {
 try {
 const res = await fetch(url, {
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(payload)
 });
-if (!res.ok) throw new Error(`HTTP ${res.status}`);
+if (!res.ok) {
+errors.push(`${url} -> HTTP ${res.status}`);
+continue;
+}
 const data = await res.json();
-if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+if (data && data.error) {
+errors.push(`${url} -> ${data.error.message || JSON.stringify(data.error)}`);
+continue;
+}
+if (!data || !("result" in data)) {
+errors.push(`${url} -> Invalid RPC response`);
+continue;
+}
 return data.result;
 } catch (err) {
-lastErr = err;
+errors.push(`${url} -> ${err.message}`);
 }
 }
-throw lastErr || new Error("All Hive-Engine RPC nodes failed.");
+}
+throw new Error(errors[errors.length - 1] || "All Hive-Engine RPC nodes failed.");
 }
 
 async function fetchAllBalances(account) {
