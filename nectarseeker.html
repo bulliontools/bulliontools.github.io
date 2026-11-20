@@ -864,27 +864,6 @@
       border-radius: 10px;
       padding: 14px;
     }
-    .wallet-swap-box {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
-    }
-    .wallet-swap-estimate {
-      background: var(--surface-1);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-size: 13px;
-      color: var(--text-muted);
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
     .phishing-modal-container {
       background: var(--surface-1);
       border: 2px solid var(--accent-danger);
@@ -1270,7 +1249,6 @@
         <button type="button" class="profile-tab-btn" data-wtab="stake" onclick="setWalletActionTab('stake')">Stake (Power Up)</button>
         <button type="button" class="profile-tab-btn" data-wtab="hbd_savings" onclick="setWalletActionTab('hbd_savings')">Stake HBD (Savings)</button>
         <button type="button" class="profile-tab-btn" data-wtab="unstake" onclick="setWalletActionTab('unstake')">Unstake (Power Down)</button>
-        <button type="button" class="profile-tab-btn" data-wtab="swap" onclick="setWalletActionTab('swap')">Swap</button>
       </div>
 
       <div id="walletActionPanel" class="wallet-form-grid" style="margin-bottom:18px;"></div>
@@ -1448,8 +1426,7 @@
       profileTab: 'comments',
       profileActivityData: null,
       walletTab: 'transfer',
-      walletBalances: { hp: 0, hive: 0, hbd: 0, savingsHbd: 0 },
-      swapRate: { hbdPerHive: 0, hivePerHbd: 0, source: '', fetchedAt: 0 }
+      walletBalances: { hp: 0, hive: 0, hbd: 0, savingsHbd: 0 }
     };
 
     var currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
@@ -2603,101 +2580,6 @@
       });
     }
 
-    function parseAssetPrice(raw) {
-      if (raw == null) return 0;
-      if (typeof raw === 'number') return isFinite(raw) ? raw : 0;
-      var num = parseFloat(String(raw).trim().split(/\s+/)[0]);
-      return isFinite(num) ? num : 0;
-    }
-
-    function fetchHiveHbdSwapRate() {
-      var cached = appState.swapRate;
-      if (cached && cached.hbdPerHive > 0 && cached.hivePerHbd > 0 && (Date.now() - cached.fetchedAt) < 60000) {
-        return Promise.resolve(cached);
-      }
-
-      return hiveCallUncached('condenser_api.get_feed_history', [])
-        .then(function(feed) {
-          var currentPrice = feed && feed.current_median_history ? feed.current_median_history : null;
-          var baseVal = currentPrice ? parseAssetPrice(currentPrice.base) : 0;
-          var quoteVal = currentPrice ? parseAssetPrice(currentPrice.quote) : 0;
-          if (baseVal > 0 && quoteVal > 0) {
-            var hbdPerHive = baseVal / quoteVal;
-            var rate = {
-              hbdPerHive: hbdPerHive,
-              hivePerHbd: 1 / hbdPerHive,
-              source: 'Median Price Feed',
-              fetchedAt: Date.now()
-            };
-            appState.swapRate = rate;
-            return rate;
-          }
-          throw new Error('Missing feed history');
-        })
-        .catch(function() {
-          return hiveCallUncached('condenser_api.get_ticker', [])
-            .then(function(ticker) {
-              var latest = ticker && typeof ticker.latest === 'string' ? parseFloat(ticker.latest) : NaN;
-              var highestBid = ticker && typeof ticker.highest_bid === 'string' ? parseFloat(ticker.highest_bid) : NaN;
-              var lowestAsk = ticker && typeof ticker.lowest_ask === 'string' ? parseFloat(ticker.lowest_ask) : NaN;
-              var hbdPerHive = 0;
-              if (isFinite(latest) && latest > 0) {
-                hbdPerHive = latest;
-              } else if (isFinite(highestBid) && isFinite(lowestAsk) && highestBid > 0 && lowestAsk > 0) {
-                hbdPerHive = (highestBid + lowestAsk) / 2;
-              }
-              if (hbdPerHive > 0) {
-                var rate = {
-                  hbdPerHive: hbdPerHive,
-                  hivePerHbd: 1 / hbdPerHive,
-                  source: 'Internal Market Ticker',
-                  fetchedAt: Date.now()
-                };
-                appState.swapRate = rate;
-                return rate;
-              }
-              throw new Error('Missing market ticker');
-            });
-        });
-    }
-
-    function updateWalletSwapEstimate() {
-      var estEl = document.getElementById('walletSwapEstimate');
-      var fromEl = document.getElementById('walletSwapFrom');
-      var toEl = document.getElementById('walletSwapTo');
-      var amtEl = document.getElementById('walletSwapAmt');
-      if (!estEl || !fromEl || !toEl || !amtEl) return;
-
-      var fromAsset = fromEl.value;
-      var toAsset = toEl.value;
-      var amt = parseFloat(amtEl.value || '0');
-
-      if (fromAsset === toAsset) {
-        estEl.innerHTML = '<span style="color:var(--accent-warn);">Select two different assets (HIVE ↔ HBD) to estimate conversion.</span>';
-        return;
-      }
-
-      fetchHiveHbdSwapRate().then(function(rate) {
-        var unitRate = fromAsset === 'HIVE' ? rate.hbdPerHive : rate.hivePerHbd;
-        var converted = isFinite(amt) && amt > 0 ? amt * unitRate : 0;
-        estEl.innerHTML =
-          '<div><strong>Estimated Output:</strong> <span style="color:var(--accent-green); font-weight:700;">~' + converted.toFixed(3) + ' ' + escapeHtml(toAsset) + '</span></div>' +
-          '<div style="font-size:12px;">Rate: 1 ' + escapeHtml(fromAsset) + ' ≈ ' + unitRate.toFixed(4) + ' ' + escapeHtml(toAsset) + ' (' + escapeHtml(rate.source) + ')</div>';
-      }).catch(function() {
-        estEl.innerHTML = '<span style="color:var(--accent-danger);">Unable to fetch live HIVE/HBD conversion rate right now.</span>';
-      });
-    }
-
-    function syncWalletSwapOptions() {
-      var fromEl = document.getElementById('walletSwapFrom');
-      var toEl = document.getElementById('walletSwapTo');
-      if (!fromEl || !toEl) return;
-      if (fromEl.value === toEl.value) {
-        toEl.value = fromEl.value === 'HIVE' ? 'HBD' : 'HIVE';
-      }
-      updateWalletSwapEstimate();
-    }
-
     function setWalletActionTab(tab) {
       appState.walletTab = tab || 'transfer';
       var btns = document.querySelectorAll('#walletActionTabs .profile-tab-btn');
@@ -2735,23 +2617,6 @@
         panel.innerHTML =
           '<input type="number" step="0.001" min="0.001" id="walletUnstakeAmt" placeholder="HP amount to unstake (Power Down)" />' +
           '<button type="button" class="primary-btn" onclick="executeWalletUnstake()">Start Power Down (HP)</button>';
-      } else if (appState.walletTab === 'swap') {
-        panel.innerHTML =
-          '<div class="wallet-swap-box">' +
-            '<select id="walletSwapFrom" class="compact-select" style="font-size:14px; padding:10px 12px;" onchange="syncWalletSwapOptions()">' +
-              '<option value="HIVE">HIVE</option>' +
-              '<option value="HBD">HBD</option>' +
-            '</select>' +
-            '<span style="font-size:13px; color:var(--accent-cyan); font-weight:700;">→</span>' +
-            '<select id="walletSwapTo" class="compact-select" style="font-size:14px; padding:10px 12px;" onchange="syncWalletSwapOptions()">' +
-              '<option value="HBD">HBD</option>' +
-              '<option value="HIVE">HIVE</option>' +
-            '</select>' +
-            '<input type="number" step="0.001" min="0.001" id="walletSwapAmt" placeholder="Amount (0.000)" oninput="updateWalletSwapEstimate()" />' +
-          '</div>' +
-          '<div class="wallet-swap-estimate" id="walletSwapEstimate">Fetching estimated HIVE ↔ HBD conversion rate...</div>' +
-          '<button type="button" class="primary-btn" onclick="executeWalletSwap()">Swap via Hive Keychain</button>';
-        updateWalletSwapEstimate();
       }
     }
 
@@ -2864,68 +2729,6 @@
         });
       }).catch(function() {
         setStatus('Failed to calculate VESTS for power down.', true);
-      });
-    }
-
-    function executeWalletSwap() {
-      var user = getConnectedUser();
-      if (!user || !window.hive_keychain) {
-        setStatus('Connect Hive Keychain to swap.', true);
-        return;
-      }
-      var fromAsset = ((document.getElementById('walletSwapFrom') || {}).value || 'HIVE').toUpperCase();
-      var toAsset = ((document.getElementById('walletSwapTo') || {}).value || 'HBD').toUpperCase();
-      var amt = parseFloat((document.getElementById('walletSwapAmt') || {}).value || '0');
-      if (fromAsset === toAsset) {
-        alert('Choose two different assets to swap.');
-        return;
-      }
-      if (!isFinite(amt) || amt <= 0) {
-        alert('Enter a valid swap amount.');
-        return;
-      }
-
-      fetchHiveHbdSwapRate().then(function(rate) {
-        var unitRate = fromAsset === 'HIVE' ? rate.hbdPerHive : rate.hivePerHbd;
-        var estOut = amt * unitRate;
-        if (!isFinite(estOut) || estOut <= 0) {
-          throw new Error('Invalid conversion rate');
-        }
-
-        var minToReceive = estOut * 0.98;
-        var amountToSell = amt.toFixed(3) + ' ' + fromAsset;
-        var minToReceiveStr = minToReceive.toFixed(3) + ' ' + toAsset;
-        var orderId = Math.floor(Date.now() / 1000);
-        var expiration = new Date(Date.now() + 3600 * 1000).toISOString().split('.')[0];
-
-        var op = [
-          'limit_order_create',
-          {
-            owner: user,
-            orderid: orderId,
-            amount_to_sell: amountToSell,
-            min_to_receive: minToReceiveStr,
-            fill_or_kill: false,
-            expiration: expiration
-          }
-        ];
-
-        window.hive_keychain.requestBroadcast(
-          user,
-          [op],
-          'Active',
-          function(res) {
-            if (res && res.success) {
-              setStatus('Swap order broadcast: ' + amountToSell + ' → at least ' + minToReceiveStr + '.', false);
-              refreshWalletBalances();
-            } else {
-              var errMsg = (res && (res.message || (res.error && (res.error.message || res.error)))) || 'Swap cancelled or failed.';
-              setStatus(errMsg, true);
-            }
-          }
-        );
-      }).catch(function() {
-        setStatus('Unable to calculate swap rate before broadcasting.', true);
       });
     }
 
@@ -5431,10 +5234,14 @@
         var permlink = p.permlink || '';
         var dapp = detectFrontend(p);
         var age = formatAge(p.created);
-        var cleanBody = cleanMarkdown(p.body || '');
-        var snippet = cleanBody.length > 210 ? cleanBody.slice(0, 210) + '...' : cleanBody;
-        var kw = item.matched && item.matched.length > 0 ? item.matched.join(', ') : 'hive';
-        var likedClass = item.isLiked ? ' liked' : '';
+
+        var plainBody = cleanMarkdown(p.body || '');
+        var snippet = plainBody.slice(0, 220);
+        if (plainBody.length > 220) snippet += '...';
+
+        var kwText = (item.matched && item.matched.length > 0)
+          ? item.matched.join(', ')
+          : (p.category || 'hive');
 
         var voteBadgeHtml = '';
         if (connectedUser) {
@@ -5443,33 +5250,26 @@
             if (vInfo.percent < 0) {
               voteBadgeHtml = '<span class="vote-status-badge downvoted">&#128078; Downvoted (' + vInfo.percent + '%)</span>';
             } else {
-              voteBadgeHtml = '<span class="vote-status-badge voted">&#128077; Voted (' + vInfo.percent + '%)</span>';
+              var pctLabel = vInfo.percent > 0 ? ' (' + vInfo.percent + '%)' : '';
+              voteBadgeHtml = '<span class="vote-status-badge voted">&#10003; Voted' + pctLabel + '</span>';
             }
           } else {
-            voteBadgeHtml = '<span class="vote-status-badge unvoted">Not voted</span>';
+            voteBadgeHtml = '<span class="vote-status-badge unvoted">Not Voted</span>';
           }
         }
 
-        var extraMeta = '';
-        if (item.joinedAge) {
-          extraMeta += ' &middot; <span>Joined: ' + escapeHtml(item.joinedAge) + '</span>';
-        }
-        if (item.fromUser) {
-          extraMeta += ' &middot; <span>From @' + escapeHtml(item.fromUser) + '</span>';
-        }
-
-        html += '<div class="card' + likedClass + '">';
+        html += '<div class="card' + (item.isLiked ? ' liked' : '') + '">';
         html += '<div class="card-top">';
-        html += '<h3><span class="rank-num">#' + (i + 1) + '</span><a onclick="openPostReader(' + i + '); return false;">' + escapeHtml(title) + '</a></h3>';
+        html += '<h3><span class="rank-num">#' + (i + 1) + '</span><a href="javascript:void(0)" onclick="openPostReader(' + i + ')">' + escapeHtml(title) + '</a></h3>';
         html += '<div class="badge-group">' + voteBadgeHtml + '<span class="dapp-tag">' + escapeHtml(dapp) + '</span></div>';
         html += '</div>';
-        html += '<div class="meta">by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(author) + '\')">@' + escapeHtml(author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + extraMeta + '</div>';
+        html += '<div class="meta">by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(author) + '\')">@' + escapeHtml(author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + '</div>';
         html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
         html += '<div class="card-footer">';
-        html += '<span class="keywords">Keywords: ' + escapeHtml(kw) + '</span>';
+        html += '<span class="keywords">Keywords: ' + escapeHtml(kwText) + '</span>';
         html += '<div class="actions-right">';
-        html += '<button type="button" class="vote-btn up' + (item.isLiked ? ' active' : '') + '" onclick="learnFromCard(' + i + ', 1)" title="Show more like this">&#128077; More</button>';
-        html += '<button type="button" class="vote-btn down" onclick="learnFromCard(' + i + ', -1)" title="Show less like this">&#128078; Less</button>';
+        html += '<button type="button" class="vote-btn up' + (item.isLiked ? ' active' : '') + '" onclick="learnFromCard(' + i + ', 1)">More</button>';
+        html += '<button type="button" class="vote-btn down" onclick="learnFromCard(' + i + ', -1)">Less</button>';
         html += '</div>';
         html += '</div>';
         html += '</div>';
@@ -5478,7 +5278,7 @@
       if (appState.results.length > items.length) {
         var remaining = appState.results.length - items.length;
         html += '<div style="text-align:center; margin-top:16px;">';
-        html += '<button type="button" class="kc-btn" onclick="showMoreResults()">Show More Results (' + remaining + ' more available)</button>';
+        html += '<button type="button" class="kc-btn" onclick="showMoreResults()">Show More (' + remaining + ' more available)</button>';
         html += '</div>';
       }
 
@@ -5492,490 +5292,450 @@
       syncVotesForRenderedPosts(slice);
     }
 
-    function rankPosts(posts, queryText, idfMap, extraMetaFn, behaviorProfile) {
-      var qTokens = tokenize(queryText);
-      var hasQuery = qTokens.length > 0;
-      var queryVector = hasQuery ? buildExpandedSearchQueryVector(queryText, idfMap) : null;
-      var isSearchMode = appState.mode === 'search';
-      var qLower = String(queryText || '').trim().toLowerCase();
-      var ranked = [];
+    function scoreAndStore(candidates, scorerFn, customTitle, options) {
+      var opts = options || {};
+      var allowEmptyCandidates = !!opts.allowEmptyCandidates;
+      var taste = loadTaste();
+      var scored = [];
 
-      for (var i = 0; i < posts.length; i++) {
-        var p = posts[i];
+      for (var i = 0; i < candidates.length; i++) {
+        var p = candidates[i];
         if (!p || !p.author || !p.permlink) continue;
+        var key = p.author + '/' + p.permlink;
+        if (taste.disliked[key]) continue;
 
-        var title = p.title || '';
-        var body = p.body || '';
-        var tokens = tokenize(title + ' ' + body);
-        var postVector = buildVectorWithIDF(tokens, null, idfMap);
-        var sim = { score: 0, matched: [] };
-        var exactPhraseBonus = 0;
+        var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
+        var res = scorerFn(p, tokens, i);
+        if (res === null) continue;
 
-        if (hasQuery && queryVector) {
-          sim = cosineSim(queryVector, postVector);
-          var titleLower = title.toLowerCase();
-          var bodyLower = body.toLowerCase();
-          if (qLower.length >= 2) {
-            if (titleLower.indexOf(qLower) !== -1) exactPhraseBonus += 0.35;
-            else if (bodyLower.indexOf(qLower) !== -1) exactPhraseBonus += 0.12;
-          }
-          if (isSearchMode && sim.score === 0 && exactPhraseBonus === 0) continue;
-        }
+        var base = (typeof res === 'number') ? res : (res.score || 0);
+        var matched = (res && res.matched) ? res.matched : [];
+        var finalScore = applyTasteAdjustment(base, tokens);
+        var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
 
-        var behavior = behaviorProfile
-          ? scoreAgainstBehaviorProfile(p, behaviorProfile, idfMap, postVector)
-          : { score: 0, matched: [], positive: 0, negative: 0, author: 0 };
-
-        var baseScore;
-        var matchedTerms;
-
-        if (isSearchMode && hasQuery) {
-          baseScore = sim.score + exactPhraseBonus;
-          matchedTerms = sim.matched.slice(0);
-          if (behaviorProfile) {
-            var behaviorBoost = behavior.score * 0.25;
-            baseScore += behaviorBoost;
-            if (behavior.positive >= 0.08 && matchedTerms.indexOf('Interest profile') === -1) {
-              matchedTerms.push('Interest profile');
-            }
-            if (behavior.author >= 0.35 && matchedTerms.indexOf('Author affinity') === -1) {
-              matchedTerms.push('Author affinity');
-            }
-          }
-        } else if (hasQuery) {
-          baseScore = sim.score + exactPhraseBonus + (behavior.score * 0.35);
-          matchedTerms = sim.matched.concat(behavior.matched).slice(0, 6);
-        } else if (behaviorProfile) {
-          baseScore = behavior.score;
-          matchedTerms = behavior.matched.slice(0, 6);
-        } else {
-          baseScore = (i + 1) / (posts.length + 1);
-          matchedTerms = tokens.slice(0, 4);
-        }
-
-        var ts = p.created ? Date.parse(String(p.created).replace(/Z$/, '') + 'Z') : 0;
-        if (isNaN(ts)) ts = 0;
-
-        var entry = {
+        scored.push({
           post: p,
           tokens: tokens,
-          baseScore: baseScore,
-          finalScore: baseScore,
-          matched: matchedTerms,
+          baseScore: base,
+          finalScore: finalScore,
+          matched: matched,
           timestamp: ts,
-          isLiked: false,
-          personalized: !!(behaviorProfile && behavior.score > 0),
-          joinedAge: '',
-          fromUser: ''
-        };
-
-        if (extraMetaFn) {
-          extraMetaFn(entry, p);
-        }
-
-        ranked.push(entry);
+          isLiked: !!taste.liked[key],
+          personalized: !!(res && res.personalized)
+        });
       }
 
-      return ranked;
+      if (scored.length === 0 && !allowEmptyCandidates) {
+        appState.results = [];
+        renderCards([]);
+        setStatus('No matching posts or 3Speak videos found. Try another query or reset taste preferences.', false);
+        return;
+      }
+
+      appState.results = scored;
+      appState.visibleCount = 25;
+      rerankAndRender();
+      setStatus(customTitle + ' (' + scored.length + ' items ranked)', false);
     }
 
     function runFeedMode(username) {
-      var obs = getConnectedUser() || username;
-      setStatus('Scanning @' + username + '\'s past 24 months of activity and building your personal feed...', false);
+      setStatus('Scanning @' + username + '\'s past 24 months of activity and building personal taste profile...', false);
 
-      return Promise.all([
+      Promise.all([
         getAccountHistory(username, 24),
-        fetchAllFrontendsPool(obs)
-      ]).then(function (res) {
-        var history = res[0];
-        var pool = res[1] || [];
+        fetchAllFrontendsPool(username),
+        hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 25, observer: username }).catch(function () { return []; })
+      ]).then(function (data) {
+        var history = data[0];
+        var pool = data[1];
+        var ownPosts = Array.isArray(data[2]) ? data[2] : [];
+        var skip = history.skipKeys || {};
+        var seeds = history.seeds || [];
+        var negativeSeeds = history.negativeSeeds || [];
 
-        return Promise.all([
-          fetchSeedPosts(history.seeds, history.skipKeys),
-          fetchSeedPosts(history.negativeSeeds, {}),
-          fetchRelatedAuthorPosts(history.authorAffinity, obs)
-        ]).then(function (seedGroups) {
-          var seedItems = seedGroups[0];
-          var negativeSeedItems = seedGroups[1];
-          var relatedPosts = seedGroups[2] || [];
+        if (seeds.length === 0 && negativeSeeds.length === 0 && (!history.commentTexts || history.commentTexts.length === 0)) {
+          var filteredPool = pool.filter(function (p) {
+            return !skip[p.author + '/' + p.permlink];
+          });
+          var idfFallback = computeCorpusIDF(filteredPool);
+          scoreAndStore(filteredPool, function (p, tokens) {
+            var vec = buildVectorWithIDF(tokens, null, idfFallback);
+            var top = [];
+            for (var t in vec.vec) {
+              if (Object.prototype.hasOwnProperty.call(vec.vec, t) && !STOP_WORDS[t] && t.length >= 3 && top.length < 4) {
+                top.push(t);
+              }
+            }
+            var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var ageHours = Math.max(1, (Date.now() - ts) / 3600000);
+            return { score: 1 / Math.sqrt(ageHours), matched: top };
+          }, 'Feed for @' + username + ' (no recent votes/comments/reblogs found in 24m, showing recent posts)');
+          return;
+        }
+
+        setStatus('Analyzing @' + username + '\'s 24-month activity and scoring unread posts across Hive...', false);
+
+        Promise.all([
+          fetchSeedPosts(seeds, skip),
+          fetchSeedPosts(negativeSeeds, {}),
+          fetchRelatedAuthorPosts(history.authorAffinity, username)
+        ]).then(function (groups) {
+          var seedData = groups[0];
+          var negativeSeedData = groups[1];
+          var relatedPosts = groups[2];
           var combinedPool = mergePostPools(pool, relatedPosts);
+          var idfMap = computeCorpusIDF(combinedPool.concat(ownPosts));
+          var profile = buildBehaviorProfile(history, seedData, negativeSeedData, ownPosts, idfMap);
 
-          var seenKeys = {};
-          var filteredPool = [];
+          var unread = [];
           for (var i = 0; i < combinedPool.length; i++) {
             var p = combinedPool[i];
-            var key = p.author + '/' + p.permlink;
-            if (history.skipKeys[key] || seenKeys[key]) continue;
-            seenKeys[key] = true;
-            filteredPool.push(p);
+            if (!p || !p.author || !p.permlink) continue;
+            if (p.author === username) continue;
+            if (skip[p.author + '/' + p.permlink]) continue;
+            unread.push(p);
           }
 
-          var idfMap = computeCorpusIDF(filteredPool);
-          var behaviorProfile = buildBehaviorProfile(history, seedItems, negativeSeedItems, [], idfMap);
-          var taste = loadTaste();
-
-          var seedTokens = [];
-          for (var s = 0; s < seedItems.length; s++) {
-            var sp = seedItems[s].post;
-            var w = Math.max(1, Math.round(seedItems[s].weight));
-            var st = tokenize((sp.title || '') + ' ' + (sp.body || ''));
-            for (var r = 0; r < w; r++) {
-              for (var k = 0; k < st.length; k++) seedTokens.push(st[k]);
-            }
-          }
-
-          var userVec = buildVectorWithIDF(seedTokens, taste.weights, idfMap);
-          var ranked = [];
-
-          for (var j = 0; j < filteredPool.length; j++) {
-            var cand = filteredPool[j];
-            var cKey = cand.author + '/' + cand.permlink;
-            if (taste.disliked[cKey]) continue;
-
-            var cTokens = tokenize((cand.title || '') + ' ' + (cand.body || ''));
-            var candVec = buildVectorWithIDF(cTokens, null, idfMap);
-            var sim = cosineSim(userVec, candVec);
-            var beh = scoreAgainstBehaviorProfile(cand, behaviorProfile, idfMap, candVec);
-            var combined = (sim.score * 0.65) + (beh.score * 0.45);
-            var combinedMatched = sim.matched.concat(beh.matched).filter(function (item, idx, arr) {
-              return arr.indexOf(item) === idx;
-            }).slice(0, 6);
-
-            var ts = cand.created ? Date.parse(String(cand.created).replace(/Z$/, '') + 'Z') : 0;
-            if (isNaN(ts)) ts = 0;
-
-            var base = combined > 0 ? combined : (1 / (j + 10));
-            ranked.push({
-              post: cand,
-              tokens: cTokens,
-              baseScore: base,
-              finalScore: base,
-              matched: combinedMatched,
-              timestamp: ts,
-              isLiked: !!taste.liked[cKey],
-              personalized: beh.score > 0 || sim.score > 0,
-              joinedAge: '',
-              fromUser: ''
-            });
-          }
-
-          appState.results = ranked;
-          appState.visibleCount = 25;
-          rerankAndRender();
-          setStatus('Personal feed ready for @' + username + ' (' + appState.results.length + ' posts ranked from 24-month activity).', false);
+          scoreAndStore(unread, function (p, tokens) {
+            var postVec = buildVectorWithIDF(tokens, null, idfMap);
+            var sim = scoreAgainstBehaviorProfile(p, profile, idfMap, postVec);
+            var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var ageHours = Math.max(1, (Date.now() - ts) / 3600000);
+            var recencyBonus = 0.08 / Math.sqrt(ageHours);
+            var finalSim = sim.score + recencyBonus;
+            return { score: finalSim, matched: sim.matched, personalized: true };
+          }, 'Personalized Feed for @' + username);
         });
+      }).catch(function (err) {
+        setStatus('Feed failed: ' + (err && err.message ? err.message : 'Unable to load feed'), true);
       });
     }
 
     function runUserMode(username) {
-      var obs = getConnectedUser() || username;
-      setStatus('Loading @' + username + '\'s posts, 24-month activity & recommendations...', false);
+      setStatus('Loading @' + username + '\'s posts and 24-month activity profile...', false);
 
-      return Promise.all([
-        hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20, observer: obs }).catch(function () { return []; }),
-        hiveCall('bridge.get_account_posts', { sort: 'blog', account: username, limit: 20, observer: obs }).catch(function () { return []; }),
+      Promise.all([
+        hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 25, observer: username }).catch(function () { return []; }),
         getAccountHistory(username, 24),
-        fetchAllFrontendsPool(obs)
+        fetchAllFrontendsPool(username)
       ]).then(function (res) {
-        var authored = res[0] || [];
-        var blogPosts = res[1] || [];
-        var history = res[2];
-        var pool = res[3] || [];
+        var authorPosts = Array.isArray(res[0]) ? res[0] : [];
+        var history = res[1];
+        var pool = res[2];
+        var skip = history.skipKeys || {};
+        var seeds = history.seeds || [];
 
-        return Promise.all([
-          fetchSeedPosts(history.seeds, history.skipKeys),
-          fetchSeedPosts(history.negativeSeeds, {}),
-          fetchRelatedAuthorPosts(history.authorAffinity, obs)
-        ]).then(function (seedGroups) {
-          var seedItems = seedGroups[0];
-          var negativeSeedItems = seedGroups[1];
-          var relatedPosts = seedGroups[2] || [];
-          var taste = loadTaste();
+        if (authorPosts.length === 0 && seeds.length === 0 && (!history.commentTexts || history.commentTexts.length === 0)) {
+          setStatus('No posts or 24-month activity found for @' + username + '.', true);
+          return;
+        }
 
-          var allCandidates = [];
+        Promise.all([
+          fetchSeedPosts(seeds, skip),
+          fetchSeedPosts(history.negativeSeeds || [], {}),
+          fetchRelatedAuthorPosts(history.authorAffinity, username)
+        ]).then(function (groups) {
+          var seedData = groups[0];
+          var negativeSeedData = groups[1];
+          var relatedPosts = groups[2];
+          var combinedPool = mergePostPools(pool, relatedPosts);
+          var idfMap = computeCorpusIDF(authorPosts.concat(combinedPool));
+          var profile = buildBehaviorProfile(history, seedData, negativeSeedData, authorPosts, idfMap);
+
           var seen = {};
-          var authoredMap = {};
+          var merged = [];
 
-          for (var a = 0; a < authored.length; a++) {
-            var ap = authored[a];
+          for (var i = 0; i < authorPosts.length; i++) {
+            var ap = authorPosts[i];
             if (!ap || !ap.author || !ap.permlink) continue;
             var aKey = ap.author + '/' + ap.permlink;
-            authoredMap[aKey] = true;
             if (!seen[aKey]) {
               seen[aKey] = true;
-              allCandidates.push({ post: ap, isAuthored: true });
+              merged.push({ post: ap, isAuthored: true });
             }
           }
 
-          for (var b = 0; b < blogPosts.length; b++) {
-            var bp = blogPosts[b];
-            if (!bp || !bp.author || !bp.permlink) continue;
-            var bKey = bp.author + '/' + bp.permlink;
-            if (!seen[bKey]) {
-              seen[bKey] = true;
-              var isOwn = (bp.author === username);
-              if (isOwn) authoredMap[bKey] = true;
-              allCandidates.push({ post: bp, isAuthored: isOwn });
-            }
-          }
-
-          var combinedRecPool = mergePostPools(pool, relatedPosts);
-          for (var p = 0; p < combinedRecPool.length; p++) {
-            var rp = combinedRecPool[p];
+          for (var j = 0; j < combinedPool.length; j++) {
+            var rp = combinedPool[j];
             if (!rp || !rp.author || !rp.permlink) continue;
             var rKey = rp.author + '/' + rp.permlink;
-            if (!seen[rKey] && !history.skipKeys[rKey]) {
+            if (!seen[rKey]) {
               seen[rKey] = true;
-              allCandidates.push({ post: rp, isAuthored: false });
+              merged.push({ post: rp, isAuthored: false });
             }
           }
 
-          var rawPostsForIdf = allCandidates.map(function (c) { return c.post; });
-          var idfMap = computeCorpusIDF(rawPostsForIdf);
-          var behaviorProfile = buildBehaviorProfile(history, seedItems, negativeSeedItems, authored, idfMap);
-
-          var seedTokens = [];
-          for (var s = 0; s < seedItems.length; s++) {
-            var sp = seedItems[s].post;
-            var st = tokenize((sp.title || '') + ' ' + (sp.body || ''));
-            for (var k = 0; k < st.length; k++) seedTokens.push(st[k]);
-          }
-          for (var au = 0; au < authored.length; au++) {
-            var aPost = authored[au];
-            var at = tokenize((aPost.title || '') + ' ' + (aPost.body || ''));
-            for (var ak = 0; ak < at.length; ak++) seedTokens.push(at[ak]);
-          }
-
-          var userVec = buildVectorWithIDF(seedTokens, taste.weights, idfMap);
-          var ranked = [];
-
-          for (var i = 0; i < allCandidates.length; i++) {
-            var entryObj = allCandidates[i];
-            var post = entryObj.post;
-            var key = post.author + '/' + post.permlink;
-            if (taste.disliked[key]) continue;
-
-            var tokens = tokenize((post.title || '') + ' ' + (post.body || ''));
+          var rawPosts = merged.map(function (m) { return m.post; });
+          scoreAndStore(rawPosts, function (p, tokens, idx) {
+            var isAuthored = merged[idx] && merged[idx].isAuthored;
             var postVec = buildVectorWithIDF(tokens, null, idfMap);
-            var sim = cosineSim(userVec, postVec);
-            var beh = scoreAgainstBehaviorProfile(post, behaviorProfile, idfMap, postVec);
-            var combined = (sim.score * 0.65) + (beh.score * 0.45);
-            var combinedMatched = sim.matched.concat(beh.matched).filter(function (item, idx, arr) {
-              return arr.indexOf(item) === idx;
-            }).slice(0, 6);
-
-            var ts = post.created ? Date.parse(String(post.created).replace(/Z$/, '') + 'Z') : 0;
-            if (isNaN(ts)) ts = 0;
-
-            var score = entryObj.isAuthored ? (10 + combined) : combined;
-
-            ranked.push({
-              post: post,
-              tokens: tokens,
-              baseScore: score,
-              finalScore: score,
-              matched: entryObj.isAuthored ? ['authored'].concat(combinedMatched).slice(0, 6) : combinedMatched,
-              timestamp: ts,
-              isLiked: !!taste.liked[key],
-              personalized: beh.score > 0 || sim.score > 0,
-              joinedAge: '',
-              fromUser: entryObj.isAuthored ? '' : username
-            });
-          }
-
-          appState.results = ranked;
-          appState.visibleCount = 25;
-          rerankAndRender();
-          setStatus('Showing @' + username + '\'s posts (' + authored.length + ') + recommendations (' + appState.results.length + ' total).', false);
+            var sim = scoreAgainstBehaviorProfile(p, profile, idfMap, postVec);
+            var matched = sim.matched.slice(0);
+            if (isAuthored) {
+              matched.unshift('by @' + username);
+            }
+            var finalScore = isAuthored ? (10 + sim.score) : sim.score;
+            return { score: finalScore, matched: matched, personalized: !isAuthored };
+          }, '@' + username + '\'s Posts & Recommendations');
         });
+      }).catch(function (err) {
+        setStatus('User lookup failed: ' + (err && err.message ? err.message : 'Unable to load user'), true);
       });
     }
 
     function runSearchMode(query) {
-      var isNewest = appState.sort === 'newest';
-      var months = isNewest ? 6 : 24;
-      var windowLabel = isNewest ? '6 months' : '24 months';
+      var months = appState.sort === 'newest' ? 6 : 24;
+      var qTokens = tokenize(query);
+      var qLower = query.toLowerCase().trim();
+      var connectedUser = getConnectedUser();
       var includeVotes = !!appState.useVotingHistoryInSearch;
-      var activeUser = getConnectedUser();
-      var qLower = String(query || '').trim().toLowerCase();
+      var voteNote = connectedUser
+        ? (includeVotes ? ' (boosting with @' + connectedUser + '\'s voting history, reblogs & comments)' : ' (boosting with @' + connectedUser + '\'s reblogs & comments; voting history off)')
+        : '';
 
-      setStatus('Searching Hive posts and 3Speak videos (' + windowLabel + ') for "' + query + '"...', false);
+      setStatus('Searching Hive posts & 3Speak videos (' + months + '-month window) for "' + query + '"' + voteNote + '...', false);
 
-      var profilePromise = activeUser
-        ? fetchSearchPool(months, query).then(function (poolPosts) {
-            var idf = computeCorpusIDF(poolPosts || []);
-            return fetchUserBehaviorProfile(activeUser, idf, [], months, includeVotes);
-          }).catch(function () { return null; })
-        : Promise.resolve(null);
-
-      return Promise.all([
+      Promise.all([
         fetchSearchPool(months, query),
-        profilePromise
-      ]).then(function (res) {
-        var pool = res[0] || [];
-        var behaviorProfile = res[1];
+        connectedUser ? fetchUserBehaviorProfile(connectedUser, {}, [], months, includeVotes) : Promise.resolve(null)
+      ]).then(function (data) {
+        var pool = data[0] || [];
+        var userProfile = data[1];
         var idfMap = computeCorpusIDF(pool);
-        var ranked = rankPosts(pool, query, idfMap, null, behaviorProfile);
+        var qVec = buildExpandedSearchQueryVector(query, idfMap);
+        if (connectedUser && !userProfile) {
+          fetchUserBehaviorProfile(connectedUser, idfMap, [], months, includeVotes).catch(function () {});
+        }
 
-        var filtered = [];
-        for (var i = 0; i < ranked.length; i++) {
-          var item = ranked[i];
-          var titleLower = (item.post.title || '').toLowerCase();
-          var bodyLower = (item.post.body || '').toLowerCase();
-          var hasExactSubstring = qLower.length >= 2 && (titleLower.indexOf(qLower) !== -1 || bodyLower.indexOf(qLower) !== -1);
-          if (item.baseScore > 0 || hasExactSubstring) {
-            filtered.push(item);
+        scoreAndStore(pool, function (p, tokens) {
+          var titleLower = (p.title || '').toLowerCase();
+          var bodyLower = (p.body || '').toLowerCase();
+          var categoryLower = (p.category || '').toLowerCase();
+          var tagMatch = categoryLower.indexOf(qLower) !== -1;
+
+          var exactPhrase = false;
+          if (qLower.length >= 2) {
+            if (titleLower.indexOf(qLower) !== -1 || bodyLower.indexOf(qLower) !== -1 || tagMatch) {
+              exactPhrase = true;
+            }
           }
-        }
 
-        if (filtered.length === 0) {
-          filtered = ranked;
-        }
+          var tokenHits = 0;
+          var matched = [];
+          for (var i = 0; i < qTokens.length; i++) {
+            var qt = qTokens[i];
+            if (titleLower.indexOf(qt) !== -1 || bodyLower.indexOf(qt) !== -1 || categoryLower.indexOf(qt) !== -1) {
+              tokenHits++;
+              matched.push(qt);
+            }
+          }
 
-        appState.results = filtered;
-        appState.visibleCount = 25;
-        rerankAndRender();
-        var boostNote = activeUser
-          ? (includeVotes ? ' (boosted with @' + activeUser + '\'s votes, reblogs & comments)' : ' (boosted with @' + activeUser + '\'s reblogs & comments)')
-          : '';
-        setStatus('Found ' + appState.results.length + ' Hive posts & 3Speak videos (' + windowLabel + ') for "' + query + '"' + boostNote + ' (sorted by highest relevance, newest first on ties).', false);
+          var pVec = buildVectorWithIDF(tokens, null, idfMap);
+          var sim = cosineSim(qVec, pVec);
+
+          if (!exactPhrase && tokenHits === 0 && sim.score < 0.08) {
+            return null;
+          }
+
+          var score = sim.score;
+          if (exactPhrase) score += 0.65;
+          if (tagMatch) score += 0.35;
+          if (qTokens.length > 0) score += (tokenHits / qTokens.length) * 0.45;
+          if (sim.matched.length > 0) {
+            for (var m = 0; m < sim.matched.length; m++) {
+              if (matched.indexOf(sim.matched[m]) === -1 && matched.length < 5) {
+                matched.push(sim.matched[m]);
+              }
+            }
+          }
+
+          if (userProfile) {
+            var behaviorSim = scoreAgainstBehaviorProfile(p, userProfile, idfMap, pVec);
+            if (behaviorSim.score > 0.02) {
+              score += Math.min(0.45, behaviorSim.score * 0.9);
+              for (var b = 0; b < behaviorSim.matched.length; b++) {
+                if (matched.indexOf(behaviorSim.matched[b]) === -1 && matched.length < 6) {
+                  matched.push(behaviorSim.matched[b]);
+                }
+              }
+            }
+          }
+
+          return { score: score, matched: matched, personalized: !!userProfile };
+        }, 'Search results for "' + query + '"');
+      }).catch(function (err) {
+        setStatus('Search failed: ' + (err && err.message ? err.message : 'Unable to search posts'), true);
       });
     }
 
     function runNewUsersMode(keyword) {
-      var obs = getConnectedUser();
-      setStatus('Finding recent posts from accounts created in the last 12 months...', false);
+      var kw = String(keyword || '').trim();
+      var kwTokens = tokenize(kw);
+      var kwLower = kw.toLowerCase();
+      var oneYearMs = 365 * 24 * 60 * 60 * 1000;
+      var cutoff = Date.now() - oneYearMs;
 
-      return fetchAllFrontendsPool(obs).then(function (pool) {
-        var authors = [];
+      setStatus('Fetching recent Hive posts and checking account creation dates (past 12 months)...', false);
+
+      fetchAllFrontendsPool(getConnectedUser()).then(function (pool) {
+        var usernames = [];
         for (var i = 0; i < pool.length; i++) {
-          if (pool[i] && pool[i].author) authors.push(pool[i].author);
+          if (pool[i] && pool[i].author) usernames.push(pool[i].author);
         }
 
-        return fetchAccountsCreation(authors).then(function (createdMap) {
-          var oneYearMs = 365 * 24 * 60 * 60 * 1000;
-          var cutoff = Date.now() - oneYearMs;
+        return fetchAccountsCreation(usernames).then(function (createdMap) {
           var newUserPosts = [];
-
           for (var j = 0; j < pool.length; j++) {
             var p = pool[j];
+            if (!p || !p.author) continue;
             var createdStr = createdMap[p.author];
             if (!createdStr) continue;
-            var cTs = Date.parse(createdStr + 'Z');
-            if (!isNaN(cTs) && cTs >= cutoff) {
-              var daysOld = Math.max(1, Math.floor((Date.now() - cTs) / (24 * 60 * 60 * 1000)));
-              newUserPosts.push({
-                post: p,
-                joinedLabel: daysOld < 30 ? (daysOld + 'd ago') : (Math.floor(daysOld / 30) + 'm ago')
-              });
+            var createdTs = Date.parse(createdStr + 'Z');
+            if (!isNaN(createdTs) && createdTs >= cutoff) {
+              newUserPosts.push(p);
             }
           }
 
-          var rawPosts = newUserPosts.map(function (x) { return x.post; });
-          var idfMap = computeCorpusIDF(rawPosts);
-
-          var labelMap = {};
-          for (var k = 0; k < newUserPosts.length; k++) {
-            var item = newUserPosts[k];
-            labelMap[item.post.author + '/' + item.post.permlink] = item.joinedLabel;
+          if (newUserPosts.length === 0) {
+            setStatus('No posts from accounts created in the past 12 months were found in the current batch.', false);
+            return;
           }
 
-          var ranked = rankPosts(rawPosts, keyword, idfMap, function (entry, post) {
-            entry.joinedAge = labelMap[post.author + '/' + post.permlink] || 'New';
-          });
+          var idfMap = computeCorpusIDF(newUserPosts);
 
-          if (keyword && keyword.trim().length > 0) {
-            var kwFiltered = [];
-            for (var m = 0; m < ranked.length; m++) {
-              if (ranked[m].baseScore > 0) kwFiltered.push(ranked[m]);
+          scoreAndStore(newUserPosts, function (p, tokens) {
+            var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var ageHours = Math.max(1, (Date.now() - ts) / 3600000);
+            var recencyScore = 1 / Math.sqrt(ageHours);
+
+            if (!kw) {
+              var vec = buildVectorWithIDF(tokens, null, idfMap);
+              var top = [];
+              for (var t in vec.vec) {
+                if (Object.prototype.hasOwnProperty.call(vec.vec, t) && !STOP_WORDS[t] && t.length >= 3 && top.length < 4) {
+                  top.push(t);
+                }
+              }
+              return { score: recencyScore, matched: top };
             }
-            if (kwFiltered.length > 0) ranked = kwFiltered;
-          }
 
-          appState.results = ranked;
-          appState.visibleCount = 25;
-          rerankAndRender();
-          var kwMsg = keyword ? ' matching "' + keyword + '"' : '';
-          setStatus('Found ' + appState.results.length + ' posts from new Hive accounts (<12 months)' + kwMsg + '.', false);
+            var titleLower = (p.title || '').toLowerCase();
+            var bodyLower = (p.body || '').toLowerCase();
+            var hits = 0;
+            var matched = [];
+
+            if (titleLower.indexOf(kwLower) !== -1 || bodyLower.indexOf(kwLower) !== -1) {
+              hits += 2;
+              matched.push(kwLower);
+            }
+            for (var k = 0; k < kwTokens.length; k++) {
+              var kt = kwTokens[k];
+              if (titleLower.indexOf(kt) !== -1 || bodyLower.indexOf(kt) !== -1) {
+                hits++;
+                if (matched.indexOf(kt) === -1) matched.push(kt);
+              }
+            }
+
+            if (hits === 0) return null;
+            return { score: hits + recencyScore, matched: matched };
+          }, kw ? ('New Users (<12m) matching "' + kw + '"') : 'New Users (<12m) Recent Posts');
         });
+      }).catch(function (err) {
+        setStatus('New Users lookup failed: ' + (err && err.message ? err.message : 'Unable to load new users'), true);
       });
     }
 
     function startApp() {
       if (appState.isRunning) return;
-      var qInput = document.getElementById('queryInput');
       var btn = document.getElementById('runBtn');
-      var rawVal = qInput ? qInput.value : '';
+      var input = document.getElementById('queryInput');
+      var rawVal = input ? input.value : '';
 
       appState.isRunning = true;
       if (btn) btn.disabled = true;
 
       resolveQueryMode(rawVal).then(function (resolved) {
         if (resolved.type === 'feed') {
-          return runFeedMode(resolved.value);
+          runFeedMode(resolved.value);
         } else if (resolved.type === 'user') {
-          return runUserMode(resolved.value);
+          runUserMode(resolved.value);
         } else if (resolved.type === 'search') {
-          return runSearchMode(resolved.value);
+          runSearchMode(resolved.value);
         } else if (resolved.type === 'newusers') {
-          return runNewUsersMode(resolved.value);
+          runNewUsersMode(resolved.value);
         }
       }).catch(function (err) {
-        setStatus(err && err.message ? err.message : 'Unable to complete request.', true);
-      }).finally(function () {
+        setStatus(err && err.message ? err.message : 'Invalid input', true);
+      }).then(function () {
         appState.isRunning = false;
         if (btn) btn.disabled = false;
       });
     }
 
     function loginKeychain() {
+      var btn = document.getElementById('keychainBtn');
+      var input = document.getElementById('queryInput');
+      var typedUser = input ? stripLeadingAt(input.value) : '';
+      var existingUser = getConnectedUser();
+      var candidate = typedUser || existingUser || '';
+
       if (!window.hive_keychain) {
-        setStatus('Hive Keychain extension or app browser was not detected.', true);
+        setStatus('Hive Keychain extension or app browser was not detected. Open this page inside a browser with Hive Keychain installed.', true);
         return;
       }
-      var qInput = document.getElementById('queryInput');
-      var typedUser = qInput ? stripLeadingAt(qInput.value) : '';
-      var targetUser = typedUser || getConnectedUser() || '';
 
-      setStatus('Requesting Hive Keychain signature...', false);
-      window.hive_keychain.requestSignBuffer(
-        targetUser || null,
-        'NectarSeeker login verification',
-        'Posting',
-        function (res) {
-          if (res && res.success) {
-            var verifiedUser = stripLeadingAt(res.username || targetUser);
-            appState.kcUser = verifiedUser;
-            try { localStorage.setItem(KC_USER_KEY, verifiedUser); } catch (e) {}
-            updateKeychainUI();
-            if (qInput && (appState.mode === 'feed' || appState.mode === 'user')) {
-              qInput.value = verifiedUser;
+      if (!candidate) {
+        candidate = window.prompt('Enter your Hive username to connect with Hive Keychain:', '');
+        candidate = stripLeadingAt(candidate);
+      }
+
+      if (!candidate) {
+        setStatus('Please enter your Hive username to connect with Hive Keychain.', true);
+        return;
+      }
+
+      if (btn) btn.disabled = true;
+      setStatus('Requesting Hive Keychain signature for @' + candidate + '...', false);
+
+      var challenge = 'NectarSeeker login:' + candidate + ':' + Date.now();
+
+      try {
+        window.hive_keychain.requestSignBuffer(
+          candidate,
+          challenge,
+          'Posting',
+          function (res) {
+            if (btn) btn.disabled = false;
+            if (res && res.success) {
+              var verifiedUser = stripLeadingAt((res.data && res.data.username) || candidate);
+              appState.kcUser = verifiedUser;
+              try { localStorage.setItem(KC_USER_KEY, verifiedUser); } catch (e) {}
+              updateKeychainUI();
+              if (input && (appState.mode === 'feed' || appState.mode === 'user')) {
+                input.value = verifiedUser;
+              }
+              setStatus('Connected to Hive Keychain as @' + verifiedUser + '.', false);
+              if (appState.results.length > 0) {
+                renderCards(appState.results.slice(0, appState.visibleCount));
+                syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
+              }
+            } else {
+              var msg = (res && res.message) ? res.message : 'Keychain sign request was cancelled or rejected.';
+              setStatus('Keychain connection failed: ' + msg, true);
             }
-            setStatus('Connected to Hive Keychain as @' + verifiedUser + '.', false);
-            if (appState.results.length > 0) {
-              renderCards(appState.results.slice(0, appState.visibleCount));
-              syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
-            }
-          } else {
-            setStatus('Hive Keychain login was cancelled or failed.', true);
           }
-        }
-      );
+        );
+      } catch (e) {
+        if (btn) btn.disabled = false;
+        setStatus('Keychain error: ' + (e && e.message ? e.message : 'Unable to call Hive Keychain'), true);
+      }
     }
 
-    (function init() {
-      var initialTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-      updateThemeButton(initialTheme);
-      updateSearchVotingHistoryUI();
-      updatePhishingShieldUI();
-      updateTasteBanner();
-      updateKeychainUI();
-      syncSliders(100);
-
-      var qInput = document.getElementById('queryInput');
-      if (qInput) {
-        qInput.addEventListener('keydown', function (ev) {
-          if (ev.key === 'Enter') {
+    function bindEvents() {
+      var input = document.getElementById('queryInput');
+      if (input) {
+        input.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.keyCode === 13) {
             ev.preventDefault();
             startApp();
           }
@@ -5983,15 +5743,20 @@
       }
 
       document.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Escape') {
-          var phishingWarn = document.getElementById('phishingWarningModal');
-          if (phishingWarn && phishingWarn.style.display === 'flex') {
+        if (ev.key === 'Escape' || ev.keyCode === 27) {
+          var reportPhishingModal = document.getElementById('reportPhishingModal');
+          if (reportPhishingModal && reportPhishingModal.style.display === 'flex') {
+            closeReportPhishingModal();
+            return;
+          }
+          var phishingModal = document.getElementById('phishingWarningModal');
+          if (phishingModal && phishingModal.style.display === 'flex') {
             closePhishingWarningModal();
             return;
           }
-          var reportPhishing = document.getElementById('reportPhishingModal');
-          if (reportPhishing && reportPhishing.style.display === 'flex') {
-            closeReportPhishingModal();
+          var tipModal = document.getElementById('tipModal');
+          if (tipModal && tipModal.style.display === 'flex') {
+            closeTipModal();
             return;
           }
           var profileModal = document.getElementById('userProfileModal');
@@ -6004,20 +5769,74 @@
             closeWalletModal();
             return;
           }
-          var tipModal = document.getElementById('tipModal');
-          if (tipModal && tipModal.style.display === 'flex') {
-            closeTipModal();
-            return;
-          }
           closePostReader();
         }
       });
 
-      var connected = getConnectedUser();
-      if (connected) {
-        setStatus('Ready as @' + connected + '. Click Discover to load your personal feed or enter a username/search term.', false);
+      var tipModal = document.getElementById('tipModal');
+      if (tipModal) {
+        tipModal.addEventListener('click', function (ev) {
+          if (ev.target === tipModal) {
+            closeTipModal();
+          }
+        });
       }
-    })();
+
+      var profileModal = document.getElementById('userProfileModal');
+      if (profileModal) {
+        profileModal.addEventListener('click', function (ev) {
+          if (ev.target === profileModal) {
+            closeUserProfileModal();
+          }
+        });
+      }
+
+      var walletModal = document.getElementById('walletModal');
+      if (walletModal) {
+        walletModal.addEventListener('click', function (ev) {
+          if (ev.target === walletModal) {
+            closeWalletModal();
+          }
+        });
+      }
+
+      var phishingModal = document.getElementById('phishingWarningModal');
+      if (phishingModal) {
+        phishingModal.addEventListener('click', function (ev) {
+          if (ev.target === phishingModal) {
+            closePhishingWarningModal();
+          }
+        });
+      }
+
+      var reportPhishingModal = document.getElementById('reportPhishingModal');
+      if (reportPhishingModal) {
+        reportPhishingModal.addEventListener('click', function (ev) {
+          if (ev.target === reportPhishingModal) {
+            closeReportPhishingModal();
+          }
+        });
+      }
+    }
+
+    bindEvents();
+    updateThemeButton(document.documentElement.getAttribute('data-theme') || 'dark');
+    updateTasteBanner();
+    updateSearchVotingHistoryUI();
+    updatePhishingShieldUI();
+    updateKeychainUI();
+    syncSliders(100);
+    if (appState.phishingShieldEnabled) {
+      loadOnChainPhishingFlags();
+    }
+    var initialKcUser = getConnectedUser();
+    if (initialKcUser && !appState.results.length && !appState.isRunning) {
+      var initialInput = document.getElementById('queryInput');
+      if (initialInput && !initialInput.value.trim()) {
+        initialInput.value = initialKcUser;
+      }
+      startApp();
+    }
   </script>
 </body>
 </html>
