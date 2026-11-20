@@ -69,6 +69,12 @@ background: var(--panel-2);
 color: var(--text);
 font-size: 0.95rem;
 }
+input[type="checkbox"] {
+width: auto;
+padding: 0;
+accent-color: var(--accent);
+cursor: pointer;
+}
 button {
 padding: 10px 16px;
 border-radius: 8px;
@@ -106,7 +112,23 @@ border: 1px solid var(--border);
 border-radius: 10px;
 padding: 12px;
 }
-.stat-label { font-size: 0.78rem; color: var(--muted); }
+.stat-label {
+font-size: 0.78rem;
+color: var(--muted);
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 6px;
+}
+.tip-toggle {
+display: inline-flex;
+align-items: center;
+gap: 5px;
+color: var(--text);
+font-size: 0.78rem;
+cursor: pointer;
+user-select: none;
+}
 .stat-val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
 table {
 width: 100%;
@@ -188,7 +210,13 @@ margin-top: 10px;
 <div class="stat-val" id="estGross">0.00000000</div>
 </div>
 <div class="stat">
-<div class="stat-label">10% Creator Fee (<span id="creatorLabel"></span>)</div>
+<div class="stat-label">
+<span>10% Tip (<span id="creatorLabel"></span>)</span>
+<label class="tip-toggle" for="tipCheckbox">
+<input id="tipCheckbox" type="checkbox" checked />
+<span>Tip</span>
+</label>
+</div>
 <div class="stat-val warn" id="estFee">0.00000000</div>
 </div>
 <div class="stat">
@@ -204,7 +232,7 @@ Sell Selected Tokens
 </div>
 
 <div class="notice">
-<strong>Creator Fee Disclosure:</strong> Each batch includes a single 10% <code>SWAP.HIVE</code> transfer to <strong id="creatorNotice"></strong> bundled into the same Keychain transaction. If your current <code>SWAP.HIVE</code> balance is lower than the calculated 10% fee and orders do not settle in the exact same block, Hive-Engine may reject the transfer op.
+<strong>Optional 10% Tip Box Disclosure:</strong> The 10% tip to <strong id="creatorNotice"></strong> is <strong>selected by default</strong> and is completely optional. You can uncheck the <strong>Tip</strong> box at any time to skip the tip and keep 100% of your estimated proceeds. When checked, a single 10% <code>SWAP.HIVE</code> transfer operation is bundled into the same Hive Keychain transaction; if your current <code>SWAP.HIVE</code> balance is lower than the calculated tip and your sell orders do not settle in the exact same block, Hive-Engine may reject the transfer operation.
 </div>
 
 <div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
@@ -234,7 +262,7 @@ Sell Selected Tokens
 
 <script>
 const CREATOR_ACCOUNT = "bulliontools";
-const FEE_RATE = 0.10;
+const TIP_RATE = 0.10;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 
 const RPC_ENDPOINTS = [
@@ -367,6 +395,7 @@ return res ? parseFloat(res.balance) : 0;
 
 function recalculateTotals() {
 const discount = parseFloat($("discountSelect").value) || 1;
+const tipEnabled = $("tipCheckbox").checked;
 let gross = 0;
 let selectedCount = 0;
 
@@ -379,11 +408,11 @@ selectedCount++;
 }
 }
 
-const fee = Math.floor(gross * FEE_RATE * 1e8) / 1e8;
-const net = Math.max(0, gross - fee);
+const tip = tipEnabled ? Math.floor(gross * TIP_RATE * 1e8) / 1e8 : 0;
+const net = Math.max(0, gross - tip);
 
 $("estGross").textContent = fmt8(gross);
-$("estFee").textContent = fmt8(fee);
+$("estFee").textContent = fmt8(tip);
 $("estNet").textContent = fmt8(net);
 $("executeBtn").disabled = selectedCount === 0 || gross <= 0;
 
@@ -530,6 +559,7 @@ return;
 
 const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
 const discount = parseFloat($("discountSelect").value) || 1;
+const tipEnabled = $("tipCheckbox").checked;
 const selectedRows = state.rows.filter((r) => r.selected);
 
 if (!account || selectedRows.length === 0) return;
@@ -559,19 +589,23 @@ setStatus("No valid sell operations to broadcast.", "warn");
 return;
 }
 
-const feeAmount = Math.floor(totalGross * FEE_RATE * 1e8) / 1e8;
-if (feeAmount >= 0.00000001) {
+const tipAmount = tipEnabled ? Math.floor(totalGross * TIP_RATE * 1e8) / 1e8 : 0;
+if (tipEnabled && tipAmount >= 0.00000001) {
 ops.push({
 contractName: "tokens",
 contractAction: "transfer",
 contractPayload: {
 symbol: "SWAP.HIVE",
 to: CREATOR_ACCOUNT,
-quantity: feeAmount.toFixed(8),
-memo: `10% dust sweeper fee (${ops.length} tokens)`
+quantity: tipAmount.toFixed(8),
+memo: `10% Dust Seller tip (${ops.length} tokens)`
 }
 });
 }
+
+const actionLabel = tipEnabled && tipAmount >= 0.00000001
+? `Sell ${selectedRows.length} dust token(s) + 10% SWAP.HIVE tip to @${CREATOR_ACCOUNT}`
+: `Sell ${selectedRows.length} dust token(s)`;
 
 $("executeBtn").disabled = true;
 setStatus("Waiting for Hive Keychain approval...");
@@ -581,7 +615,7 @@ account,
 ENGINE_CHAIN_ID,
 "Active",
 JSON.stringify(ops),
-`Sell ${selectedRows.length} dust token(s) + 10% SWAP.HIVE fee to @${CREATOR_ACCOUNT}`,
+actionLabel,
 (res) => {
 $("executeBtn").disabled = false;
 if (res && res.success) {
@@ -601,6 +635,7 @@ $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
 $("discountSelect").addEventListener("change", recalculateTotals);
+$("tipCheckbox").addEventListener("change", recalculateTotals);
 
 $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
