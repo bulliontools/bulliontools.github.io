@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hive-Engine Dust Sweeper</title>
+<style>
+:root {
+--bg: #0f131a;
+--panel: #171d28;
+--panel-2: #1f2736;
+--text: #eef2f7;
+--muted: #9aa7bd;
+--accent: #e31337;
+--accent-hover: #c50f2e;
+--ok: #22c55e;
+--warn: #f59e0b;
+--err: #ef4444;
+--border: #2b3548;
+}
+* { box-sizing: border-box; }
+body {
+margin: 0;
+font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+background: var(--bg);
+color: var(--text);
+line-height: 1.5;
+padding: 24px 16px 64px;
+}
+.container {
+max-width: 920px;
+margin: 0 auto;
+}
+header {
+display: flex;
+flex-wrap: wrap;
+justify-content: space-between;
+align-items: center;
+gap: 12px;
+margin-bottom: 20px;
+}
+h1 { margin: 0; font-size: 1.5rem; }
+.subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 4px; }
+.card {
+background: var(--panel);
+border: 1px solid var(--border);
+border-radius: 12px;
+padding: 18px;
+margin-bottom: 16px;
+}
+.controls {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+gap: 12px;
+align-items: end;
+}
+label {
+display: block;
+font-size: 0.8rem;
+color: var(--muted);
+margin-bottom: 6px;
+}
+input, select {
+width: 100%;
+padding: 10px 12px;
+border-radius: 8px;
+border: 1px solid var(--border);
+background: var(--panel-2);
+color: var(--text);
+font-size: 0.95rem;
+}
+button {
+padding: 10px 16px;
+border-radius: 8px;
+border: none;
+font-weight: 600;
+font-size: 0.95rem;
+cursor: pointer;
+background: var(--panel-2);
+color: var(--text);
+border: 1px solid var(--border);
+}
+button:hover:not(:disabled) { filter: brightness(1.12); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary {
+background: var(--accent);
+border-color: var(--accent);
+color: #fff;
+}
+button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.row-actions {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+margin-top: 14px;
+}
+.summary-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+gap: 12px;
+margin-top: 14px;
+}
+.stat {
+background: var(--panel-2);
+border: 1px solid var(--border);
+border-radius: 10px;
+padding: 12px;
+}
+.stat-label { font-size: 0.78rem; color: var(--muted); }
+.stat-val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
+table {
+width: 100%;
+border-collapse: collapse;
+font-size: 0.9rem;
+}
+th, td {
+text-align: left;
+padding: 10px 8px;
+border-bottom: 1px solid var(--border);
+}
+th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.status {
+margin-top: 12px;
+padding: 12px 14px;
+border-radius: 8px;
+background: var(--panel-2);
+border: 1px solid var(--border);
+font-size: 0.9rem;
+white-space: pre-wrap;
+}
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.err { color: var(--err); }
+.notice {
+font-size: 0.85rem;
+color: var(--muted);
+margin-top: 10px;
+}
+.table-wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<div>
+<h1>Hive-Engine Dust Sweeper</h1>
+<div class="subtitle">Batch-sell small token balances into active top buy orders via Hive Keychain</div>
+</div>
+<button id="connectBtn" type="button">Connect Keychain</button>
+</header>
+
+<div class="card">
+<div class="controls">
+<div>
+<label for="usernameInput">Hive Username</label>
+<input id="usernameInput" type="text" placeholder="e.g. alice" autocomplete="off" />
+</div>
+<div>
+<label for="maxDustInput">Max Dust Value (SWAP.HIVE)</label>
+<input id="maxDustInput" type="number" step="0.01" min="0.0001" value="0.25" />
+</div>
+<div>
+<label for="discountSelect">Sell Price vs. Top Bid</label>
+<select id="discountSelect">
+<option value="1" selected>100% of Top Bid (Instant fill up to bid depth)</option>
+<option value="0.98">98% of Top Bid (Higher fill priority)</option>
+<option value="0.95">95% of Top Bid (Fastest fill)</option>
+</select>
+</div>
+<div>
+<button id="loadBtn" class="primary" type="button">Scan Balances</button>
+</div>
+</div>
+
+<div class="row-actions">
+<button id="selectAllBtn" type="button" disabled>Select All Filtered</button>
+<button id="clearAllBtn" type="button" disabled>Clear Selection</button>
+</div>
+
+<div class="summary-grid">
+<div class="stat">
+<div class="stat-label">SWAP.HIVE Balance</div>
+<div class="stat-val" id="swapHiveBal">0.00000000</div>
+</div>
+<div class="stat">
+<div class="stat-label">Est. Gross Proceeds</div>
+<div class="stat-val" id="estGross">0.00000000</div>
+</div>
+<div class="stat">
+<div class="stat-label">10% Creator Fee (<span id="creatorLabel"></span>)</div>
+<div class="stat-val warn" id="estFee">0.00000000</div>
+</div>
+<div class="stat">
+<div class="stat-label">Est. Net to You</div>
+<div class="stat-val ok" id="estNet">0.00000000</div>
+</div>
+</div>
+
+<div class="row-actions">
+<button id="executeBtn" class="primary" type="button" disabled>
+Sell Selected & Send 10% Fee (1 Keychain Approval)
+</button>
+</div>
+
+<div class="notice">
+<strong>Creator Fee Disclosure:</strong> Each batch includes a single 10% <code>SWAP.HIVE</code> transfer to <strong id="creatorNotice"></strong> bundled into the same Keychain transaction. If your current <code>SWAP.HIVE</code> balance is lower than the calculated 10% fee and orders do not settle in the exact same block, Hive-Engine may reject the transfer op.
+</div>
+
+<div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
+</div>
+
+<div class="card">
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Sell</th>
+<th>Token</th>
+<th class="num">Balance</th>
+<th class="num">Top Bid (SWAP.HIVE)</th>
+<th class="num">Bid Depth</th>
+<th class="num">Sell Price</th>
+<th class="num">Est. SWAP.HIVE</th>
+</tr>
+</thead>
+<tbody id="tokensTbody">
+<tr><td colspan="7" style="color: var(--muted);">No tokens loaded yet.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+
+<script>
+const CREATOR_ACCOUNT = "bulliontools";
+const FEE_RATE = 0.10;
+const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
+
+const RPC_ENDPOINTS = [
+"https://api.hive-engine.com/rpc",
+"https://engine.rishipanthee.com",
+"https://herpc.dtools.dev"
+ ];
+
+const state = {
+rows: [],
+swapHiveBalance: 0
+};
+
+const ("creatorLabel").textContent = @${CREATOR_ACCOUNT};$("creatorNotice").textContent = @${CREATOR_ACCOUNT}`;
+
+function setStatus(msg, cls = "") {
+const box = $("statusBox"); box.className =status ${cls};
+box.textContent = msg;
+}
+
+function fmt8(num) {
+return Number(num || 0).toFixed(8);
+}
+
+function fmtPrec(num, prec) {
+const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+return Number(num || 0).toFixed(p);
+}
+
+async function rpcCall(contractOrEndpoint, payload) {
+let lastErr;
+for (const base of RPC_ENDPOINTS) {
+const url = base.endsWith("/rpc") ? ${base}/$`{contractOrEndpoint}` :${base}/rpc/latex
+{contractOrEndpoint}`; try { const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); if (!res.ok) throw new Error(`HTTP 
+
+{res.status}`);
+const data = await res.json();
+if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+return data.result;
+} catch (err) {
+lastErr = err;
+}
+}
+throw lastErr || new Error("All Hive-Engine RPC nodes failed.");
+}
+
+async function fetchAllBalances(account) {
+const all = [];
+const limit = 1000;
+let offset = 0;
+while (true) {
+const batch = await rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 1,
+method: "find",
+params: {
+contract: "tokens",
+table: "balances",
+query: { account, balance: { $`ne: "0" } },
+limit,
+offset
+}
+});
+if (!Array.isArray(batch) || batch.length === 0) break;
+all.push(...batch);
+if (batch.length < limit) break;
+offset += limit;
+}
+return all.filter((b) => parseFloat(b.balance) > 0 && b.symbol !== "SWAP.HIVE");
+}
+
+async function fetchTokenPrecisions(symbols) {
+const map = new Map();
+if (!symbols.length) return map;
+const tokens = await rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 2,
+method: "find",
+params: {
+contract: "tokens",
+table: "tokens",
+query: { symbol: { `$in: symbols } },
+limit: 1000
+}
+});
+for (const t of tokens || []) {
+map.set(t.symbol, Number(t.precision ?? 8));
+}
+return map;
+}
+
+async function fetchTopBuyOrder(symbol) {
+const orders = await rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 3,
+method: "find",
+params: {
+contract: "market",
+table: "buyBook",
+query: { symbol },
+limit: 1,
+offset: 0,
+indexes: [{ index: "priceDec", descending: true }]
+}
+});
+return Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
+}
+
+async function fetchSwapHiveBalance(account) {
+const res = await rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 4,
+method: "findOne",
+params: {
+contract: "tokens",
+table: "balances",
+query: { account, symbol: "SWAP.HIVE" }
+}
+});
+return res ? parseFloat(res.balance) : 0;
+}
+
+function recalculateTotals() {
+const discount = parseFloat($`("discountSelect").value) || 1;
+let gross = 0;
+let selectedCount = 0;
+
+for (const row of state.rows) {
+row.sellPrice = row.topBid * discount;
+row.estHive = row.selected ? row.balance * row.sellPrice : 0;
+if (row.selected) {
+gross += row.estHive;
+selectedCount++;
+}
+}
+
+const fee = Math.floor(gross * FEE_RATE * 1e8) / 1e8;
+const net = Math.max(0, gross - fee);
+
+$("estGross").textContent = fmt8(gross); $("estFee").textContent = fmt8(fee);
+$("estNet").textContent = fmt8(net); $("executeBtn").disabled = selectedCount === 0 || gross <= 0;
+
+renderTable();
+}
+
+function renderTable() {
+const maxDust = parseFloat($("maxDustInput").value); const tbody = $("tokensTbody");
+
+const filtered = state.rows.filter((r) => {
+const rawEst = r.balance * r.topBid * (parseFloat(`$("discountSelect").value) || 1);
+return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
+});
+
+("clearAllBtn").disabled = state.rows.every((r) => !r.selected);
+
+if (filtered.length === 0) {
+tbody.innerHTML = <tr&gt;&lt;td colspan="7" style="color: var(--muted);"&gt;No tokens match the current dust threshold and active buy orders.&lt;/td&gt;&lt;/tr>;
+return;
+}
+
+tbody.innerHTML = filtered.map((r) => &lt;tr&gt; &lt;td&gt; &lt;input type="checkbox" data-symbol="${r.symbol}"
+${r.selected ? "checked" : ""} /&gt; &lt;/td&gt; &lt;td&gt;&lt;strong&gt;${r.symbol}</strong></td>
+<td class="num">${fmtPrec(r.balance, r.precision)}&lt;/td&gt; &lt;td class="num"&gt;${fmt8(r.topBid)}</td>
+<td class="num">${fmtPrec(r.bidQty, r.precision)}&lt;/td&gt; &lt;td class="num"&gt;${fmt8(r.sellPrice)}</td>
+<td class="num">${fmt8(r.balance * r.sellPrice)}&lt;/td&gt; &lt;/tr&gt;).join("");
+
+tbody.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+cb.addEventListener("change", (e) => {
+const sym = e.target.getAttribute("data-symbol");
+const target = state.rows.find((x) => x.symbol === sym);
+if (target) {
+target.selected = e.target.checked;
+recalculateTotals();
+}
+});
+});
+}
+
+async function handleScan() {
+const account = $`("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
+if (!account) {
+setStatus("Please enter a Hive username first.", "err");
+return;
+}
+
+$("loadBtn").disabled = true; setStatus(Scanning ${account}'s Hive-Engine balances and top buy orders...);
+
+try {
+const [balances, swapHive] = await Promise.all([
+fetchAllBalances(account),
+fetchSwapHiveBalance(account)
+ ]);
+
+state.swapHiveBalance = swapHive;
+`$("swapHiveBal").textContent = fmt8(swapHive);
+
+const symbols = balances.map((b) => b.symbol);
+const precisions = await fetchTokenPrecisions(symbols);
+const maxDust = parseFloat(("discountSelect").value) || 1;
+
+const rows = [];
+for (const b of balances) {
+const bal = parseFloat(b.balance);
+const prec = precisions.get(b.symbol) ?? 8;
+const topOrder = await fetchTopBuyOrder(b.symbol);
+if (!topOrder) continue;
+
+const topBid = parseFloat(topOrder.price);
+const bidQty = parseFloat(topOrder.quantity);
+if (!(topBid > 0)) continue;
+
+const est = bal * topBid * discount;
+rows.push({
+symbol: b.symbol,
+balance: bal,
+precision: prec,
+topBid,
+bidQty,
+sellPrice: topBid * discount,
+estHive: est,
+selected: est > 0 && est <= maxDust
+});
+}
+
+rows.sort((a, b) => a.estHive - b.estHive);
+state.rows = rows;
+recalculateTotals();
+setStatus(Found ${rows.length} sellable tokens with active buy orders for @${account}., "ok");
+} catch (err) {
+setStatus(Scan failed: ${err.message}, "err"); } finally {$("loadBtn").disabled = false;
+}
+}
+
+function connectKeychain() {
+if (!window.hive_keychain) {
+setStatus("Hive Keychain extension not detected. Install Hive Keychain or enter a username manually to preview.", "warn");
+return;
+}
+const typed = {Date.now()}, "Posting", (res) =&gt; { if (res.success) { $("usernameInput").value = res.data.username;
+setStatus(Connected as @${res.data.username}. Click Scan Balances., "ok"); handleScan(); } else { setStatus(Keychain connection cancelled or failed: ${res.message}, "err");
+}
+}
+);
+}
+
+function executeBatchSell() {
+if (!window.hive_keychain) {
+setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
+return;
+}
+
+const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, ""); const discount = parseFloat($("discountSelect").value) || 1;
+const selectedRows = state.rows.filter((r) => r.selected);
+
+if (!account || selectedRows.length === 0) return;
+
+const ops = [];
+let totalGross = 0;
+
+for (const r of selectedRows) {
+const qtyStr = r.balance.toFixed(r.precision);
+const priceStr = (r.topBid * discount).toFixed(8);
+if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0) continue;
+
+totalGross += parseFloat(qtyStr) * parseFloat(priceStr);
+ops.push({
+contractName: "market",
+contractAction: "sell",
+contractPayload: {
+symbol: r.symbol,
+quantity: qtyStr,
+price: priceStr
+}
+});
+}
+
+if (ops.length === 0) {
+setStatus("No valid sell operations to broadcast.", "warn");
+return;
+}
+
+const feeAmount = Math.floor(totalGross * FEE_RATE * 1e8) / 1e8;
+if (feeAmount >= 0.00000001) {
+ops.push({
+contractName: "tokens",
+contractAction: "transfer",
+contractPayload: {
+symbol: "SWAP.HIVE",
+to: CREATOR_ACCOUNT,
+quantity: feeAmount.toFixed(8),
+memo: 10% dust sweeper fee (${ops.length} tokens)`
+}
+});
+}
+
+$`("executeBtn").disabled = true;
+setStatus("Waiting for Hive Keychain approval...");
+
+window.hive_keychain.requestCustomJson(
+account,
+ENGINE_CHAIN_ID,
+"Active",
+JSON.stringify(ops),
+Sell${selectedRows.length} dust token(s) + 10% SWAP.HIVE fee to @latex
+{CREATOR_ACCOUNT}`, (res) =&gt; { 
+
+("executeBtn").disabled = false;
+if (res.success) {
+setStatus(
+Broadcasted! Hive TX ID: ${res.result.id}\nSide-chain execution takes a few seconds—rescanning balances shortly..., "ok" ); setTimeout(handleScan, 5000); } else { setStatus(Transaction failed or rejected: ${res.message}, "err");
+}
+}
+);
+}
+
+("loadBtn").addEventListener("click", handleScan);
+("discountSelect").addEventListener("change", recalculateTotals);
+
+latex
+("selectAllBtn").addEventListener("click", () =&gt; { const maxDust = parseFloat(
+
+("maxDustInput").value);
+const discount = parseFloat($`("discountSelect").value) || 1;
+for (const r of state.rows) {
+const est = r.balance * r.topBid * discount;
+if (!Number.isFinite(maxDust) || est <= maxDust) {
+r.selected = true;
+}
+}
+recalculateTotals();
+});
+
+`$("clearAllBtn").addEventListener("click", () => {
+for (const r of state.rows) r.selected = false;
+recalculateTotals();
+});
+
+$("executeBtn").addEventListener("click", executeBatchSell);
+</script>
+</body>
+</html>
