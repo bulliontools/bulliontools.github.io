@@ -1050,7 +1050,7 @@
           <span>🛡️ Anti-phishing link warnings</span>
         </label>
       </div>
-      <span id="searchVotingHistoryStatus">Voting history, reblogs &amp; comments active for search ranking</span>
+      <span id="searchVotingHistoryStatus">Voting history, reblogs &amp; comments boost matching search results</span>
     </div>
 
     <div class="kc-row" id="kcRow" style="display:none;">
@@ -1074,7 +1074,7 @@
         <strong style="color:var(--accent-cyan);">Username Mode:</strong> Looks up any Hive user to display their authored posts at the top, alongside personalized content recommendations based on their votes, reblogs, and activity.
       </div>
       <div>
-        <strong style="color:var(--accent-cyan);">Search Term Mode:</strong> Indexes and searches Hive content using corpus-wide IDF weighting, factoring in your reblogs, comments, and optional voting history.
+        <strong style="color:var(--accent-cyan);">Search Term Mode:</strong> Filters posts to match your search term first, using corpus-wide IDF weighting and boosting matches with your reblogs, comments, and optional voting history (up to a 6-month window when sorting by Newest).
       </div>
       <div>
         <strong style="color:var(--accent-cyan);">New Users Mode:</strong> Discovers recent articles written by accounts that joined Hive within the last 12 months, with optional keyword filtering.
@@ -2005,8 +2005,8 @@
       if (cb) cb.checked = !!appState.useVotingHistoryInSearch;
       if (statusEl) {
         statusEl.textContent = appState.useVotingHistoryInSearch
-          ? 'Voting history, reblogs & comments active for search ranking'
-          : 'Voting history excluded from search ranking (reblogs & comments still active)';
+          ? 'Voting history, reblogs & comments boost matching search results'
+          : 'Voting history excluded from search boost (reblogs & comments still boost matches)';
       }
     }
 
@@ -4005,6 +4005,13 @@
       for (var i = 0; i < btns.length; i++) {
         btns[i].classList.toggle('active', btns[i].getAttribute('data-sort') === s);
       }
+      if (appState.mode === 'search' && !appState.isRunning) {
+        var qInput = document.getElementById('queryInput');
+        if (qInput && qInput.value.trim()) {
+          startApp();
+          return;
+        }
+      }
       if (appState.results.length > 0) {
         rerankAndRender();
       }
@@ -4318,19 +4325,43 @@
       });
     }
 
-    function fetchSearchPool24Months() {
+    function fetchSearchPool(months, query) {
+      var windowMonths = months || 24;
       var obs = getConnectedUser();
-      var cachedKey = 'global_search_pool_v2_' + (obs || 'anon');
-      return loadNectarCached(cachedKey, 30 * 60 * 1000, 2 * 60 * 60 * 1000, function () {
-        var twentyFourMonthsMs = 24 * 30.5 * 24 * 60 * 60 * 1000;
-        var cutoff = Date.now() - twentyFourMonthsMs;
+      var cleanTag = String(query || '').trim().toLowerCase().replace(/^#/, '');
+      var isSingleTag = /^[a-z0-9-]{2,24}$/.test(cleanTag);
+      var cachedKey = 'global_search_pool_v3_' + windowMonths + 'm_' + (isSingleTag ? cleanTag + '_' : '') + (obs || 'anon');
+
+      return loadNectarCached(cachedKey, 15 * 60 * 1000, 60 * 60 * 1000, function () {
+        var windowMs = windowMonths * 30.5 * 24 * 60 * 60 * 1000;
+        var cutoff = Date.now() - windowMs;
         var collected = [];
         var map = {};
         var startAuthor = '';
         var startPermlink = '';
         var page = 0;
         var requestedLimit = 20;
-        var maxPages = 5;
+        var maxPages = windowMonths <= 6 ? 4 : 6;
+
+        function addPosts(posts) {
+          var reachedCutoff = false;
+          for (var i = 0; i < posts.length; i++) {
+            var p = posts[i];
+            if (!p || !p.author || !p.permlink || p.parent_author) continue;
+            if (p.created) {
+              var ts = Date.parse(p.created + 'Z');
+              if (!isNaN(ts) && ts < cutoff) { reachedCutoff = true; continue; }
+            }
+            var key = p.author + '/' + p.permlink;
+            if (!map[key]) { map[key] = true; collected.push(p); }
+          }
+          return reachedCutoff;
+        }
+
+        var tagPromise = isSingleTag
+          ? hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: cleanTag, limit: 20, observer: obs || '' })
+              .catch(function () { return []; })
+          : Promise.resolve([]);
 
         function fetchBatch() {
           page++;
@@ -4344,27 +4375,21 @@
             return hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: requestedLimit, start_author: startAuthor, start_permlink: startPermlink }]);
           }).then(function (posts) {
             if (!Array.isArray(posts) || posts.length === 0) return collected;
-            var reachedCutoff = false;
-            for (var i = 0; i < posts.length; i++) {
-              var p = posts[i];
-              if (!p || !p.author || !p.permlink || p.parent_author) continue;
-              if (p.created) {
-                var ts = Date.parse(p.created + 'Z');
-                if (!isNaN(ts) && ts < cutoff) { reachedCutoff = true; continue; }
-              }
-              var key = p.author + '/' + p.permlink;
-              if (!map[key]) { map[key] = true; collected.push(p); }
-            }
+            var reachedCutoff = addPosts(posts);
             var last = posts[posts.length - 1];
-            if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < Math.min(10, requestedLimit) || page >= maxPages) return collected;
+            if (reachedCutoff || !last || !last.author || !last.permlink || posts.length < Math.min(10, requestedLimit) || page >= maxPages) {
+              return collected;
+            }
             startAuthor = last.author;
             startPermlink = last.permlink;
             return fetchBatch();
           });
         }
-        return fetchBatch().then(function (posts) {
-          searchCache[cachedKey] = posts || [];
-          return posts || [];
+
+        return Promise.all([tagPromise, fetchBatch()]).then(function (res) {
+          if (Array.isArray(res[0])) addPosts(res[0]);
+          searchCache[cachedKey] = collected;
+          return collected;
         });
       }).then(function (posts) {
         searchCache[cachedKey] = posts || [];
@@ -5549,34 +5574,17 @@
     function runSearchMode(query) {
       var includeVotes = !!appState.useVotingHistoryInSearch;
       var connectedUser = getConnectedUser();
-      setStatus('Searching up to 24 months of Hive posts for "' + query + '"...', false);
+      var isNewestSort = (appState.sort === 'newest');
+      var windowMonths = isNewestSort ? 6 : 24;
+      setStatus('Searching up to ' + windowMonths + ' months of Hive posts for "' + query + '"...', false);
 
-      var profilePromise = connectedUser
-        ? fetchSearchPool24Months().then(function (pool) {
-            return fetchUserBehaviorProfile(connectedUser, computeCorpusIDF(pool), [], 24, includeVotes);
-          }).catch(function () { return null; })
-        : Promise.resolve(null);
-
-      return Promise.all([
-        fetchSearchPool24Months(),
-        profilePromise
-      ]).then(function (res) {
-        var pool = res[0] || [];
-        var userBehaviorProfile = res[1] || null;
+      return fetchSearchPool(windowMonths, query).then(function (pool) {
         var idfMap = computeCorpusIDF(pool);
-        if (userBehaviorProfile && connectedUser) {
-          userBehaviorProfile = Object.assign({}, userBehaviorProfile);
-          userBehaviorProfile.positive = buildWeightedProfileVector(
-            (userBehaviorProfile.commentTexts || []).concat([]),
-            idfMap
-          );
-          userBehaviorProfile = null;
-        }
-        var freshProfilePromise = connectedUser
-          ? fetchUserBehaviorProfile(connectedUser, idfMap, [], 24, includeVotes)
+        var profilePromise = connectedUser
+          ? fetchUserBehaviorProfile(connectedUser, idfMap, [], 24, includeVotes).catch(function () { return null; })
           : Promise.resolve(null);
 
-        return freshProfilePromise.then(function (profile) {
+        return profilePromise.then(function (profile) {
           var qVec = buildExpandedSearchQueryVector(query, idfMap);
           var qTokens = tokenize(query);
           var items = [];
@@ -5589,8 +5597,9 @@
 
             var titleLower = (p.title || '').toLowerCase();
             var bodyLower = (p.body || '').toLowerCase();
-            var queryLower = query.toLowerCase();
+            var queryLower = query.toLowerCase().trim();
             var exactHits = 0;
+
             for (var k = 0; k < qTokens.length; k++) {
               if (titleLower.indexOf(qTokens[k]) !== -1) exactHits += 2;
               if (bodyLower.indexOf(qTokens[k]) !== -1) exactHits += 1;
@@ -5599,36 +5608,42 @@
               exactHits += 3;
             }
 
+            // Strictly require a search-term match before applying activity/vote/reblog/comment boosts
+            var hasTermMatch = (sim.score > 0 || exactHits > 0);
+            if (!hasTermMatch) continue;
+
             var behaviorSim = profile ? scoreAgainstBehaviorProfile(p, profile, idfMap, pVec) : { score: 0, matched: [] };
             var combinedScore = sim.score + (exactHits * 0.08) + (profile ? behaviorSim.score * 0.25 : 0);
             var ts = p.created ? Date.parse(p.created + 'Z') : 0;
 
             var matchedList = sim.matched.slice();
+            if (matchedList.length === 0 && exactHits > 0) {
+              matchedList.push(queryLower);
+            }
             if (profile && behaviorSim.score >= 0.08) {
-              matchedList.push('Activity match');
+              matchedList.push('Activity boost');
             }
 
-            if (combinedScore > 0 || exactHits > 0) {
-              items.push({
-                post: p,
-                tokens: tokens,
-                baseScore: combinedScore,
-                finalScore: combinedScore,
-                matched: matchedList,
-                timestamp: isNaN(ts) ? 0 : ts,
-                isLiked: false,
-                personalized: !!profile
-              });
-            }
+            items.push({
+              post: p,
+              tokens: tokens,
+              baseScore: combinedScore,
+              finalScore: combinedScore,
+              matched: matchedList,
+              timestamp: isNaN(ts) ? 0 : ts,
+              isLiked: false,
+              personalized: !!profile
+            });
           }
 
           appState.results = items;
           appState.visibleCount = 25;
           rerankAndRender();
           var modeNote = connectedUser
-            ? (includeVotes ? ' (voting history, reblogs & comments active)' : ' (reblogs & comments active; voting history off)')
+            ? (includeVotes ? ' (ranked with voting history, reblogs & comments)' : ' (ranked with reblogs & comments; voting history off)')
             : '';
-          setStatus('Found ' + appState.results.length + ' matching posts for "' + query + '"' + modeNote + '.', false);
+          var scopeNote = isNewestSort ? ' within 6-month newest window' : '';
+          setStatus('Found ' + appState.results.length + ' matching posts for "' + query + '"' + scopeNote + modeNote + '.', false);
         });
       });
     }
