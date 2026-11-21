@@ -484,11 +484,23 @@ function fmtPrec(num, prec) {
   return Number(num || 0).toFixed(p);
 }
 
-function toFixedSafe(val, decimals) {
+function floorToDecimals(val, decimals) {
   const n = Number(val);
-  if (!Number.isFinite(n)) return null;
+  if (!Number.isFinite(n) || n <= 0) return 0;
   const d = Math.max(0, Math.min(8, Number.isFinite(Number(decimals)) ? Number(decimals) : 8));
-  return n.toFixed(d);
+  const factor = Math.pow(10, d);
+  return Math.floor((n + 1e-12) * factor) / factor;
+}
+
+function toFixedSafe(val, decimals, floor = false) {
+  const n = Number(val);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const d = Math.max(0, Math.min(8, Number.isFinite(Number(decimals)) ? Number(decimals) : 8));
+  const adjusted = floor ? floorToDecimals(n, d) : n;
+  if (!Number.isFinite(adjusted) || adjusted <= 0) return null;
+  const str = adjusted.toFixed(d);
+  if (!str || str.includes("e") || str.includes("E") || Number(str) <= 0) return null;
+  return str;
 }
 
 function calcSplitFees(gross) {
@@ -605,7 +617,7 @@ async function fetchTokenPrecisions(symbols) {
   return map;
 }
 
-async function fetchTopBuyOrder(symbol) {
+async function fetchBuyBookOrders(symbol, limit = 50) {
   const orders = await rpcCall({
     jsonrpc: "2.0",
     id: 3,
@@ -614,12 +626,57 @@ async function fetchTopBuyOrder(symbol) {
       contract: "market",
       table: "buyBook",
       query: { symbol },
-      limit: 1,
+      limit,
       offset: 0,
       indexes: [{ index: "priceDec", descending: true }]
     }
   });
-  return Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
+  return Array.isArray(orders) ? orders : [];
+}
+
+async function fetchTopBuyOrder(symbol) {
+  const orders = await fetchBuyBookOrders(symbol, 1);
+  return orders.length > 0 ? orders[0] : null;
+}
+
+function matchSellAgainstBuyBook(balance, orders, minPrice, precision) {
+  const flooredBalance = floorToDecimals(balance, precision);
+  if (flooredBalance <= 0) {
+    return { matchedQty: 0, estProceeds: 0, effectivePrice: minPrice };
+  }
+
+  let remainingToSell = flooredBalance;
+  let matchedQty = 0;
+  let estProceeds = 0;
+  let lowestMatchedPrice = null;
+
+  for (const ord of orders) {
+    if (remainingToSell <= 0) break;
+    const ordPrice = Number(ord.price);
+    const ordQty = Number(ord.quantity);
+    if (!Number.isFinite(ordPrice) || ordPrice <= 0 || !Number.isFinite(ordQty) || ordQty <= 0) {
+      continue;
+    }
+    if (ordPrice < minPrice) break;
+
+    const fillQty = Math.min(remainingToSell, ordQty);
+    if (fillQty > 0) {
+      matchedQty += fillQty;
+      estProceeds += fillQty * ordPrice;
+      remainingToSell -= fillQty;
+      lowestMatchedPrice = ordPrice;
+    }
+  }
+
+  const finalQty = floorToDecimals(matchedQty, precision);
+  const finalPrice = lowestMatchedPrice && lowestMatchedPrice > 0 ? lowestMatchedPrice : minPrice;
+  const finalProceeds = finalQty > 0 ? finalQty * finalPrice : 0;
+
+  return {
+    matchedQty: finalQty,
+    estProceeds: finalProceeds,
+    effectivePrice: finalPrice
+  };
 }
 
 async function fetchTokenBalanceRecord(account, symbol) {
@@ -641,8 +698,14 @@ function recalculateTotals() {
   let selectedCount = 0;
 
   for (const row of state.rows) {
-    row.sellPrice = row.topBid * discount;
-    row.estHive = row.selected ? row.balance * row.sellPrice : 0;
+    const minPrice = row.topBid * discount;
+    const match = Array.isArray(row.buyOrders) && row.buyOrders.length
+      ? matchSellAgainstBuyBook(row.balance, row.buyOrders, minPrice, row.precision)
+      : { matchedQty: floorToDecimals(row.balance, row.precision), estProceeds: floorToDecimals(row.balance, row.precision) * minPrice, effectivePrice: minPrice };
+
+    row.sellPrice = match.effectivePrice;
+    row.matchedQty = match.matchedQty;
+    row.estHive = row.selected ? match.estProceeds : 0;
     if (row.selected) {
       gross += row.estHive;
       selectedCount++;
@@ -667,7 +730,7 @@ function renderTable() {
   const tbody = $("tokensTbody");
 
   const filtered = state.rows.filter((r) => {
-    const rawEst = r.balance * r.topBid * discount;
+    const rawEst = (r.matchedQty ?? r.balance) * r.sellPrice;
     return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
   });
 
@@ -687,7 +750,7 @@ function renderTable() {
       <td class="num">${fmt8(r.topBid)}</td>
       <td class="num">${fmtPrec(r.bidQty, r.precision)}</td>
       <td class="num">${fmt8(r.sellPrice)}</td>
-      <td class="num">${fmt8(r.balance * r.sellPrice)}</td>
+      <td class="num">${fmt8((r.matchedQty ?? r.balance) * r.sellPrice)}</td>
     </tr>
   `).join("");
 
@@ -739,21 +802,25 @@ async function handleScan() {
     for (const b of balances) {
       const bal = parseFloat(b.balance);
       const prec = precisions.get(b.symbol) ?? 8;
-      const topOrder = await fetchTopBuyOrder(b.symbol);
-      if (!topOrder) continue;
+      const buyOrders = await fetchBuyBookOrders(b.symbol, 50);
+      if (!buyOrders.length) continue;
 
+      const topOrder = buyOrders[0];
       const topBid = parseFloat(topOrder.price);
       const bidQty = parseFloat(topOrder.quantity);
       if (!(topBid > 0)) continue;
 
-      const est = bal * topBid * discount;
+      const match = matchSellAgainstBuyBook(bal, buyOrders, topBid * discount, prec);
+      const est = match.estProceeds;
       rows.push({
         symbol: b.symbol,
         balance: bal,
         precision: prec,
         topBid,
         bidQty,
-        sellPrice: topBid * discount,
+        buyOrders,
+        matchedQty: match.matchedQty,
+        sellPrice: match.effectivePrice,
         estHive: est,
         selected: est > 0 && (!Number.isFinite(maxDust) || est <= maxDust)
       });
@@ -798,7 +865,7 @@ function connectKeychain() {
   );
 }
 
-function executeBatchSell() {
+async function executeBatchSell() {
   if (!window.hive_keychain) {
     setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
     return;
@@ -810,35 +877,59 @@ function executeBatchSell() {
 
   if (!account || selectedRows.length === 0) return;
 
+  $("executeBtn").disabled = true;
+  setStatus("Verifying live buy orders before broadcasting...");
+
   const ops = [];
   let totalGross = 0;
 
   for (const r of selectedRows) {
-    const qtyNum = Number(r.balance);
-    const priceNum = Number(r.topBid) * discount;
-    if (!Number.isFinite(qtyNum) || qtyNum <= 0 || !Number.isFinite(priceNum) || priceNum <= 0) {
-      continue;
-    }
+    try {
+      const liveOrders = await fetchBuyBookOrders(r.symbol, 50);
+      const bookOrders = liveOrders.length ? liveOrders : (r.buyOrders || []);
+      const topPrice = bookOrders.length ? Number(bookOrders[0].price) : Number(r.topBid);
+      const minPrice = (Number.isFinite(topPrice) && topPrice > 0 ? topPrice : Number(r.topBid)) * discount;
 
-    const qtyStr = toFixedSafe(qtyNum, r.precision);
-    const priceStr = toFixedSafe(priceNum, 8);
-    if (!qtyStr || !priceStr || Number(qtyStr) <= 0 || Number(priceStr) <= 0) {
-      continue;
-    }
+      const match = matchSellAgainstBuyBook(r.balance, bookOrders, minPrice, r.precision);
+      const qtyStr = toFixedSafe(match.matchedQty, r.precision, true);
+      const priceStr = toFixedSafe(match.effectivePrice, 8, false);
+      if (!qtyStr || !priceStr) continue;
 
-    totalGross += Number(qtyStr) * Number(priceStr);
-    ops.push({
-      contractName: "market",
-      contractAction: "sell",
-      contractPayload: {
-        symbol: String(r.symbol).toUpperCase(),
-        quantity: qtyStr,
-        price: priceStr
+      const qtyVal = Number(qtyStr);
+      const priceVal = Number(priceStr);
+      if (!Number.isFinite(qtyVal) || qtyVal <= 0 || !Number.isFinite(priceVal) || priceVal <= 0) {
+        continue;
       }
-    });
+
+      totalGross += qtyVal * priceVal;
+      ops.push({
+        contractName: "market",
+        contractAction: "sell",
+        contractPayload: {
+          symbol: String(r.symbol).toUpperCase(),
+          quantity: qtyStr,
+          price: priceStr
+        }
+      });
+    } catch (_) {
+      const qtyStr = toFixedSafe(r.matchedQty ?? r.balance, r.precision, true);
+      const priceStr = toFixedSafe(r.sellPrice, 8, false);
+      if (!qtyStr || !priceStr) continue;
+      totalGross += Number(qtyStr) * Number(priceStr);
+      ops.push({
+        contractName: "market",
+        contractAction: "sell",
+        contractPayload: {
+          symbol: String(r.symbol).toUpperCase(),
+          quantity: qtyStr,
+          price: priceStr
+        }
+      });
+    }
   }
 
   if (ops.length === 0) {
+    $("executeBtn").disabled = false;
     setStatus("No valid sell operations to broadcast.", "warn");
     return;
   }
@@ -852,7 +943,7 @@ function executeBatchSell() {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_1,
         quantity: share1.toFixed(8),
-        memo: `1% dust sweeper fee (${selectedRows.length} tokens)`
+        memo: `1% dust sweeper fee (${ops.length} tokens)`
       }
     });
   }
@@ -864,17 +955,16 @@ function executeBatchSell() {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_2,
         quantity: share2.toFixed(8),
-        memo: `1% dust sweeper fee (${selectedRows.length} tokens)`
+        memo: `1% dust sweeper fee (${ops.length} tokens)`
       }
     });
   }
 
-  $("executeBtn").disabled = true;
   setStatus("Waiting for Hive Keychain approval...");
 
   const approvalMessage = isFeeWaived()
-    ? `Sell ${selectedRows.length} dust token(s) (Fee waived: 100+ ELIXIR staked)`
-    : `Sell ${selectedRows.length} dust token(s) + 1% to @${FEE_ACCOUNT_1} & 1% to @${FEE_ACCOUNT_2}`;
+    ? `Sell ${ops.length} dust token(s) (Fee waived: 100+ ELIXIR staked)`
+    : `Sell ${ops.length} dust token(s) + 1% to @${FEE_ACCOUNT_1} & 1% to @${FEE_ACCOUNT_2}`;
 
   window.hive_keychain.requestCustomJson(
     account,
@@ -912,7 +1002,7 @@ $("selectAllBtn").addEventListener("click", () => {
   const maxDust = parseFloat($("maxDustInput").value);
   const discount = parseFloat($("discountSelect").value) || 1;
   for (const r of state.rows) {
-    const est = r.balance * r.topBid * discount;
+    const est = (r.matchedQty ?? r.balance) * (r.topBid * discount);
     if (!Number.isFinite(maxDust) || est <= maxDust) {
       r.selected = true;
     }
