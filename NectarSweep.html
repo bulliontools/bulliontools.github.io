@@ -601,6 +601,42 @@ const factor = Math.pow(10, p);
 return Math.floor(Number(num || 0) * factor + 1e-12) / factor;
 }
 
+function clampDecimalStrToMax(num, prec, maxRawStr) {
+const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+const floored = floorPrec(num, p);
+let str = floored.toFixed(p);
+if (typeof maxRawStr === "string" && maxRawStr.trim() !== "") {
+const cleanedMax = maxRawStr.trim();
+if (/^\d+(\.\d+)?$/.test(cleanedMax)) {
+const [maxInt, maxFrac = ""] = cleanedMax.split(".");
+const clampedFrac = maxFrac.padEnd(p, "0").slice(0, p);
+const maxAtPrec = p > 0 ? `${maxInt}.${clampedFrac}` : maxInt;
+if (compareDecimalStrings(str, maxAtPrec) > 0) {
+str = maxAtPrec;
+}
+}
+}
+return str;
+}
+
+function compareDecimalStrings(a, b) {
+const [aIntRaw, aFracRaw = ""] = String(a).split(".");
+const [bIntRaw, bFracRaw = ""] = String(b).split(".");
+const aInt = aIntRaw.replace(/^0+(?=\d)/, "") || "0";
+const bInt = bIntRaw.replace(/^0+(?=\d)/, "") || "0";
+if (aInt.length !== bInt.length) {
+return aInt.length > bInt.length ? 1 : -1;
+}
+if (aInt !== bInt) {
+return aInt > bInt ? 1 : -1;
+}
+const len = Math.max(aFracRaw.length, bFracRaw.length);
+const aFrac = aFracRaw.padEnd(len, "0");
+const bFrac = bFracRaw.padEnd(len, "0");
+if (aFrac === bFrac) return 0;
+return aFrac > bFrac ? 1 : -1;
+}
+
 function utf8ByteLength(str) {
 return new TextEncoder().encode(str).length;
 }
@@ -636,39 +672,46 @@ function isMatchAllOrdersEnabled() {
 return Boolean($("matchAllOrdersCheckbox")?.checked);
 }
 
+function normalizeSortedBuyOrders(orders, fallbackBid, fallbackQty) {
+const list = Array.isArray(orders) && orders.length > 0
+? orders
+: (fallbackBid > 0 ? [{ price: String(fallbackBid), quantity: String(fallbackQty || 0) }] : []);
+return [...list]
+.map((o) => ({
+price: parseFloat(o.price),
+quantity: Math.max(0, parseFloat(o.quantity) || 0)
+}))
+.filter((o) => o.price > 0 && o.quantity > 0)
+.sort((a, b) => b.price - a.price);
+}
+
 function computeRowQuote(row, discount) {
-const orders = Array.isArray(row.buyOrders) && row.buyOrders.length > 0
-? row.buyOrders
-: (row.topBid > 0 ? [{ price: String(row.topBid), quantity: String(row.bidQty) }] : []);
+const orders = normalizeSortedBuyOrders(row.buyOrders, row.topBid, row.bidQty);
+const topOrderPrice = orders.length > 0 ? orders[0].price : (Number(row.topBid) || 0);
+const topOrderQty = orders.length > 0 ? orders[0].quantity : (Number(row.bidQty) || 0);
+const totalBookDepth = orders.reduce((sum, o) => sum + o.quantity, 0);
+const balance = Math.max(0, Number(row.balance) || 0);
 
 if (isMatchAllOrdersEnabled()) {
-const balance = Math.max(0, Number(row.balance) || 0);
 let remaining = balance;
 let matchedQty = 0;
 let estProceeds = 0;
-let lowestMatchedPrice = 0;
-let totalBookDepth = 0;
+let lowestMatchedBid = 0;
 
 for (const order of orders) {
-const orderPrice = parseFloat(order.price);
-const orderQty = Math.max(0, parseFloat(order.quantity) || 0);
-if (!(orderPrice > 0) || !(orderQty > 0)) continue;
-totalBookDepth += orderQty;
-
-if (remaining > 1e-12) {
-const takeQty = Math.min(remaining, orderQty);
+if (remaining <= 1e-12) break;
+const takeQty = Math.min(remaining, order.quantity);
+if (takeQty <= 0) continue;
 matchedQty += takeQty;
-estProceeds += takeQty * orderPrice;
-lowestMatchedPrice = orderPrice;
+estProceeds += takeQty * order.price;
+lowestMatchedBid = order.price;
 remaining = Math.max(0, remaining - takeQty);
 }
-}
 
-const totalQty = floorPrec(matchedQty, row.precision);
-const qtyStr = totalQty.toFixed(row.precision);
+const qtyStr = clampDecimalStrToMax(matchedQty, row.precision, row.rawBalance);
 const parsedQty = parseFloat(qtyStr);
-const basePrice = lowestMatchedPrice > 0 ? lowestMatchedPrice : row.topBid;
-const sellPrice = basePrice * discount;
+const anchorBid = lowestMatchedBid > 0 ? lowestMatchedBid : topOrderPrice;
+const sellPrice = anchorBid * discount;
 const priceStr = sellPrice.toFixed(8);
 const parsedPrice = parseFloat(priceStr);
 const aggGross = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
@@ -682,16 +725,17 @@ sellPrice,
 estHive: aggGross,
 slices,
 totalBookDepth,
+topBid: topOrderPrice,
+bidQty: topOrderQty,
 unmatchedQty: Math.max(0, floorPrec(balance - parsedQty, row.precision))
 };
 }
 
-const raw = isCapDepthEnabled() ? Math.min(row.balance, row.bidQty) : row.balance;
-const sellQty = floorPrec(raw, row.precision);
-const sellPrice = row.topBid * discount;
-const qtyStr = sellQty.toFixed(row.precision);
-const priceStr = sellPrice.toFixed(8);
+const raw = isCapDepthEnabled() ? Math.min(balance, topOrderQty) : balance;
+const qtyStr = clampDecimalStrToMax(raw, row.precision, row.rawBalance);
 const parsedQty = parseFloat(qtyStr);
+const sellPrice = topOrderPrice * discount;
+const priceStr = sellPrice.toFixed(8);
 const parsedPrice = parseFloat(priceStr);
 const estHive = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
 const slices = estHive > 0
@@ -703,8 +747,10 @@ sellQty: parsedQty,
 sellPrice,
 estHive,
 slices,
-totalBookDepth: row.bidQty,
-unmatchedQty: Math.max(0, floorPrec(row.balance - parsedQty, row.precision))
+totalBookDepth,
+topBid: topOrderPrice,
+bidQty: topOrderQty,
+unmatchedQty: Math.max(0, floorPrec(balance - parsedQty, row.precision))
 };
 }
 
@@ -889,7 +935,8 @@ offset: 0,
 indexes: [{ index: "priceDec", descending: true }]
 }
 });
-return Array.isArray(orders) ? orders : [];
+const arr = Array.isArray(orders) ? orders : [];
+return [...arr].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
 }
 
 async function fetchTopBuyOrder(symbol) {
@@ -1003,6 +1050,21 @@ query: { account, symbol: "ELIXIR" }
 }
 });
 return res ? parseFloat(res.stake || 0) : 0;
+}
+
+async function fetchTransactionStatus(txId) {
+if (!txId) return null;
+try {
+const res = await rpcCall("blockchain", {
+jsonrpc: "2.0",
+id: 8,
+method: "getTransactionInfo",
+params: { txid: txId }
+});
+return res || null;
+} catch (err) {
+return null;
+}
 }
 
 function recalculateTotals() {
@@ -1202,7 +1264,8 @@ const rows = [];
 for (const { balanceItem: b, buyOrders } of quoteResults) {
 const topOrder = Array.isArray(buyOrders) && buyOrders.length > 0 ? buyOrders[0] : null;
 if (!topOrder) continue;
-const bal = parseFloat(b.balance);
+const rawBalStr = String(b.balance ?? "0");
+const bal = parseFloat(rawBalStr);
 const prec = precisions.get(b.symbol) ?? 8;
 const topBid = parseFloat(topOrder.price);
 const bidQty = parseFloat(topOrder.quantity);
@@ -1211,6 +1274,7 @@ if (!(topBid > 0)) continue;
 const draftRow = {
 symbol: b.symbol,
 balance: bal,
+rawBalance: rawBalStr,
 precision: prec,
 topBid,
 bidQty,
@@ -1221,6 +1285,7 @@ const est = quote.estHive;
 rows.push({
 symbol: b.symbol,
 balance: bal,
+rawBalance: rawBalStr,
 sellQty: quote.sellQty,
 precision: prec,
 topBid,
@@ -1290,8 +1355,10 @@ let totalGross = 0;
 for (const r of selectedRows) {
 const quote = computeRowQuote(r, discount);
 for (const slice of quote.slices) {
-const itemGross = parseFloat(slice.quantity) * parseFloat(slice.price);
-if (parseFloat(slice.quantity) <= 0 || parseFloat(slice.price) <= 0 || !(itemGross > 0)) continue;
+const safeQtyStr = clampDecimalStrToMax(parseFloat(slice.quantity), r.precision, r.rawBalance);
+const priceStr = parseFloat(slice.price).toFixed(8);
+const itemGross = parseFloat(safeQtyStr) * parseFloat(priceStr);
+if (parseFloat(safeQtyStr) <= 0 || parseFloat(priceStr) <= 0 || !(itemGross > 0)) continue;
 
 totalGross += itemGross;
 sellItems.push({
@@ -1301,8 +1368,8 @@ contractName: "market",
 contractAction: "sell",
 contractPayload: {
 symbol: r.symbol,
-quantity: slice.quantity,
-price: slice.price
+quantity: safeQtyStr,
+price: priceStr
 }
 }
 });
@@ -1311,29 +1378,12 @@ price: slice.price
 
 if (sellItems.length === 0) return { batches: [], requiredExistingSwapHive: 0 };
 
-const rawBatches = [];
-let currentItems = [];
-
-for (const item of sellItems) {
-const candidateOps = [...currentItems.map((x) => x.op), item.op];
-if (currentItems.length > 0 && utf8ByteLength(JSON.stringify(candidateOps)) > MAX_CUSTOM_JSON_BYTES) {
-rawBatches.push(currentItems);
-currentItems = [item];
-} else {
-currentItems = [...currentItems, item];
-}
-}
-if (currentItems.length > 0) {
-rawBatches.push(currentItems);
-}
-
 const batches = [];
 let totalFeeCharged = 0;
 
-for (const items of rawBatches) {
-const batchGross = items.reduce((sum, x) => sum + x.gross, 0);
-const batchSplits = calculateFeeSplits(batchGross, feeEnabled);
-const feeOps = batchSplits
+for (const item of sellItems) {
+const itemSplits = calculateFeeSplits(item.gross, feeEnabled);
+const feeOps = itemSplits
 .filter((s) => s.amount >= 0.00000001)
 .map((s) => {
 totalFeeCharged += s.amount;
@@ -1344,17 +1394,16 @@ contractPayload: {
 symbol: "SWAP.HIVE",
 to: s.account,
 quantity: s.amount.toFixed(8),
-memo: `${+(s.rate * 100).toFixed(2)}% Nectar Sweep fee (${items.length} tokens)`
+memo: `${+(s.rate * 100).toFixed(2)}% Nectar Sweep fee (${item.op.contractPayload.symbol})`
 }
 };
 });
 
-const sellOps = items.map((x) => x.op);
-const combined = [...sellOps, ...feeOps];
-if (utf8ByteLength(JSON.stringify(combined)) <= MAX_CUSTOM_JSON_BYTES) {
-batches.push(combined);
+const singleItemBatch = [item.op, ...feeOps];
+if (utf8ByteLength(JSON.stringify(singleItemBatch)) <= MAX_CUSTOM_JSON_BYTES) {
+batches.push(singleItemBatch);
 } else {
-batches.push(sellOps);
+batches.push([item.op]);
 if (feeOps.length > 0) batches.push(feeOps);
 }
 }
@@ -1378,13 +1427,7 @@ quantity: buyQty.toFixed(elixirBuyQuote.precision),
 price: elixirBuyQuote.price.toFixed(8)
 }
 };
-const lastBatch = batches[batches.length - 1];
-const withBuy = [...lastBatch, buyOp];
-if (utf8ByteLength(JSON.stringify(withBuy)) <= MAX_CUSTOM_JSON_BYTES) {
-batches[batches.length - 1] = withBuy;
-} else {
 batches.push([buyOp]);
-}
 }
 }
 
@@ -1429,6 +1472,7 @@ if (!account || selectedRows.length === 0) return;
 
 $("executeBtn").disabled = true;
 const txIds = [];
+const contractErrors = [];
 let batches = [];
 
 try {
@@ -1496,6 +1540,7 @@ const hasElixirBuy = batchOps.some(
 (op) => op.contractName === "market" && op.contractAction === "buy" && op.contractPayload?.symbol === "ELIXIR"
 );
 const sellCount = batchOps.filter((op) => op.contractAction === "sell").length;
+const sellSymbol = batchOps.find((op) => op.contractAction === "sell")?.contractPayload?.symbol || "";
 
 const extras = [];
 if (hasFee) extras.push("2% fee");
@@ -1505,6 +1550,8 @@ const extraSuffix = extras.length > 0 ? ` + ${extras.join(" + ")}` : "";
 let actionLabel;
 if (sellCount === 0 && extras.length > 0) {
 actionLabel = `Batch ${i + 1}/${batches.length}: Nectar Sweep ${extras.join(" + ")}`;
+} else if (sellCount === 1 && sellSymbol) {
+actionLabel = `Batch ${i + 1}/${batches.length}: Sell ${sellSymbol}${extraSuffix}`;
 } else if (batches.length > 1) {
 actionLabel = `Batch ${i + 1}/${batches.length}: Sell ${sellCount} token(s)${extraSuffix}`;
 } else {
@@ -1513,7 +1560,20 @@ actionLabel = `Sell ${sellCount} Nectar Drop(s)${extraSuffix}`;
 
 setStatus(`Waiting for Hive Keychain approval (batch ${i + 1} of ${batches.length})...`);
 const res = await broadcastSingleBatch(account, batchOps, actionLabel);
-if (res?.result?.id) txIds.push(res.result.id);
+const txId = res?.result?.id || res?.id || "";
+if (txId) {
+txIds.push(txId);
+await new Promise((r) => setTimeout(r, 3200));
+const txInfo = await fetchTransactionStatus(txId);
+if (txInfo && txInfo.logs) {
+try {
+const parsedLogs = typeof txInfo.logs === "string" ? JSON.parse(txInfo.logs) : txInfo.logs;
+if (parsedLogs && Array.isArray(parsedLogs.errors) && parsedLogs.errors.length > 0) {
+contractErrors.push(`${sellSymbol || `Batch ${i + 1}`}: ${parsedLogs.errors.join("; ")}`);
+}
+} catch (_) {}
+}
+}
 }
 
 const partialNotes = selectedRows
@@ -1522,10 +1582,13 @@ const partialNotes = selectedRows
 const partialSuffix = partialNotes.length > 0
 ? `\nUnmatched due to buy-book depth: ${partialNotes.join(", ")}`
 : "";
+const errorSuffix = contractErrors.length > 0
+? `\nHive-Engine contract errors: ${contractErrors.join(" | ")}`
+: "";
 
 setStatus(
-`Broadcasted ${batches.length} batch(es)! TX IDs: ${txIds.join(", ")}${partialSuffix}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
-"ok"
+`Broadcasted ${batches.length} batch(es)! TX IDs: ${txIds.join(", ")}${partialSuffix}${errorSuffix}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
+contractErrors.length > 0 ? "warn" : "ok"
 );
 setTimeout(handleScan, 5000);
 } catch (err) {
