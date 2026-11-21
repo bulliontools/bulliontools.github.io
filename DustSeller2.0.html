@@ -101,12 +101,25 @@ button.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .row-actions {
 display: flex;
 flex-wrap: wrap;
+align-items: center;
 gap: 10px;
 margin-top: 14px;
 }
+.swap-option-box {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+padding: 9px 12px;
+border-radius: 8px;
+background: var(--panel-2);
+border: 1px solid var(--border);
+font-size: 0.9rem;
+cursor: pointer;
+user-select: none;
+}
 .summary-grid {
 display: grid;
-grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 gap: 12px;
 margin-top: 14px;
 }
@@ -214,6 +227,10 @@ margin-top: 10px;
 <div class="row-actions">
 <button id="selectAllBtn" type="button" disabled>Select All Filtered</button>
 <button id="clearAllBtn" type="button" disabled>Clear Selection</button>
+<label class="swap-option-box" for="swapElixirCheckbox">
+<input id="swapElixirCheckbox" type="checkbox" />
+<span>Swap net SWAP.HIVE for <strong>ELIXIR</strong></span>
+</label>
 </div>
 
 <div class="summary-grid">
@@ -243,6 +260,7 @@ margin-top: 10px;
 <div class="stat">
 <div class="stat-label">Est. Net to You</div>
 <div class="stat-val ok" id="estNet">0.00000000</div>
+<div class="stat-meta" id="elixirSwapMeta">ELIXIR swap: Off</div>
 </div>
 </div>
 
@@ -253,7 +271,7 @@ Sell Selected Tokens
 </div>
 
 <div class="notice">
-<strong>10% Service Fee &amp; Waiver Policy:</strong> A 10% service fee split equally between <strong id="feeRecipientsNotice"></strong> (5% each) is <strong>applied by default</strong>. Waiving the fee is unlocked only if your scanned account has at least <strong>100 staked <code>ELIXIR</code></strong>. When applied, two <code>SWAP.HIVE</code> transfer operations are bundled into the transaction; if your current <code>SWAP.HIVE</code> balance is lower than the calculated fee and your sell orders do not settle in the exact same block, Hive-Engine may reject the transfer operations.
+<strong>10% Fee:</strong> Split 5% each to <strong id="feeRecipientsNotice"></strong> by default (waivable with <strong>100+ staked <code>ELIXIR</code></strong>). Requires enough existing <code>SWAP.HIVE</code> to cover the fee (and <code>ELIXIR</code> buy, if enabled) if orders don't settle in the same block.
 </div>
 
 <div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
@@ -286,6 +304,7 @@ const FEE_RECIPIENTS = [
 { account: "nectarbytes", rate: 0.05 },
 { account: "bulliontools", rate: 0.05 }
 ];
+const PREFERRED_ELIXIR_SELLER = "nectarbytes";
 const ELIXIR_FEE_WAIVER_STAKE = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const MAX_CUSTOM_JSON_BYTES = 7500;
@@ -303,7 +322,8 @@ const $ = (id) => document.getElementById(id);
 const state = {
 rows: [],
 swapHiveBalance: 0,
-elixirStake: 0
+elixirStake: 0,
+elixirQuote: null
 };
 
 $("feeSplitLabel").textContent = "5% / 5%";
@@ -479,6 +499,60 @@ indexes: [{ index: "priceDec", descending: true }]
 return Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
 }
 
+async function fetchElixirQuote() {
+const [nectarOrders, cheapestOrders, tokenMeta] = await Promise.all([
+rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 6,
+method: "find",
+params: {
+contract: "market",
+table: "sellBook",
+query: { symbol: "ELIXIR", account: PREFERRED_ELIXIR_SELLER },
+limit: 1,
+offset: 0,
+indexes: [{ index: "price", descending: false }]
+}
+}),
+rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 7,
+method: "find",
+params: {
+contract: "market",
+table: "sellBook",
+query: { symbol: "ELIXIR" },
+limit: 1,
+offset: 0,
+indexes: [{ index: "price", descending: false }]
+}
+}),
+fetchTokenPrecisions(["ELIXIR"])
+]);
+
+const precision = tokenMeta.get("ELIXIR") ?? 8;
+const nectarOrder = Array.isArray(nectarOrders) && nectarOrders.length > 0 ? nectarOrders[0] : null;
+const cheapestOrder = Array.isArray(cheapestOrders) && cheapestOrders.length > 0 ? cheapestOrders[0] : null;
+
+if (nectarOrder && parseFloat(nectarOrder.price) > 0) {
+return {
+price: parseFloat(nectarOrder.price),
+availableQty: parseFloat(nectarOrder.quantity || 0),
+source: `@${PREFERRED_ELIXIR_SELLER}`,
+precision
+};
+}
+if (cheapestOrder && parseFloat(cheapestOrder.price) > 0) {
+return {
+price: parseFloat(cheapestOrder.price),
+availableQty: parseFloat(cheapestOrder.quantity || 0),
+source: `cheapest sell order (@${cheapestOrder.account})`,
+precision
+};
+}
+return null;
+}
+
 async function fetchSwapHiveBalance(account) {
 const res = await rpcCall("contracts", {
 jsonrpc: "2.0",
@@ -511,6 +585,7 @@ function recalculateTotals() {
 updateFeeEligibility();
 const discount = parseFloat($("discountSelect").value) || 1;
 const feeEnabled = isFeeEnabled();
+const swapElixir = $("swapElixirCheckbox").checked;
 let gross = 0;
 let selectedCount = 0;
 
@@ -534,6 +609,24 @@ const bullionSplit = splits.find((s) => s.account === "bulliontools");
 $("feeNectarMeta").textContent = `5% @nectarbytes: ${fmt8(nectarSplit?.amount)}`;
 $("feeBullionMeta").textContent = `5% @bulliontools: ${fmt8(bullionSplit?.amount)}`;
 $("estNet").textContent = fmt8(net);
+
+const swapMeta = $("elixirSwapMeta");
+if (!swapElixir) {
+swapMeta.textContent = "ELIXIR swap: Off";
+swapMeta.style.color = "var(--muted)";
+} else if (!state.elixirQuote) {
+swapMeta.textContent = "ELIXIR swap: No sell orders found";
+swapMeta.style.color = "var(--warn)";
+} else {
+const factor = Math.pow(10, state.elixirQuote.precision);
+const estElixir = net > 0 ? Math.floor((net / state.elixirQuote.price) * factor) / factor : 0;
+swapMeta.textContent = `Est. ~${fmtPrec(estElixir, state.elixirQuote.precision)} ELIXIR @ ${fmt8(state.elixirQuote.price)} (${state.elixirQuote.source})`;
+swapMeta.style.color = "var(--ok)";
+}
+
+$("executeBtn").textContent = swapElixir
+? "Sell Selected & Buy ELIXIR"
+: "Sell Selected Tokens";
 $("executeBtn").disabled = selectedCount === 0 || gross <= 0;
 
 renderTable();
@@ -587,17 +680,19 @@ return;
 }
 
 $("loadBtn").disabled = true;
-setStatus(`Scanning @${account}'s Hive-Engine balances, ELIXIR stake, and top buy orders...`);
+setStatus(`Scanning @${account}'s Hive-Engine balances, ELIXIR stake, and market order books...`);
 
 try {
-const [balances, swapHive, elixirStake] = await Promise.all([
+const [balances, swapHive, elixirStake, elixirQuote] = await Promise.all([
 fetchAllBalances(account),
 fetchSwapHiveBalance(account),
-fetchElixirStake(account)
+fetchElixirStake(account),
+fetchElixirQuote()
 ]);
 
 state.swapHiveBalance = swapHive;
 state.elixirStake = elixirStake;
+state.elixirQuote = elixirQuote;
 $("swapHiveBal").textContent = fmt8(swapHive);
 updateFeeEligibility();
 
@@ -674,7 +769,7 @@ setStatus(`Keychain connection cancelled or failed: ${res?.message || "Unknown e
 );
 }
 
-function buildSellBatches(selectedRows, discount, feeEnabled) {
+function buildSellBatches(selectedRows, discount, feeEnabled, elixirBuyQuote) {
 const sellOps = [];
 let totalGross = 0;
 
@@ -698,7 +793,10 @@ price: priceStr
 if (sellOps.length === 0) return [];
 
 const splits = calculateFeeSplits(totalGross, feeEnabled);
-const feeOps = splits
+const totalFee = splits.reduce((sum, s) => sum + s.amount, 0);
+const netProceeds = Math.max(0, totalGross - totalFee);
+
+const trailingOps = splits
 .filter((s) => s.amount >= 0.00000001)
 .map((s) => ({
 contractName: "tokens",
@@ -710,6 +808,23 @@ quantity: s.amount.toFixed(8),
 memo: `${Math.round(s.rate * 100)}% Nectar Sweep fee (${sellOps.length} tokens)`
 }
 }));
+
+if (elixirBuyQuote && elixirBuyQuote.price > 0 && netProceeds > 0) {
+const factor = Math.pow(10, elixirBuyQuote.precision);
+const buyQty = Math.floor((netProceeds / elixirBuyQuote.price) * factor) / factor;
+const minUnit = 1 / factor;
+if (buyQty >= minUnit) {
+trailingOps.push({
+contractName: "market",
+contractAction: "buy",
+contractPayload: {
+symbol: "ELIXIR",
+quantity: buyQty.toFixed(elixirBuyQuote.precision),
+price: elixirBuyQuote.price.toFixed(8)
+}
+});
+}
+}
 
 const batches = [];
 let currentOps = [];
@@ -727,13 +842,13 @@ if (currentOps.length > 0) {
 batches.push(currentOps);
 }
 
-for (const feeOp of feeOps) {
+for (const extraOp of trailingOps) {
 const lastBatch = batches[batches.length - 1];
-const withFee = [...lastBatch, feeOp];
-if (utf8ByteLength(JSON.stringify(withFee)) <= MAX_CUSTOM_JSON_BYTES) {
-batches[batches.length - 1] = withFee;
+const withExtra = [...lastBatch, extraOp];
+if (utf8ByteLength(JSON.stringify(withExtra)) <= MAX_CUSTOM_JSON_BYTES) {
+batches[batches.length - 1] = withExtra;
 } else {
-batches.push([feeOp]);
+batches.push([extraOp]);
 }
 }
 
@@ -768,36 +883,53 @@ return;
 const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
 const discount = parseFloat($("discountSelect").value) || 1;
 const feeEnabled = isFeeEnabled();
+const swapElixir = $("swapElixirCheckbox").checked;
 const selectedRows = state.rows.filter((r) => r.selected);
 
 if (!account || selectedRows.length === 0) return;
-
-const batches = buildSellBatches(selectedRows, discount, feeEnabled);
-if (batches.length === 0) {
-setStatus("No valid sell operations to broadcast.", "warn");
-return;
-}
 
 $("executeBtn").disabled = true;
 const txIds = [];
 
 try {
+let elixirQuote = null;
+if (swapElixir) {
+setStatus("Checking live ELIXIR sell book (@nectarbytes first, then lowest ask)...");
+elixirQuote = await fetchElixirQuote();
+state.elixirQuote = elixirQuote;
+if (!elixirQuote) {
+throw new Error("No active ELIXIR sell orders found on Hive-Engine.");
+}
+}
+
+const batches = buildSellBatches(selectedRows, discount, feeEnabled, elixirQuote);
+if (batches.length === 0) {
+setStatus("No valid sell operations to broadcast.", "warn");
+return;
+}
+
 for (let i = 0; i < batches.length; i++) {
 const batchOps = batches[i];
 const hasFee = batchOps.some(
 (op) => op.contractName === "tokens" && op.contractAction === "transfer"
 );
+const hasElixirBuy = batchOps.some(
+(op) => op.contractName === "market" && op.contractAction === "buy" && op.contractPayload?.symbol === "ELIXIR"
+);
 const sellCount = batchOps.filter((op) => op.contractAction === "sell").length;
 
+const extras = [];
+if (hasFee) extras.push("10% fee");
+if (hasElixirBuy) extras.push(`buy ELIXIR (${elixirQuote.source})`);
+const extraSuffix = extras.length > 0 ? ` + ${extras.join(" + ")}` : "";
+
 let actionLabel;
-if (sellCount === 0 && hasFee) {
-actionLabel = `Batch ${i + 1}/${batches.length}: Nectar Sweep 10% fee (5% @nectarbytes, 5% @bulliontools)`;
+if (sellCount === 0 && extras.length > 0) {
+actionLabel = `Batch ${i + 1}/${batches.length}: Nectar Sweep ${extras.join(" + ")}`;
 } else if (batches.length > 1) {
-actionLabel = `Batch ${i + 1}/${batches.length}: Sell ${sellCount} token(s)${hasFee ? " + 10% fee (5% @nectarbytes, 5% @bulliontools)" : ""}`;
+actionLabel = `Batch ${i + 1}/${batches.length}: Sell ${sellCount} token(s)${extraSuffix}`;
 } else {
-actionLabel = hasFee
-? `Sell ${sellCount} dust token(s) + 10% SWAP.HIVE fee (5% @nectarbytes, 5% @bulliontools)`
-: `Sell ${sellCount} dust token(s)`;
+actionLabel = `Sell ${sellCount} dust token(s)${extraSuffix}`;
 }
 
 setStatus(`Waiting for Hive Keychain approval (batch ${i + 1} of ${batches.length})...`);
@@ -812,7 +944,7 @@ setStatus(
 setTimeout(handleScan, 5000);
 } catch (err) {
 setStatus(
-`Transaction failed or rejected after ${txIds.length} of ${batches.length} batch(es): ${err.message}`,
+`Transaction failed or rejected after ${txIds.length} of batch(es): ${err.message}`,
 "err"
 );
 } finally {
@@ -825,6 +957,7 @@ $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
 $("discountSelect").addEventListener("change", recalculateTotals);
 $("feeCheckbox").addEventListener("change", recalculateTotals);
+$("swapElixirCheckbox").addEventListener("change", recalculateTotals);
 
 $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
