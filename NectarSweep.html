@@ -402,6 +402,10 @@ class="banner-img"
 <input id="capDepthCheckbox" type="checkbox" checked />
 <span>Limit sells to available top-bid quantity</span>
 </label>
+<label class="swap-option-box" for="matchAllOrdersCheckbox" title="Matches your available balance across all active buy orders on the book so tokens sell off instead of capping at the top bid">
+<input id="matchAllOrdersCheckbox" type="checkbox" />
+<span>Match &amp; sell all available across order book</span>
+</label>
 <label class="swap-option-box" for="swapElixirCheckbox">
 <input id="swapElixirCheckbox" type="checkbox" />
 <span>Use net proceeds to buy <strong>ELIXIR</strong></span>
@@ -516,6 +520,7 @@ const MAX_CUSTOM_JSON_BYTES = 7500;
 const RPC_TIMEOUT_MS = 8000;
 const STALE_QUOTE_SECONDS = 60;
 const CONCURRENCY_LIMIT = 6;
+const BUY_BOOK_DEPTH_LIMIT = 50;
 const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
@@ -627,9 +632,81 @@ function isCapDepthEnabled() {
 return $("capDepthCheckbox").checked;
 }
 
-function getEffectiveSellQty(row) {
+function isMatchAllOrdersEnabled() {
+return Boolean($("matchAllOrdersCheckbox")?.checked);
+}
+
+function computeRowQuote(row, discount) {
+const orders = Array.isArray(row.buyOrders) && row.buyOrders.length > 0
+? row.buyOrders
+: (row.topBid > 0 ? [{ price: String(row.topBid), quantity: String(row.bidQty) }] : []);
+
+if (isMatchAllOrdersEnabled()) {
+let remaining = Math.max(0, Number(row.balance) || 0);
+const slices = [];
+let matchedQty = 0;
+let estProceeds = 0;
+
+for (const order of orders) {
+if (remaining <= 0) break;
+const orderPrice = parseFloat(order.price);
+const orderQty = Math.max(0, parseFloat(order.quantity) || 0);
+if (!(orderPrice > 0) || !(orderQty > 0)) continue;
+
+const takeQty = floorPrec(Math.min(remaining, orderQty), row.precision);
+if (takeQty <= 0) continue;
+
+const slicePrice = orderPrice * discount;
+const qtyStr = takeQty.toFixed(row.precision);
+const priceStr = slicePrice.toFixed(8);
+const parsedQty = parseFloat(qtyStr);
+const parsedPrice = parseFloat(priceStr);
+if (!(parsedQty > 0) || !(parsedPrice > 0)) continue;
+
+slices.push({
+quantity: qtyStr,
+price: priceStr,
+gross: parsedQty * parsedPrice
+});
+matchedQty += parsedQty;
+estProceeds += parsedQty * parsedPrice;
+remaining = Math.max(0, remaining - parsedQty);
+}
+
+const totalQty = floorPrec(matchedQty, row.precision);
+const avgPrice = totalQty > 0 ? estProceeds / totalQty : (row.topBid * discount);
+return {
+sellQty: totalQty,
+sellPrice: avgPrice,
+estHive: estProceeds,
+slices,
+totalBookDepth: orders.reduce((sum, o) => sum + Math.max(0, parseFloat(o.quantity) || 0), 0)
+};
+}
+
 const raw = isCapDepthEnabled() ? Math.min(row.balance, row.bidQty) : row.balance;
-return floorPrec(raw, row.precision);
+const sellQty = floorPrec(raw, row.precision);
+const sellPrice = row.topBid * discount;
+const qtyStr = sellQty.toFixed(row.precision);
+const priceStr = sellPrice.toFixed(8);
+const parsedQty = parseFloat(qtyStr);
+const parsedPrice = parseFloat(priceStr);
+const estHive = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
+const slices = estHive > 0
+? [{ quantity: qtyStr, price: priceStr, gross: estHive }]
+: [];
+
+return {
+sellQty,
+sellPrice,
+estHive,
+slices,
+totalBookDepth: row.bidQty
+};
+}
+
+function getEffectiveSellQty(row, discount = parseFloat($("discountSelect").value) || 1) {
+return computeRowQuote(row, discount).sellQty;
 }
 
 function calculateFeeSplits(gross, feeEnabled) {
@@ -795,7 +872,7 @@ map.set(t.symbol, Number(t.precision ?? 8));
 return map;
 }
 
-async function fetchTopBuyOrder(symbol) {
+async function fetchBuyOrders(symbol, limit = BUY_BOOK_DEPTH_LIMIT) {
 const orders = await rpcCall("contracts", {
 jsonrpc: "2.0",
 id: 3,
@@ -804,12 +881,17 @@ params: {
 contract: "market",
 table: "buyBook",
 query: { symbol },
-limit: 1,
+limit,
 offset: 0,
 indexes: [{ index: "priceDec", descending: true }]
 }
 });
-return Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
+return Array.isArray(orders) ? orders : [];
+}
+
+async function fetchTopBuyOrder(symbol) {
+const orders = await fetchBuyOrders(symbol, 1);
+return orders.length > 0 ? orders[0] : null;
 }
 
 async function fetchElixirQuote() {
@@ -930,10 +1012,12 @@ let gross = 0;
 let selectedCount = 0;
 
 for (const row of state.rows) {
-row.sellQty = getEffectiveSellQty(row);
-row.sellPrice = row.topBid * discount;
-row.estHive = row.selected ? row.sellQty * row.sellPrice : 0;
-if (row.selected && row.sellQty > 0) {
+const quote = computeRowQuote(row, discount);
+row.sellQty = quote.sellQty;
+row.sellPrice = quote.sellPrice;
+row.sellSlices = quote.slices;
+row.estHive = row.selected ? quote.estHive : 0;
+if (row.selected && row.sellQty > 0 && row.estHive > 0) {
 gross += row.estHive;
 selectedCount++;
 }
@@ -978,13 +1062,13 @@ renderTable();
 function renderTable() {
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
+const matchAll = isMatchAllOrdersEnabled();
 const tbody = $("tokensTbody");
 tbody.textContent = "";
 
 const filtered = state.rows.filter((r) => {
-const effectiveQty = getEffectiveSellQty(r);
-const rawEst = effectiveQty * r.topBid * discount;
-return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
+const quote = computeRowQuote(r, discount);
+return Number.isFinite(maxDust) ? quote.estHive <= maxDust : true;
 });
 
 $("selectAllBtn").disabled = filtered.length === 0;
@@ -1003,7 +1087,8 @@ return;
 
 for (const r of filtered) {
 const tr = document.createElement("tr");
-const sellQty = getEffectiveSellQty(r);
+const quote = computeRowQuote(r, discount);
+const sellQty = quote.sellQty;
 const exceedsDepth = r.balance > r.bidQty + 1e-12;
 
 const tdCheck = document.createElement("td");
@@ -1024,10 +1109,15 @@ tdSym.appendChild(strong);
 if (exceedsDepth) {
 const badge = document.createElement("span");
 badge.className = "depth-badge";
+if (matchAll) {
+badge.title = "Balance exceeds top bid; matching across available buy orders on the book.";
+badge.textContent = "Multi-order";
+} else {
 badge.title = isCapDepthEnabled()
 ? "Balance exceeds top bid depth; sell quantity is capped to top bid depth."
 : "Balance exceeds top bid depth; excess tokens will remain as an open sell order.";
 badge.textContent = isCapDepthEnabled() ? "Capped" : "Thin depth";
+}
 tdSym.appendChild(badge);
 }
 tr.appendChild(tdSym);
@@ -1051,12 +1141,12 @@ tr.appendChild(tdDepth);
 
 const tdPrice = document.createElement("td");
 tdPrice.className = "num";
-tdPrice.textContent = fmt8(r.sellPrice);
+tdPrice.textContent = fmt8(quote.sellPrice);
 tr.appendChild(tdPrice);
 
 const tdEst = document.createElement("td");
 tdEst.className = "num";
-tdEst.textContent = fmt8(sellQty * r.sellPrice);
+tdEst.textContent = fmt8(quote.estHive);
 tr.appendChild(tdEst);
 
 tbody.appendChild(tr);
@@ -1083,6 +1173,7 @@ fetchElixirQuote()
 
 state.swapHiveBalance = swapHive;
 state.elixirStake = elixirStake;
+state.elixirStake = elixirStake;
 state.elixirQuote = elixirQuote;
 $("swapHiveBal").textContent = fmt8(swapHive);
 updateFeeEligibility();
@@ -1091,14 +1182,16 @@ const symbols = balances.map((b) => b.symbol);
 const precisions = await fetchTokenPrecisions(symbols);
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
+const depthLimit = isMatchAllOrdersEnabled() ? BUY_BOOK_DEPTH_LIMIT : 1;
 
 const quoteResults = await mapWithConcurrency(balances, CONCURRENCY_LIMIT, async (b) => {
-const topOrder = await fetchTopBuyOrder(b.symbol);
-return { balanceItem: b, topOrder };
+const buyOrders = await fetchBuyOrders(b.symbol, depthLimit);
+return { balanceItem: b, buyOrders };
 });
 
 const rows = [];
-for (const { balanceItem: b, topOrder } of quoteResults) {
+for (const { balanceItem: b, buyOrders } of quoteResults) {
+const topOrder = Array.isArray(buyOrders) && buyOrders.length > 0 ? buyOrders[0] : null;
 if (!topOrder) continue;
 const bal = parseFloat(b.balance);
 const prec = precisions.get(b.symbol) ?? 8;
@@ -1106,16 +1199,26 @@ const topBid = parseFloat(topOrder.price);
 const bidQty = parseFloat(topOrder.quantity);
 if (!(topBid > 0)) continue;
 
-const effectiveQty = floorPrec(isCapDepthEnabled() ? Math.min(bal, bidQty) : bal, prec);
-const est = effectiveQty * topBid * discount;
-rows.push({
+const draftRow = {
 symbol: b.symbol,
 balance: bal,
-sellQty: effectiveQty,
 precision: prec,
 topBid,
 bidQty,
-sellPrice: topBid * discount,
+buyOrders
+};
+const quote = computeRowQuote(draftRow, discount);
+const est = quote.estHive;
+rows.push({
+symbol: b.symbol,
+balance: bal,
+sellQty: quote.sellQty,
+precision: prec,
+topBid,
+bidQty,
+buyOrders,
+sellSlices: quote.slices,
+sellPrice: quote.sellPrice,
 estHive: est,
 selected: est > 0 && (!Number.isFinite(maxDust) || est <= maxDust)
 });
@@ -1175,11 +1278,10 @@ const sellItems = [];
 let totalGross = 0;
 
 for (const r of selectedRows) {
-const effectiveQty = getEffectiveSellQty(r);
-const qtyStr = effectiveQty.toFixed(r.precision);
-const priceStr = (r.topBid * discount).toFixed(8);
-const itemGross = parseFloat(qtyStr) * parseFloat(priceStr);
-if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0 || !(itemGross > 0)) continue;
+const quote = computeRowQuote(r, discount);
+for (const slice of quote.slices) {
+const itemGross = parseFloat(slice.quantity) * parseFloat(slice.price);
+if (parseFloat(slice.quantity) <= 0 || parseFloat(slice.price) <= 0 || !(itemGross > 0)) continue;
 
 totalGross += itemGross;
 sellItems.push({
@@ -1189,11 +1291,12 @@ contractName: "market",
 contractAction: "sell",
 contractPayload: {
 symbol: r.symbol,
-quantity: qtyStr,
-price: priceStr
+quantity: slice.quantity,
+price: slice.price
 }
 }
 });
+}
 }
 
 if (sellItems.length === 0) return { batches: [], requiredExistingSwapHive: 0 };
@@ -1320,14 +1423,17 @@ let batches = [];
 
 try {
 setStatus("Refreshing live top bids before broadcast...");
+const depthLimit = isMatchAllOrdersEnabled() ? BUY_BOOK_DEPTH_LIMIT : 1;
 await mapWithConcurrency(selectedRows, CONCURRENCY_LIMIT, async (r) => {
-const topOrder = await fetchTopBuyOrder(r.symbol);
-if (topOrder) {
+const buyOrders = await fetchBuyOrders(r.symbol, depthLimit);
+if (buyOrders.length > 0) {
+const topOrder = buyOrders[0];
 const topBid = parseFloat(topOrder.price);
 const bidQty = parseFloat(topOrder.quantity);
 if (topBid > 0) {
 r.topBid = topBid;
 r.bidQty = bidQty;
+r.buyOrders = buyOrders;
 }
 }
 });
@@ -1426,6 +1532,13 @@ $("maxDustInput").addEventListener("change", renderTable);
 $("discountSelect").addEventListener("change", recalculateTotals);
 $("feeCheckbox").addEventListener("change", recalculateTotals);
 $("capDepthCheckbox").addEventListener("change", recalculateTotals);
+$("matchAllOrdersCheckbox").addEventListener("change", async () => {
+if (isMatchAllOrdersEnabled() && state.rows.length > 0 && $("usernameInput").value.trim()) {
+await handleScan();
+} else {
+recalculateTotals();
+}
+});
 $("swapElixirCheckbox").addEventListener("change", recalculateTotals);
 
 document.querySelectorAll("#swapPresets .preset-btn").forEach((btn) => {
@@ -1461,7 +1574,7 @@ $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 for (const r of state.rows) {
-const est = getEffectiveSellQty(r) * r.topBid * discount;
+const est = computeRowQuote(r, discount).estHive;
 if (!Number.isFinite(maxDust) || est <= maxDust) {
 r.selected = true;
 }
