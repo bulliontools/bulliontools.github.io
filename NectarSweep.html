@@ -418,7 +418,6 @@ const FEE_ACCOUNT_2 = "nectarbytes";
 const SPLIT_FEE_RATE = 0.01;
 const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
-const ENGINE_DEPOSIT_ACCOUNT = "honey-swap";
 const THEME_STORAGE_KEY = "nectar_sweep_theme";
 const MIN_FEE_SHARE = 0.0001;
 
@@ -886,42 +885,6 @@ function requestCustomJsonAsync(account, chainId, keyType, jsonStr, displayMsg) 
   });
 }
 
-function requestHiveTransferAsync(account, to, amountHiveStr, memo) {
-  return new Promise((resolve) => {
-    if (!window.hive_keychain || typeof window.hive_keychain.requestTransfer !== "function") {
-      resolve({ success: false, message: "Hive Keychain extension not detected." });
-      return;
-    }
-    window.hive_keychain.requestTransfer(account, to, amountHiveStr, memo, "HIVE", (res) => {
-      resolve(res || { success: false, message: "Empty response from Hive Keychain." });
-    });
-  });
-}
-
-async function waitForSwapHiveBalance(account, requiredFee, maxWaitMs = 60000) {
-  const start = Date.now();
-  let latest = state.swapHiveBalance;
-
-  while (Date.now() - start < maxWaitMs) {
-    await new Promise((r) => setTimeout(r, 3000));
-    try {
-      const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
-      latest = rec ? parseFloat(rec.balance) || 0 : 0;
-      state.swapHiveBalance = latest;
-      $("swapHiveBal").textContent = fmt8(latest);
-      if (latest + 1e-12 >= requiredFee) {
-        return latest;
-      }
-      const elapsedSec = Math.round((Date.now() - start) / 1000);
-      setStatus(
-        `Deposit broadcasted. Waiting for Hive-Engine to credit SWAP.HIVE (${fmt8(latest)} / ${fmt8(requiredFee)} needed, ${elapsedSec}s elapsed)...`
-      );
-    } catch (_) {}
-  }
-
-  return latest;
-}
-
 async function executeBatchSell() {
   if (!window.hive_keychain) {
     setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
@@ -1021,54 +984,12 @@ async function executeBatchSell() {
     } catch (_) {}
 
     if (availableSwapHive + 1e-12 < totalFee) {
-      const shortfall = Math.max(0.001, Number((totalFee - availableSwapHive).toFixed(3)));
-      const depositAmountStr = Math.max(0.01, shortfall).toFixed(3);
-      const wantsDeposit = window.confirm(
-        `Insufficient SWAP.HIVE (${fmt8(availableSwapHive)}) for the ${fmt8(totalFee)} fee.\n\n` +
-        `Send ${depositAmountStr} HIVE to @${ENGINE_DEPOSIT_ACCOUNT} to convert into SWAP.HIVE and continue?`
-      );
-
-      if (!wantsDeposit) {
-        $("executeBtn").disabled = false;
-        setStatus(
-          `Sale cancelled: Insufficient liquid SWAP.HIVE (${fmt8(availableSwapHive)}) to cover required fee (${fmt8(totalFee)}). No tokens were sold.`,
-          "err"
-        );
-        return;
-      }
-
-      setStatus(`Requesting ${depositAmountStr} HIVE deposit to @${ENGINE_DEPOSIT_ACCOUNT} for SWAP.HIVE conversion...`);
-      const depRes = await requestHiveTransferAsync(
-        account,
-        ENGINE_DEPOSIT_ACCOUNT,
-        depositAmountStr,
-        `Nectar Sweep SWAP.HIVE deposit for @${account}`
-      );
-
-      if (!depRes || !depRes.success) {
-        $("executeBtn").disabled = false;
-        setStatus(
-          `Sale cancelled: HIVE deposit was rejected or failed (${(depRes && depRes.message) || "Unknown error"}). No tokens were sold.`,
-          "warn"
-        );
-        return;
-      }
-
-      const depTxId = (depRes.result && depRes.result.id) || "broadcasted";
-      succeededTxs.push(`Deposit HIVE: ${depTxId}`);
+      $("executeBtn").disabled = false;
       setStatus(
-        `Deposit sent (${depTxId}). Waiting up to 60 seconds for SWAP.HIVE to credit on Hive-Engine before prompting for the fee transfer...`
+        `Insufficient SWAP.HIVE (${fmt8(availableSwapHive)}) to cover the ${fmt8(totalFee)} fee. Please deposit HIVE on Hive-Engine or Tribaldex to get SWAP.HIVE and try again.`,
+        "err"
       );
-      availableSwapHive = await waitForSwapHiveBalance(account, totalFee, 60000);
-
-      if (availableSwapHive + 1e-12 < totalFee) {
-        $("executeBtn").disabled = false;
-        setStatus(
-          `Deposit broadcasted (${depTxId}), but SWAP.HIVE is still ${fmt8(availableSwapHive)} (need ${fmt8(totalFee)}). Please wait a moment and click Sell Tokens again.`,
-          "warn"
-        );
-        return;
-      }
+      return;
     }
   }
 
