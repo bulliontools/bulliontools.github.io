@@ -7,19 +7,19 @@
 <style>
 :root,
 [data-theme="dark"] {
-  --bg: #0f131a;
-  --panel: #171d28;
-  --panel-2: #1f2736;
-  --text: #eef2f7;
-  --muted: #9aa7bd;
-  --accent: #e31337;
-  --accent-hover: #c50f2e;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --err: #ef4444;
-  --border: #2b3548;
-  --banner-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --banner-overlay: linear-gradient(180deg, rgba(15, 19, 26, 0.05) 0%, rgba(15, 19, 26, 0.65) 100%);
+  --bg: #232c3a;
+  --panel: #2c3748;
+  --panel-2: #364459;
+  --text: #f8fafc;
+  --muted: #c2d0e3;
+  --accent: #ef2b4c;
+  --accent-hover: #d81e3e;
+  --ok: #4ade80;
+  --warn: #fcd34d;
+  --err: #fca5a5;
+  --border: #465770;
+  --banner-shadow: 0 12px 30px rgba(15, 20, 28, 0.25);
+  --banner-overlay: linear-gradient(180deg, rgba(35, 44, 58, 0.0) 0%, rgba(35, 44, 58, 0.35) 100%);
 }
 
 [data-theme="light"] {
@@ -418,6 +418,7 @@ const FEE_ACCOUNT_2 = "nectarbytes";
 const SPLIT_FEE_RATE = 0.01;
 const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
+const ENGINE_DEPOSIT_ACCOUNT = "honey-swap";
 const THEME_STORAGE_KEY = "nectar_sweep_theme";
 const MIN_FEE_SHARE = 0.0001;
 
@@ -886,6 +887,34 @@ function requestCustomJsonAsync(account, chainId, keyType, jsonStr, displayMsg) 
   });
 }
 
+function requestHiveTransferAsync(account, to, amountHiveStr, memo) {
+  return new Promise((resolve) => {
+    window.hive_keychain.requestTransfer(account, to, amountHiveStr, memo, "HIVE", (res) => {
+      resolve(res);
+    }, true);
+  });
+}
+
+async function waitForSwapHiveBalance(account, requiredFee, maxWaitMs = 30000) {
+  const start = Date.now();
+  let latest = state.swapHiveBalance;
+
+  while (Date.now() - start < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
+      latest = rec ? parseFloat(rec.balance) || 0 : 0;
+      state.swapHiveBalance = latest;
+      $("swapHiveBal").textContent = fmt8(latest);
+      if (latest + 1e-12 >= requiredFee) {
+        return latest;
+      }
+    } catch (_) {}
+  }
+
+  return latest;
+}
+
 async function executeBatchSell() {
   if (!window.hive_keychain) {
     setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
@@ -985,12 +1014,53 @@ async function executeBatchSell() {
     } catch (_) {}
 
     if (availableSwapHive + 1e-12 < totalFee) {
-      $("executeBtn").disabled = false;
-      setStatus(
-        `Sale cancelled: Insufficient liquid SWAP.HIVE (${fmt8(availableSwapHive)}) to cover required fee (${fmt8(totalFee)}). No tokens were sold.`,
-        "err"
+      const shortfall = Math.max(0.001, Number((totalFee - availableSwapHive).toFixed(3)));
+      const depositAmountStr = Math.max(0.01, shortfall).toFixed(3);
+      const wantsDeposit = window.confirm(
+        `Insufficient SWAP.HIVE (${fmt8(availableSwapHive)}) for the ${fmt8(totalFee)} fee.\n\n` +
+        `Send ${depositAmountStr} HIVE to @${ENGINE_DEPOSIT_ACCOUNT} to convert into SWAP.HIVE and continue?`
       );
-      return;
+
+      if (!wantsDeposit) {
+        $("executeBtn").disabled = false;
+        setStatus(
+          `Sale cancelled: Insufficient liquid SWAP.HIVE (${fmt8(availableSwapHive)}) to cover required fee (${fmt8(totalFee)}). No tokens were sold.`,
+          "err"
+        );
+        return;
+      }
+
+      setStatus(`Requesting ${depositAmountStr} HIVE deposit to @${ENGINE_DEPOSIT_ACCOUNT} for SWAP.HIVE conversion...`);
+      const depRes = await requestHiveTransferAsync(
+        account,
+        ENGINE_DEPOSIT_ACCOUNT,
+        depositAmountStr,
+        `Nectar Sweep SWAP.HIVE deposit for @${account}`
+      );
+
+      if (!depRes || !depRes.success) {
+        $("executeBtn").disabled = false;
+        setStatus(
+          `Sale cancelled: HIVE deposit was rejected or failed (${(depRes && depRes.message) || "Unknown error"}). No tokens were sold.`,
+          "warn"
+        );
+        return;
+      }
+
+      succeededTxs.push(`Deposit HIVE: ${depRes.result.id}`);
+      setStatus(
+        `Deposit sent (${depRes.result.id}). Waiting for SWAP.HIVE to credit on Hive-Engine—you may need to wait up to 15 seconds before Keychain prompts for the fee transfer again...`
+      );
+      availableSwapHive = await waitForSwapHiveBalance(account, totalFee, 30000);
+
+      if (availableSwapHive + 1e-12 < totalFee) {
+        $("executeBtn").disabled = false;
+        setStatus(
+          `Deposit broadcasted (${depRes.result.id}), but SWAP.HIVE is still ${fmt8(availableSwapHive)} (need ${fmt8(totalFee)}). Please wait a moment and click Sell Tokens again.`,
+          "warn"
+        );
+        return;
+      }
     }
   }
 
