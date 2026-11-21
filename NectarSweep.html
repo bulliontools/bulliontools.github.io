@@ -18,7 +18,23 @@
 --err: #ef4444;
 --border: #2b3548;
 }
+[data-theme="light"] {
+--bg: #f8fafc;
+--panel: #ffffff;
+--panel-2: #f1f5f9;
+--text: #0f172a;
+--muted: #64748b;
+--border: #cbd5e1;
+--ok: #059669;
+--warn: #d97706;
+--err: #dc2626;
+}
 * { box-sizing: border-box; }
+html, body {
+background-color: var(--bg);
+color: var(--text);
+transition: background-color 0.2s ease, color 0.2s ease;
+}
 body {
 margin: 0;
 font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -31,6 +47,20 @@ padding: 24px 16px 64px;
 max-width: 920px;
 margin: 0 auto;
 }
+.banner-wrap {
+margin-bottom: 18px;
+border-radius: 14px;
+overflow: hidden;
+border: 1px solid var(--border);
+background: var(--panel);
+}
+.banner-img {
+display: block;
+width: 100%;
+max-height: 280px;
+object-fit: cover;
+object-position: center;
+}
 header {
 display: flex;
 flex-wrap: wrap;
@@ -38,6 +68,12 @@ justify-content: space-between;
 align-items: center;
 gap: 12px;
 margin-bottom: 20px;
+}
+.header-actions {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 8px;
 }
 h1 { margin: 0; font-size: 1.5rem; }
 .subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 4px; }
@@ -94,6 +130,10 @@ border-color: var(--accent);
 color: #fff;
 }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.theme-btn {
+padding: 8px 12px;
+font-size: 0.85rem;
+}
 .row-actions {
 display: flex;
 flex-wrap: wrap;
@@ -161,15 +201,34 @@ margin-top: 10px;
 }
 .table-wrap { overflow-x: auto; }
 </style>
+<script>
+(function () {
+try {
+var savedTheme = localStorage.getItem("nectarseeker_theme") || "dark";
+document.documentElement.setAttribute("data-theme", savedTheme);
+} catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div class="container">
+<div class="banner-wrap">
+<img
+src="NectarSweep.jpg"
+alt="Nectar Sweep Banner"
+class="banner-img"
+/>
+</div>
+
 <header>
 <div>
 <h1>Nectar Sweep</h1>
 <div class="subtitle">Simple token selling at 100%, 98%, or 95% of the live top bid via Hive Keychain</div>
 </div>
+<div class="header-actions">
+<button id="themeToggleBtn" class="theme-btn" type="button">☀️ Light Theme</button>
 <button id="connectBtn" type="button">Connect Keychain</button>
+</div>
 </header>
 
 <div class="card">
@@ -263,6 +322,7 @@ const FEE_RECIPIENTS = [
   { account: "nectarbytes", rate: 0.01 },
   { account: "bulliontools", rate: 0.01 }
 ];
+const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
 "https://api.hive-engine.com/rpc",
@@ -279,6 +339,20 @@ rows: [],
 swapHiveBalance: 0
 };
 
+function updateThemeButton(theme) {
+const btn = $("themeToggleBtn");
+if (btn) {
+btn.textContent = theme === "dark" ? "☀️ Light Theme" : "🌙 Dark Theme";
+}
+}
+
+function toggleTheme() {
+const current = document.documentElement.getAttribute("data-theme") || "dark";
+const next = current === "dark" ? "light" : "dark";
+document.documentElement.setAttribute("data-theme", next);
+try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+updateThemeButton(next);
+}
 
 function setStatus(msg, cls = "") {
 const box = $("statusBox");
@@ -671,6 +745,8 @@ This is not confirmation of a fill. Hive-Engine must execute the order. Rescanni
   }
 }
 
+updateThemeButton(document.documentElement.getAttribute("data-theme") || "dark");
+$("themeToggleBtn").addEventListener("click", toggleTheme);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
