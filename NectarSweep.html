@@ -902,6 +902,7 @@ async function executeBatchSell() {
   setStatus("Verifying live buy orders before broadcasting...");
 
   const sellItems = [];
+  let totalGross = 0;
 
   for (const r of selectedRows) {
     try {
@@ -922,6 +923,7 @@ async function executeBatchSell() {
       }
 
       const symbol = String(r.symbol).toUpperCase();
+      totalGross += qtyVal * priceVal;
       sellItems.push({
         symbol,
         grossValue: qtyVal * priceVal,
@@ -945,6 +947,7 @@ async function executeBatchSell() {
         continue;
       }
       const symbol = String(r.symbol).toUpperCase();
+      totalGross += qtyVal * priceVal;
       sellItems.push({
         symbol,
         grossValue: qtyVal * priceVal,
@@ -969,7 +972,89 @@ async function executeBatchSell() {
 
   const succeededTxs = [];
   const failedMsgs = [];
-  let filledGross = 0;
+  const { share1, share2, totalFee } = calcSplitFees(totalGross);
+
+  if (totalFee >= MIN_FEE_SHARE) {
+    setStatus("Checking liquid SWAP.HIVE balance for fee transfer...");
+    let availableSwapHive = state.swapHiveBalance;
+    try {
+      const freshSwapRec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
+      availableSwapHive = freshSwapRec ? parseFloat(freshSwapRec.balance) || 0 : 0;
+      state.swapHiveBalance = availableSwapHive;
+      $("swapHiveBal").textContent = fmt8(availableSwapHive);
+    } catch (_) {}
+
+    if (availableSwapHive + 1e-12 < totalFee) {
+      $("executeBtn").disabled = false;
+      setStatus(
+        `Sale cancelled: Insufficient liquid SWAP.HIVE (${fmt8(availableSwapHive)}) to cover required fee (${fmt8(totalFee)}). No tokens were sold.`,
+        "err"
+      );
+      return;
+    }
+  }
+
+  if (share1 >= MIN_FEE_SHARE) {
+    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_1} before selling tokens...`);
+    const feeOp1 = {
+      contractName: "tokens",
+      contractAction: "transfer",
+      contractPayload: {
+        symbol: "SWAP.HIVE",
+        to: FEE_ACCOUNT_1,
+        quantity: share1.toFixed(8),
+        memo: `1% dust sweeper fee (${sellItems.length} tokens)`
+      }
+    };
+    const res1 = await requestCustomJsonAsync(
+      account,
+      ENGINE_CHAIN_ID,
+      "Active",
+      JSON.stringify(feeOp1),
+      `1% support fee to @${FEE_ACCOUNT_1}`
+    );
+    if (res1 && res1.success) {
+      succeededTxs.push(`Fee @${FEE_ACCOUNT_1}: ${res1.result.id}`);
+    } else {
+      $("executeBtn").disabled = false;
+      setStatus(
+        `Sale cancelled: 1% fee to @${FEE_ACCOUNT_1} was not completed (${(res1 && res1.message) || "Rejected or failed"}). No tokens were sold.`,
+        "warn"
+      );
+      return;
+    }
+  }
+
+  if (share2 >= MIN_FEE_SHARE) {
+    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_2} before selling tokens...`);
+    const feeOp2 = {
+      contractName: "tokens",
+      contractAction: "transfer",
+      contractPayload: {
+        symbol: "SWAP.HIVE",
+        to: FEE_ACCOUNT_2,
+        quantity: share2.toFixed(8),
+        memo: `1% dust sweeper fee (${sellItems.length} tokens)`
+      }
+    };
+    const res2 = await requestCustomJsonAsync(
+      account,
+      ENGINE_CHAIN_ID,
+      "Active",
+      JSON.stringify(feeOp2),
+      `1% support fee to @${FEE_ACCOUNT_2}`
+    );
+    if (res2 && res2.success) {
+      succeededTxs.push(`Fee @${FEE_ACCOUNT_2}: ${res2.result.id}`);
+    } else {
+      $("executeBtn").disabled = false;
+      setStatus(
+        `Sale cancelled: 1% fee to @${FEE_ACCOUNT_2} was not completed (${(res2 && res2.message) || "Rejected or failed"}). No tokens were sold.`,
+        "warn"
+      );
+      return;
+    }
+  }
 
   for (let i = 0; i < sellItems.length; i++) {
     const item = sellItems[i];
@@ -983,65 +1068,8 @@ async function executeBatchSell() {
     );
     if (res && res.success) {
       succeededTxs.push(`${item.symbol}: ${res.result.id}`);
-      filledGross += item.grossValue;
     } else {
       failedMsgs.push(`${item.symbol}: ${(res && res.message) || "Failed or rejected"}`);
-    }
-  }
-
-  const { share1, share2 } = calcSplitFees(filledGross);
-  let feeRejected = false;
-
-  if (succeededTxs.length > 0 && share1 >= MIN_FEE_SHARE) {
-    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_1}...`);
-    const feeOp1 = {
-      contractName: "tokens",
-      contractAction: "transfer",
-      contractPayload: {
-        symbol: "SWAP.HIVE",
-        to: FEE_ACCOUNT_1,
-        quantity: share1.toFixed(8),
-        memo: `1% dust sweeper fee (${succeededTxs.length} tokens)`
-      }
-    };
-    const res1 = await requestCustomJsonAsync(
-      account,
-      ENGINE_CHAIN_ID,
-      "Active",
-      JSON.stringify(feeOp1),
-      `1% support fee to @${FEE_ACCOUNT_1}`
-    );
-    if (res1 && res1.success) {
-      succeededTxs.push(`Fee @${FEE_ACCOUNT_1}: ${res1.result.id}`);
-    } else {
-      feeRejected = true;
-      failedMsgs.push(`Fee @${FEE_ACCOUNT_1}: ${(res1 && res1.message) || "Skipped or rejected"}`);
-    }
-  }
-
-  if (!feeRejected && succeededTxs.length > 0 && share2 >= MIN_FEE_SHARE) {
-    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_2}...`);
-    const feeOp2 = {
-      contractName: "tokens",
-      contractAction: "transfer",
-      contractPayload: {
-        symbol: "SWAP.HIVE",
-        to: FEE_ACCOUNT_2,
-        quantity: share2.toFixed(8),
-        memo: `1% dust sweeper fee (${succeededTxs.length} tokens)`
-      }
-    };
-    const res2 = await requestCustomJsonAsync(
-      account,
-      ENGINE_CHAIN_ID,
-      "Active",
-      JSON.stringify(feeOp2),
-      `1% support fee to @${FEE_ACCOUNT_2}`
-    );
-    if (res2 && res2.success) {
-      succeededTxs.push(`Fee @${FEE_ACCOUNT_2}: ${res2.result.id}`);
-    } else {
-      failedMsgs.push(`Fee @${FEE_ACCOUNT_2}: ${(res2 && res2.message) || "Skipped or rejected"}`);
     }
   }
 
