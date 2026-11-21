@@ -234,6 +234,7 @@ background: var(--panel-2);
 border: 1px solid var(--border);
 font-size: 0.9rem;
 white-space: pre-wrap;
+word-break: break-word;
 }
 .ok { color: var(--ok); }
 .warn { color: var(--warn); }
@@ -269,9 +270,7 @@ class="banner-img"
 </div>
 
 <header>
-<div>
-<div class="subtitle">Simple token selling at 100%, 98%, or 95% of the live top bid via Hive Keychain</div>
-</div>
+<div></div>
 <div class="header-actions">
 <button id="themeToggleBtn" class="theme-btn" type="button">☀️ Light Theme</button>
 <button id="connectBtn" type="button">Connect Keychain</button>
@@ -417,23 +416,10 @@ function isSwapElixirEnabled() {
 return Boolean($("swapElixirCheckbox")?.checked);
 }
 
-function clampDecimalStrToMax(num, prec, maxRawStr) {
+function floorPrec(num, prec) {
 const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
 const factor = Math.pow(10, p);
-const floored = Math.floor(Number(num || 0) * factor + 1e-12) / factor;
-let str = floored.toFixed(p);
-if (typeof maxRawStr === "string" && maxRawStr.trim() !== "") {
-const cleanedMax = maxRawStr.trim();
-if (/^\d+(\.\d+)?$/.test(cleanedMax)) {
-const [maxInt, maxFrac = ""] = cleanedMax.split(".");
-const clampedFrac = maxFrac.padEnd(p, "0").slice(0, p);
-const maxAtPrec = p > 0 ? `${maxInt}.${clampedFrac}` : maxInt;
-if (compareDecimalStrings(str, maxAtPrec) > 0) {
-str = maxAtPrec;
-}
-}
-}
-return str;
+return Math.floor(Number(num || 0) * factor + 1e-12) / factor;
 }
 
 function compareDecimalStrings(a, b) {
@@ -448,6 +434,31 @@ const aFrac = aFracRaw.padEnd(len, "0");
 const bFrac = bFracRaw.padEnd(len, "0");
 if (aFrac === bFrac) return 0;
 return aFrac > bFrac ? 1 : -1;
+}
+
+function formatExactBalanceAtPrecision(rawStr, prec) {
+const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+const cleaned = String(rawStr ?? "0").trim();
+if (!/^\d+(\.\d+)?$/.test(cleaned)) {
+return floorPrec(Number(cleaned), p).toFixed(p);
+}
+const [intRaw, fracRaw = ""] = cleaned.split(".");
+const intPart = intRaw.replace(/^0+(?=\d)/, "") || "0";
+if (p === 0) return intPart;
+return `${intPart}.${fracRaw.padEnd(p, "0").slice(0, p)}`;
+}
+
+function clampDecimalStrToMax(num, prec, maxRawStr) {
+const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+const floored = floorPrec(num, p);
+let str = floored.toFixed(p);
+if (typeof maxRawStr === "string" && maxRawStr.trim() !== "") {
+const maxAtPrec = formatExactBalanceAtPrecision(maxRawStr, p);
+if (compareDecimalStrings(str, maxAtPrec) > 0) {
+str = maxAtPrec;
+}
+}
+return str;
 }
 
 async function mapWithConcurrency(items, limit, worker) {
@@ -583,6 +594,25 @@ errors.push(`${url} -> ${err.message}`);
 throw new Error(errors[errors.length - 1] || "All Hive-Engine RPC nodes failed.");
 }
 
+async function fetchEngineTxInfo(txId) {
+if (!txId || txId === "(no transaction ID returned)") return null;
+const cleanBase = (state.preferredEndpoint || RPC_ENDPOINTS[0]).replace(/\/+$/, "");
+const url = cleanBase.endsWith("/rpc") ? cleanBase : `${cleanBase}/rpc`;
+const res = await fetchWithTimeout(url, {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({
+jsonrpc: "2.0",
+id: 99,
+method: "getTransactionInfo",
+params: { txid: txId }
+})
+});
+if (!res.ok) return null;
+const data = await res.json();
+return data?.result || null;
+}
+
 async function fetchAllBalances(account) {
 const all = [];
 const limit = 1000;
@@ -637,12 +667,16 @@ params: {
 contract: "market",
 table: "buyBook",
 query: { symbol },
-limit: 1,
+limit: 25,
 offset: 0,
 indexes: [{ index: "priceDec", descending: true }]
 }
 });
-return Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
+if (!Array.isArray(orders) || orders.length === 0) return null;
+const sorted = [...orders]
+.filter((o) => Number(o?.price) > 0 && Number(o?.quantity) > 0)
+.sort((a, b) => Number(b.price) - Number(a.price));
+return sorted[0] || null;
 }
 
 async function fetchSwapHiveBalance(account) {
@@ -683,7 +717,7 @@ params: {
 contract: "market",
 table: "sellBook",
 query: { symbol: "ELIXIR" },
-limit: 1,
+limit: 25,
 offset: 0,
 indexes: [{ index: "price", descending: false }]
 }
@@ -691,7 +725,10 @@ indexes: [{ index: "price", descending: false }]
 fetchTokenPrecisions(["ELIXIR"])
 ]);
 const precision = tokenMeta.get("ELIXIR") ?? 8;
-const topAsk = Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
+const validAsks = Array.isArray(orders)
+? [...orders].filter((o) => Number(o?.price) > 0 && Number(o?.quantity) > 0).sort((a, b) => Number(a.price) - Number(b.price))
+: [];
+const topAsk = validAsks[0] || null;
 const askPrice = topAsk ? parseFloat(topAsk.price) : 0;
 if (!(askPrice > 0)) return null;
 return {
@@ -928,8 +965,7 @@ async function executeBatchSell() {
     const preview = [];
     let totalGross = 0;
     for (const { row, freshBalances, topOrder } of refreshed) {
-      // Refresh the actual account balance so the order cannot exceed available holdings.
-      const rawBalance = String(freshBalances?.balance ?? row.rawBalance ?? "0");
+      const rawBalance = String(freshBalances?.balance ?? row.rawBalance ?? "0").trim();
       const balance = Number(rawBalance);
       const precision = Number(row.precision);
       if (!Number.isFinite(balance) || balance <= 0 || !Number.isInteger(precision) || precision < 0 || precision > 8) {
@@ -954,13 +990,11 @@ async function executeBatchSell() {
         contractAction: "sell",
         contractPayload: { symbol: row.symbol, quantity, price }
       });
-      preview.push(`${row.symbol}: ${quantity} @ ${price}`);
+      preview.push(`${row.symbol}: ${quantity} @ ${price} (bal ${rawBalance}, prec ${precision})`);
     }
 
     if (!ops.length) throw new Error("No valid sell operations were built.");
 
-    // Match the proven Dust Seller transaction pattern: sell operations first,
-    // followed by the fee transfers in the same Hive-Engine custom JSON.
     const feeOps = [];
     let feeTotal = 0;
     if (feeEnabled) {
@@ -1022,13 +1056,28 @@ Total fee: ${fmt8(feeTotal)} SWAP.HIVE${elixirBuyPreview}`);
       "Active",
       JSON.stringify(ops),
       actionLabel,
-      (res) => {
+      async (res) => {
         $("executeBtn").disabled = false;
         if (res && res.success) {
           const txId = res.result?.id || res.data?.id || "(no transaction ID returned)";
-          setStatus(`Hive Keychain broadcast accepted. TX ID: ${txId}
-This is not confirmation of a fill. Hive-Engine must execute the order. Rescanning balances in 8 seconds...`, "ok");
-          setTimeout(handleScan, 8000);
+          setStatus(`Hive Keychain broadcast accepted. TX ID: ${txId}\nChecking Hive-Engine execution & rescanning in 6 seconds...`, "ok");
+          await new Promise((r) => setTimeout(r, 6000));
+          const txInfo = await fetchEngineTxInfo(txId).catch(() => null);
+          let engineNote = "";
+          if (txInfo && txInfo.logs) {
+            try {
+              const parsedLogs = typeof txInfo.logs === "string" ? JSON.parse(txInfo.logs) : txInfo.logs;
+              if (parsedLogs && parsedLogs.errors && parsedLogs.errors.length > 0) {
+                engineNote = `\nHive-Engine contract errors: ${JSON.stringify(parsedLogs.errors)}`;
+              } else {
+                engineNote = `\nHive-Engine block ${txInfo.blockNumber || "?"}: executed cleanly.`;
+              }
+            } catch (_) {
+              engineNote = `\nHive-Engine tx logs: ${String(txInfo.logs).slice(0, 240)}`;
+            }
+          }
+          setStatus(`Hive Keychain broadcast accepted. TX ID: ${txId}${engineNote}`, engineNote.includes("errors") ? "warn" : "ok");
+          handleScan();
         } else {
           setStatus(`Transaction rejected by Hive Keychain: ${res?.message || JSON.stringify(res) || "Unknown error"}`, "err");
         }
