@@ -244,6 +244,16 @@ margin-top: 4px;
 display: block;
 }
 .stat-val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
+.table-meta {
+display: flex;
+flex-wrap: wrap;
+justify-content: space-between;
+align-items: center;
+gap: 8px;
+font-size: 0.8rem;
+color: var(--muted);
+margin-bottom: 10px;
+}
 table {
 width: 100%;
 border-collapse: collapse;
@@ -256,6 +266,17 @@ border-bottom: 1px solid var(--border);
 }
 th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.depth-badge {
+display: inline-block;
+margin-left: 6px;
+padding: 1px 6px;
+border-radius: 999px;
+font-size: 0.72rem;
+font-weight: 600;
+color: var(--warn);
+border: 1px solid var(--warn);
+vertical-align: middle;
+}
 .status {
 margin-top: 12px;
 padding: 12px 14px;
@@ -277,6 +298,12 @@ margin-top: 10px;
 display: block;
 }
 .table-wrap { overflow-x: auto; }
+.footer-note {
+text-align: center;
+font-size: 0.8rem;
+color: var(--muted);
+margin-top: 18px;
+}
 </style>
 <script>
 (function () {
@@ -336,6 +363,10 @@ class="banner-img"
 <div class="row-actions">
 <button id="selectAllBtn" type="button" disabled>Select All Filtered</button>
 <button id="clearAllBtn" type="button" disabled>Clear Selection</button>
+<label class="swap-option-box" for="capDepthCheckbox" title="Limits each sell order to the top bid quantity so orders fill immediately instead of sitting open on the sell book">
+<input id="capDepthCheckbox" type="checkbox" checked />
+<span>Cap sell qty to top bid depth</span>
+</label>
 <label class="swap-option-box" for="swapElixirCheckbox">
 <input id="swapElixirCheckbox" type="checkbox" />
 <span>Swap SWAP.HIVE for <strong>ELIXIR</strong></span>
@@ -404,13 +435,17 @@ Sell Selected Tokens
 </div>
 
 <div class="card">
+<div class="table-meta">
+<span id="scanFreshnessLabel">No scan yet</span>
+<span>Quotes refresh automatically before broadcast</span>
+</div>
 <div class="table-wrap">
 <table>
 <thead>
 <tr>
 <th>Sell</th>
 <th>Token</th>
-<th class="num">Balance</th>
+<th class="num">Sell Qty / Bal</th>
 <th class="num">Top Bid (SWAP.HIVE)</th>
 <th class="num">Bid Depth</th>
 <th class="num">Sell Price</th>
@@ -423,6 +458,10 @@ Sell Selected Tokens
 </table>
 </div>
 </div>
+
+<div class="footer-note">
+Client-side only · Always verify transaction details in Hive Keychain before approving.
+</div>
 </div>
 
 <script>
@@ -434,6 +473,9 @@ const PREFERRED_ELIXIR_SELLER = "nectarbytes";
 const ELIXIR_FEE_WAIVER_STAKE = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const MAX_CUSTOM_JSON_BYTES = 7500;
+const RPC_TIMEOUT_MS = 8000;
+const STALE_QUOTE_SECONDS = 60;
+const CONCURRENCY_LIMIT = 6;
 const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
@@ -452,11 +494,31 @@ swapHiveBalance: 0,
 elixirStake: 0,
 elixirQuote: null,
 swapSharePct: 1,
-customSwapHive: null
+customSwapHive: null,
+lastScanAt: null
 };
 
 $("feeSplitLabel").textContent = "1% / 1%";
 $("feeRecipientsNotice").textContent = FEE_RECIPIENTS.map((r) => `@${r.account}`).join(" and ");
+
+function updateFreshnessLabel() {
+const el = $("scanFreshnessLabel");
+if (!el) return;
+if (!state.lastScanAt) {
+el.textContent = "No scan yet";
+el.style.color = "var(--muted)";
+return;
+}
+const ageSec = Math.max(0, Math.floor((Date.now() - state.lastScanAt) / 1000));
+const timeStr = new Date(state.lastScanAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+if (ageSec >= STALE_QUOTE_SECONDS) {
+el.textContent = `Scanned at ${timeStr} (${ageSec}s ago — quotes may be stale)`;
+el.style.color = "var(--warn)";
+} else {
+el.textContent = `Scanned at ${timeStr} (${ageSec}s ago)`;
+el.style.color = "var(--muted)";
+}
+}
 
 function updateThemeButton(theme) {
 const btn = $("themeToggleBtn");
@@ -488,8 +550,28 @@ const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
 return Number(num || 0).toFixed(p);
 }
 
+function floorPrec(num, prec) {
+const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+const factor = Math.pow(10, p);
+return Math.floor(Number(num || 0) * factor + 1e-12) / factor;
+}
+
 function utf8ByteLength(str) {
 return new TextEncoder().encode(str).length;
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+const results = new Array(items.length);
+let index = 0;
+async function runner() {
+while (index < items.length) {
+const currentIndex = index++;
+results[currentIndex] = await worker(items[currentIndex], currentIndex);
+}
+}
+const workers = Array.from({ length: Math.min(limit, items.length) }, () => runner());
+await Promise.all(workers);
+return results;
 }
 
 function canWaiveFee() {
@@ -499,6 +581,15 @@ return Number(state.elixirStake || 0) >= ELIXIR_FEE_WAIVER_STAKE;
 function isFeeEnabled() {
 if (!canWaiveFee()) return true;
 return $("feeCheckbox").checked;
+}
+
+function isCapDepthEnabled() {
+return $("capDepthCheckbox").checked;
+}
+
+function getEffectiveSellQty(row) {
+const raw = isCapDepthEnabled() ? Math.min(row.balance, row.bidQty) : row.balance;
+return floorPrec(raw, row.precision);
 }
 
 function calculateFeeSplits(gross, feeEnabled) {
@@ -571,13 +662,28 @@ return [`${cleanBase}/${cleanRoute}`];
 return [`${cleanBase}/${cleanRoute}`, `${cleanBase}/rpc/${cleanRoute}`];
 }
 
+async function fetchWithTimeout(url, options, timeoutMs = RPC_TIMEOUT_MS) {
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), timeoutMs);
+try {
+return await fetch(url, { ...options, signal: controller.signal });
+} catch (err) {
+if (err && err.name === "AbortError") {
+throw new Error(`Timed out after ${timeoutMs}ms`);
+}
+throw err;
+} finally {
+clearTimeout(timer);
+}
+}
+
 async function rpcCall(route, payload) {
 const errors = [];
 for (const base of RPC_ENDPOINTS) {
 const urls = buildCandidateUrls(base, route);
 for (const url of urls) {
 try {
-const res = await fetch(url, {
+const res = await fetchWithTimeout(url, {
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(payload)
@@ -701,22 +807,48 @@ const precision = tokenMeta.get("ELIXIR") ?? 8;
 const nectarOrder = Array.isArray(nectarOrders) && nectarOrders.length > 0 ? nectarOrders[0] : null;
 const cheapestOrder = Array.isArray(cheapestOrders) && cheapestOrders.length > 0 ? cheapestOrders[0] : null;
 
-if (nectarOrder && parseFloat(nectarOrder.price) > 0) {
+const nectarPrice = nectarOrder ? parseFloat(nectarOrder.price) : 0;
+const cheapestPrice = cheapestOrder ? parseFloat(cheapestOrder.price) : 0;
+
+if (cheapestPrice > 0 && nectarPrice > 0) {
+if (nectarPrice <= cheapestPrice) {
 return {
-price: parseFloat(nectarOrder.price),
+price: nectarPrice,
+availableQty: parseFloat(nectarOrder.quantity || 0),
+source: `@${PREFERRED_ELIXIR_SELLER} (best ask)`,
+precision,
+priceWarning: false
+};
+}
+return {
+price: cheapestPrice,
+availableQty: parseFloat(cheapestOrder.quantity || 0),
+source: `lowest ask (@${cheapestOrder.account}; @${PREFERRED_ELIXIR_SELLER} is higher at ${fmt8(nectarPrice)})`,
+precision,
+priceWarning: false
+};
+}
+
+if (nectarPrice > 0) {
+return {
+price: nectarPrice,
 availableQty: parseFloat(nectarOrder.quantity || 0),
 source: `@${PREFERRED_ELIXIR_SELLER}`,
-precision
+precision,
+priceWarning: false
 };
 }
-if (cheapestOrder && parseFloat(cheapestOrder.price) > 0) {
+
+if (cheapestPrice > 0) {
 return {
-price: parseFloat(cheapestOrder.price),
+price: cheapestPrice,
 availableQty: parseFloat(cheapestOrder.quantity || 0),
-source: `cheapest sell order (@${cheapestOrder.account})`,
-precision
+source: `lowest ask (@${cheapestOrder.account})`,
+precision,
+priceWarning: false
 };
 }
+
 return null;
 }
 
@@ -758,9 +890,10 @@ let gross = 0;
 let selectedCount = 0;
 
 for (const row of state.rows) {
+row.sellQty = getEffectiveSellQty(row);
 row.sellPrice = row.topBid * discount;
-row.estHive = row.selected ? row.balance * row.sellPrice : 0;
-if (row.selected) {
+row.estHive = row.selected ? row.sellQty * row.sellPrice : 0;
+if (row.selected && row.sellQty > 0) {
 gross += row.estHive;
 selectedCount++;
 }
@@ -806,9 +939,11 @@ function renderTable() {
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 const tbody = $("tokensTbody");
+tbody.textContent = "";
 
 const filtered = state.rows.filter((r) => {
-const rawEst = r.balance * r.topBid * discount;
+const effectiveQty = getEffectiveSellQty(r);
+const rawEst = effectiveQty * r.topBid * discount;
 return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
 });
 
@@ -816,30 +951,76 @@ $("selectAllBtn").disabled = filtered.length === 0;
 $("clearAllBtn").disabled = state.rows.every((r) => !r.selected);
 
 if (filtered.length === 0) {
-tbody.innerHTML = `<tr><td colspan="7" style="color: var(--muted);">No tokens match the current dust threshold and active buy orders.</td></tr>`;
+const tr = document.createElement("tr");
+const td = document.createElement("td");
+td.colSpan = 7;
+td.style.color = "var(--muted)";
+td.textContent = "No tokens match the current dust threshold and active buy orders.";
+tr.appendChild(td);
+tbody.appendChild(tr);
 return;
 }
 
-tbody.innerHTML = filtered.map((r) => `<tr>
-<td><input type="checkbox" data-symbol="${r.symbol}" ${r.selected ? "checked" : ""} /></td>
-<td><strong>${r.symbol}</strong></td>
-<td class="num">${fmtPrec(r.balance, r.precision)}</td>
-<td class="num">${fmt8(r.topBid)}</td>
-<td class="num">${fmtPrec(r.bidQty, r.precision)}</td>
-<td class="num">${fmt8(r.sellPrice)}</td>
-<td class="num">${fmt8(r.balance * r.sellPrice)}</td>
-</tr>`).join("");
+for (const r of filtered) {
+const tr = document.createElement("tr");
+const sellQty = getEffectiveSellQty(r);
+const exceedsDepth = r.balance > r.bidQty + 1e-12;
 
-tbody.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+const tdCheck = document.createElement("td");
+const cb = document.createElement("input");
+cb.type = "checkbox";
+cb.checked = Boolean(r.selected);
 cb.addEventListener("change", (e) => {
-const sym = e.target.getAttribute("data-symbol");
-const target = state.rows.find((x) => x.symbol === sym);
-if (target) {
-target.selected = e.target.checked;
+r.selected = e.target.checked;
 recalculateTotals();
+});
+tdCheck.appendChild(cb);
+tr.appendChild(tdCheck);
+
+const tdSym = document.createElement("td");
+const strong = document.createElement("strong");
+strong.textContent = String(r.symbol || "");
+tdSym.appendChild(strong);
+if (exceedsDepth) {
+const badge = document.createElement("span");
+badge.className = "depth-badge";
+badge.title = isCapDepthEnabled()
+? "Balance exceeds top bid depth; sell quantity is capped to top bid depth."
+: "Balance exceeds top bid depth; excess tokens will remain as an open sell order.";
+badge.textContent = isCapDepthEnabled() ? "Capped" : "Thin depth";
+tdSym.appendChild(badge);
 }
-});
-});
+tr.appendChild(tdSym);
+
+const tdQty = document.createElement("td");
+tdQty.className = "num";
+tdQty.textContent = exceedsDepth
+? `${fmtPrec(sellQty, r.precision)} / ${fmtPrec(r.balance, r.precision)}`
+: fmtPrec(r.balance, r.precision);
+tr.appendChild(tdQty);
+
+const tdBid = document.createElement("td");
+tdBid.className = "num";
+tdBid.textContent = fmt8(r.topBid);
+tr.appendChild(tdBid);
+
+const tdDepth = document.createElement("td");
+tdDepth.className = "num";
+tdDepth.textContent = fmtPrec(r.bidQty, r.precision);
+tr.appendChild(tdDepth);
+
+const tdPrice = document.createElement("td");
+tdPrice.className = "num";
+tdPrice.textContent = fmt8(r.sellPrice);
+tr.appendChild(tdPrice);
+
+const tdEst = document.createElement("td");
+tdEst.className = "num";
+tdEst.textContent = fmt8(sellQty * r.sellPrice);
+tr.appendChild(tdEst);
+
+tbody.appendChild(tr);
+}
 }
 
 async function handleScan() {
@@ -871,21 +1052,26 @@ const precisions = await fetchTokenPrecisions(symbols);
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 
+const quoteResults = await mapWithConcurrency(balances, CONCURRENCY_LIMIT, async (b) => {
+const topOrder = await fetchTopBuyOrder(b.symbol);
+return { balanceItem: b, topOrder };
+});
+
 const rows = [];
-for (const b of balances) {
+for (const { balanceItem: b, topOrder } of quoteResults) {
+if (!topOrder) continue;
 const bal = parseFloat(b.balance);
 const prec = precisions.get(b.symbol) ?? 8;
-const topOrder = await fetchTopBuyOrder(b.symbol);
-if (!topOrder) continue;
-
 const topBid = parseFloat(topOrder.price);
 const bidQty = parseFloat(topOrder.quantity);
 if (!(topBid > 0)) continue;
 
-const est = bal * topBid * discount;
+const effectiveQty = floorPrec(isCapDepthEnabled() ? Math.min(bal, bidQty) : bal, prec);
+const est = effectiveQty * topBid * discount;
 rows.push({
 symbol: b.symbol,
 balance: bal,
+sellQty: effectiveQty,
 precision: prec,
 topBid,
 bidQty,
@@ -897,6 +1083,8 @@ selected: est > 0 && (!Number.isFinite(maxDust) || est <= maxDust)
 
 rows.sort((a, b) => a.estHive - b.estHive);
 state.rows = rows;
+state.lastScanAt = Date.now();
+updateFreshnessLabel();
 recalculateTotals();
 setStatus(`Found ${rows.length} sellable tokens with active buy orders for @${account}.`, "ok");
 } catch (err) {
@@ -914,7 +1102,10 @@ return;
 
 const rawUser = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
 const username = rawUser || null;
-const challenge = `NectarSweep Auth:${Date.now()}`;
+const originLabel = window.location && window.location.origin && window.location.origin !== "null"
+? window.location.origin
+: "local-file";
+const challenge = `NectarSweep Login (${originLabel}) @ ${Date.now()}`;
 
 $("connectBtn").disabled = true;
 setStatus("Waiting for Hive Keychain connection...");
@@ -940,16 +1131,20 @@ setStatus(`Keychain connection cancelled or failed: ${res?.message || "Unknown e
 }
 
 function buildSellBatches(selectedRows, discount, feeEnabled, elixirBuyQuote, swapElixir) {
-const sellOps = [];
+const sellItems = [];
 let totalGross = 0;
 
 for (const r of selectedRows) {
-const qtyStr = r.balance.toFixed(r.precision);
+const effectiveQty = getEffectiveSellQty(r);
+const qtyStr = effectiveQty.toFixed(r.precision);
 const priceStr = (r.topBid * discount).toFixed(8);
-if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0) continue;
+const itemGross = parseFloat(qtyStr) * parseFloat(priceStr);
+if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0 || !(itemGross > 0)) continue;
 
-totalGross += parseFloat(qtyStr) * parseFloat(priceStr);
-sellOps.push({
+totalGross += itemGross;
+sellItems.push({
+gross: itemGross,
+op: {
 contractName: "market",
 contractAction: "sell",
 contractPayload: {
@@ -957,35 +1152,71 @@ symbol: r.symbol,
 quantity: qtyStr,
 price: priceStr
 }
+}
 });
 }
 
-if (sellOps.length === 0) return [];
+if (sellItems.length === 0) return { batches: [], requiredExistingSwapHive: 0 };
 
-const splits = calculateFeeSplits(totalGross, feeEnabled);
-const totalFee = splits.reduce((sum, s) => sum + s.amount, 0);
-const netProceeds = Math.max(0, totalGross - totalFee);
-const swapBudget = swapElixir ? getSwapHiveBudget(netProceeds) : 0;
+const rawBatches = [];
+let currentItems = [];
 
-const trailingOps = splits
+for (const item of sellItems) {
+const candidateOps = [...currentItems.map((x) => x.op), item.op];
+if (currentItems.length > 0 && utf8ByteLength(JSON.stringify(candidateOps)) > MAX_CUSTOM_JSON_BYTES) {
+rawBatches.push(currentItems);
+currentItems = [item];
+} else {
+currentItems = [...currentItems, item];
+}
+}
+if (currentItems.length > 0) {
+rawBatches.push(currentItems);
+}
+
+const batches = [];
+let totalFeeCharged = 0;
+
+for (const items of rawBatches) {
+const batchGross = items.reduce((sum, x) => sum + x.gross, 0);
+const batchSplits = calculateFeeSplits(batchGross, feeEnabled);
+const feeOps = batchSplits
 .filter((s) => s.amount >= 0.00000001)
-.map((s) => ({
+.map((s) => {
+totalFeeCharged += s.amount;
+return {
 contractName: "tokens",
 contractAction: "transfer",
 contractPayload: {
 symbol: "SWAP.HIVE",
 to: s.account,
 quantity: s.amount.toFixed(8),
-memo: `${+(s.rate * 100).toFixed(2)}% Nectar Sweep fee (${sellOps.length} tokens)`
+memo: `${+(s.rate * 100).toFixed(2)}% Nectar Sweep fee (${items.length} tokens)`
 }
-}));
+};
+});
+
+const sellOps = items.map((x) => x.op);
+const combined = [...sellOps, ...feeOps];
+if (utf8ByteLength(JSON.stringify(combined)) <= MAX_CUSTOM_JSON_BYTES) {
+batches.push(combined);
+} else {
+batches.push(sellOps);
+if (feeOps.length > 0) batches.push(feeOps);
+}
+}
+
+const netProceeds = Math.max(0, totalGross - totalFeeCharged);
+const swapBudget = swapElixir ? getSwapHiveBudget(netProceeds) : 0;
+let elixirBuyCost = 0;
 
 if (swapElixir && elixirBuyQuote && elixirBuyQuote.price > 0 && swapBudget > 0) {
 const factor = Math.pow(10, elixirBuyQuote.precision);
 const buyQty = Math.floor((swapBudget / elixirBuyQuote.price) * factor) / factor;
 const minUnit = 1 / factor;
 if (buyQty >= minUnit) {
-trailingOps.push({
+elixirBuyCost = buyQty * elixirBuyQuote.price;
+const buyOp = {
 contractName: "market",
 contractAction: "buy",
 contractPayload: {
@@ -993,37 +1224,21 @@ symbol: "ELIXIR",
 quantity: buyQty.toFixed(elixirBuyQuote.precision),
 price: elixirBuyQuote.price.toFixed(8)
 }
-});
-}
-}
-
-const batches = [];
-let currentOps = [];
-
-for (const op of sellOps) {
-const candidate = [...currentOps, op];
-if (currentOps.length > 0 && utf8ByteLength(JSON.stringify(candidate)) > MAX_CUSTOM_JSON_BYTES) {
-batches.push(currentOps);
-currentOps = [op];
-} else {
-currentOps = candidate;
-}
-}
-if (currentOps.length > 0) {
-batches.push(currentOps);
-}
-
-for (const extraOp of trailingOps) {
+};
 const lastBatch = batches[batches.length - 1];
-const withExtra = [...lastBatch, extraOp];
-if (utf8ByteLength(JSON.stringify(withExtra)) <= MAX_CUSTOM_JSON_BYTES) {
-batches[batches.length - 1] = withExtra;
+const withBuy = [...lastBatch, buyOp];
+if (utf8ByteLength(JSON.stringify(withBuy)) <= MAX_CUSTOM_JSON_BYTES) {
+batches[batches.length - 1] = withBuy;
 } else {
-batches.push([extraOp]);
+batches.push([buyOp]);
+}
 }
 }
 
-return batches;
+return {
+batches,
+requiredExistingSwapHive: totalFeeCharged + elixirBuyCost
+};
 }
 
 function broadcastSingleBatch(account, ops, actionLabel) {
@@ -1061,11 +1276,25 @@ if (!account || selectedRows.length === 0) return;
 
 $("executeBtn").disabled = true;
 const txIds = [];
+let batches = [];
 
 try {
+setStatus("Refreshing live top bids before broadcast...");
+await mapWithConcurrency(selectedRows, CONCURRENCY_LIMIT, async (r) => {
+const topOrder = await fetchTopBuyOrder(r.symbol);
+if (topOrder) {
+const topBid = parseFloat(topOrder.price);
+const bidQty = parseFloat(topOrder.quantity);
+if (topBid > 0) {
+r.topBid = topBid;
+r.bidQty = bidQty;
+}
+}
+});
+
 let elixirQuote = null;
 if (swapElixir) {
-setStatus("Checking live ELIXIR sell book (@nectarbytes first, then lowest ask)...");
+setStatus("Checking live ELIXIR sell book (lowest ask vs. @nectarbytes)...");
 elixirQuote = await fetchElixirQuote();
 state.elixirQuote = elixirQuote;
 if (!elixirQuote) {
@@ -1073,10 +1302,33 @@ throw new Error("No active ELIXIR sell orders found on Hive-Engine.");
 }
 }
 
-const batches = buildSellBatches(selectedRows, discount, feeEnabled, elixirQuote, swapElixir);
+state.lastScanAt = Date.now();
+updateFreshnessLabel();
+recalculateTotals();
+
+const built = buildSellBatches(
+selectedRows,
+discount,
+feeEnabled,
+elixirQuote,
+swapElixir
+);
+batches = built.batches;
+const requiredExistingSwapHive = built.requiredExistingSwapHive;
+
 if (batches.length === 0) {
 setStatus("No valid sell operations to broadcast.", "warn");
 return;
+}
+
+const liveSwapHive = await fetchSwapHiveBalance(account);
+state.swapHiveBalance = liveSwapHive;
+$("swapHiveBal").textContent = fmt8(liveSwapHive);
+
+if (requiredExistingSwapHive > 0 && liveSwapHive + 1e-8 < requiredExistingSwapHive) {
+throw new Error(
+`Insufficient existing SWAP.HIVE (${fmt8(liveSwapHive)}) to cover ${fmt8(requiredExistingSwapHive)} SWAP.HIVE for fees/ELIXIR buy in case orders don't settle in the same block.`
+);
 }
 
 for (let i = 0; i < batches.length; i++) {
@@ -1115,7 +1367,7 @@ setStatus(
 setTimeout(handleScan, 5000);
 } catch (err) {
 setStatus(
-`Transaction failed or rejected after ${txIds.length} of ${batches.length} batch(es): ${err.message}`,
+`Transaction halted after ${txIds.length} of ${batches.length} batch(es): ${err.message}`,
 "err"
 );
 } finally {
@@ -1125,12 +1377,15 @@ $("executeBtn").disabled = false;
 
 updateThemeButton(document.documentElement.getAttribute("data-theme") || "dark");
 syncSwapControlsUI();
+updateFreshnessLabel();
+setInterval(updateFreshnessLabel, 5000);
 $("themeToggleBtn").addEventListener("click", toggleTheme);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
 $("discountSelect").addEventListener("change", recalculateTotals);
 $("feeCheckbox").addEventListener("change", recalculateTotals);
+$("capDepthCheckbox").addEventListener("change", recalculateTotals);
 $("swapElixirCheckbox").addEventListener("change", recalculateTotals);
 
 document.querySelectorAll("#swapPresets .preset-btn").forEach((btn) => {
@@ -1166,7 +1421,7 @@ $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 for (const r of state.rows) {
-const est = r.balance * r.topBid * discount;
+const est = getEffectiveSellQty(r) * r.topBid * discount;
 if (!Number.isFinite(maxDust) || est <= maxDust) {
 r.selected = true;
 }
