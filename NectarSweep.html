@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Nectar Sweep — Simple Sell</title>
+<title>Nectar Sweep</title>
 <style>
 :root {
 --bg: #161f30;
@@ -48,7 +48,7 @@ max-width: 920px;
 margin: 0 auto;
 }
 .banner-wrap {
-margin-bottom: 18px;
+margin-bottom: 10px;
 border-radius: 14px;
 overflow: hidden;
 border: 1px solid var(--border);
@@ -60,6 +60,15 @@ width: 100%;
 max-height: 280px;
 object-fit: cover;
 object-position: center;
+}
+.banner-caption {
+text-align: center;
+color: var(--muted);
+font-size: 0.95rem;
+margin-bottom: 18px;
+}
+.banner-caption-line {
+display: block;
 }
 header {
 display: flex;
@@ -141,8 +150,21 @@ font-size: 0.85rem;
 .row-actions {
 display: flex;
 flex-wrap: wrap;
+align-items: center;
 gap: 10px;
 margin-top: 14px;
+}
+.swap-option-box {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+padding: 9px 12px;
+border-radius: 8px;
+background: var(--panel-2);
+border: 1px solid var(--border);
+font-size: 0.9rem;
+cursor: pointer;
+user-select: none;
 }
 .summary-grid {
 display: grid;
@@ -241,6 +263,10 @@ alt="Nectar Sweep Banner"
 class="banner-img"
 />
 </div>
+<div class="banner-caption">
+<span class="banner-caption-line">Sell Hive-Engine tokens quickly and easily!</span>
+<span class="banner-caption-line">Exchange your Hive-Engine tokens for ELIXIR!</span>
+</div>
 
 <header>
 <div>
@@ -276,6 +302,13 @@ class="banner-img"
 </div>
 
 <div class="row-actions">
+<label class="swap-option-box" for="swapElixirCheckbox">
+<input id="swapElixirCheckbox" type="checkbox" />
+<span>Exchange sold tokens for <strong>ELIXIR</strong></span>
+</label>
+</div>
+
+<div class="row-actions">
 <button id="selectAllBtn" type="button" disabled>Select All Filtered</button>
 <button id="clearAllBtn" type="button" disabled>Clear Selection</button>
 </div>
@@ -303,6 +336,7 @@ class="banner-img"
 <div class="stat">
 <div class="stat-label">Est. Net to You</div>
 <div class="stat-val ok" id="estNet">0.00000000</div>
+<div class="stat-meta" id="elixirSwapMeta">ELIXIR exchange: Off</div>
 </div>
 </div>
 
@@ -348,6 +382,8 @@ const FEE_RECIPIENTS = [
   { account: "bulliontools", rate: 0.01 }
 ];
 const ELIXIR_FEE_WAIVER_STAKE = 100;
+const RPC_TIMEOUT_MS = 3500;
+const CONCURRENCY_LIMIT = 8;
 const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
@@ -363,7 +399,9 @@ const $ = (id) => document.getElementById(id);
 const state = {
 rows: [],
 swapHiveBalance: 0,
-elixirStake: 0
+elixirStake: 0,
+elixirQuote: null,
+preferredEndpoint: null
 };
 
 function canWaiveFee() {
@@ -373,6 +411,57 @@ return Number(state.elixirStake || 0) >= ELIXIR_FEE_WAIVER_STAKE;
 function isFeeEnabled() {
 if (!canWaiveFee()) return true;
 return $("feeCheckbox").checked;
+}
+
+function isSwapElixirEnabled() {
+return Boolean($("swapElixirCheckbox")?.checked);
+}
+
+function clampDecimalStrToMax(num, prec, maxRawStr) {
+const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+const factor = Math.pow(10, p);
+const floored = Math.floor(Number(num || 0) * factor + 1e-12) / factor;
+let str = floored.toFixed(p);
+if (typeof maxRawStr === "string" && maxRawStr.trim() !== "") {
+const cleanedMax = maxRawStr.trim();
+if (/^\d+(\.\d+)?$/.test(cleanedMax)) {
+const [maxInt, maxFrac = ""] = cleanedMax.split(".");
+const clampedFrac = maxFrac.padEnd(p, "0").slice(0, p);
+const maxAtPrec = p > 0 ? `${maxInt}.${clampedFrac}` : maxInt;
+if (compareDecimalStrings(str, maxAtPrec) > 0) {
+str = maxAtPrec;
+}
+}
+}
+return str;
+}
+
+function compareDecimalStrings(a, b) {
+const [aIntRaw, aFracRaw = ""] = String(a).split(".");
+const [bIntRaw, bFracRaw = ""] = String(b).split(".");
+const aInt = aIntRaw.replace(/^0+(?=\d)/, "") || "0";
+const bInt = bIntRaw.replace(/^0+(?=\d)/, "") || "0";
+if (aInt.length !== bInt.length) return aInt.length > bInt.length ? 1 : -1;
+if (aInt !== bInt) return aInt > bInt ? 1 : -1;
+const len = Math.max(aFracRaw.length, bFracRaw.length);
+const aFrac = aFracRaw.padEnd(len, "0");
+const bFrac = bFracRaw.padEnd(len, "0");
+if (aFrac === bFrac) return 0;
+return aFrac > bFrac ? 1 : -1;
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+const results = new Array(items.length);
+let index = 0;
+async function runner() {
+while (index < items.length) {
+const currentIndex = index++;
+results[currentIndex] = await worker(items[currentIndex], currentIndex);
+}
+}
+const workers = Array.from({ length: Math.min(limit, items.length) }, () => runner());
+await Promise.all(workers);
+return results;
 }
 
 function updateFeeEligibility() {
@@ -441,13 +530,32 @@ return [`${cleanBase}/${cleanRoute}`];
 return [`${cleanBase}/${cleanRoute}`, `${cleanBase}/rpc/${cleanRoute}`];
 }
 
+async function fetchWithTimeout(url, options, timeoutMs = RPC_TIMEOUT_MS) {
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), timeoutMs);
+try {
+return await fetch(url, { ...options, signal: controller.signal });
+} catch (err) {
+if (err && err.name === "AbortError") {
+throw new Error(`Timed out after ${timeoutMs}ms`);
+}
+throw err;
+} finally {
+clearTimeout(timer);
+}
+}
+
 async function rpcCall(route, payload) {
 const errors = [];
-for (const base of RPC_ENDPOINTS) {
+const orderedBases = state.preferredEndpoint
+? [state.preferredEndpoint, ...RPC_ENDPOINTS.filter((x) => x !== state.preferredEndpoint)]
+: RPC_ENDPOINTS;
+
+for (const base of orderedBases) {
 const urls = buildCandidateUrls(base, route);
 for (const url of urls) {
 try {
-const res = await fetch(url, {
+const res = await fetchWithTimeout(url, {
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(payload)
@@ -465,6 +573,7 @@ if (!data || !("result" in data)) {
 errors.push(`${url} -> Invalid RPC response`);
 continue;
 }
+state.preferredEndpoint = base;
 return data.result;
 } catch (err) {
 errors.push(`${url} -> ${err.message}`);
@@ -564,10 +673,39 @@ query: { account, symbol: "ELIXIR" }
 return res ? parseFloat(res.stake || 0) : 0;
 }
 
+async function fetchElixirQuote() {
+const [orders, tokenMeta] = await Promise.all([
+rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 6,
+method: "find",
+params: {
+contract: "market",
+table: "sellBook",
+query: { symbol: "ELIXIR" },
+limit: 1,
+offset: 0,
+indexes: [{ index: "price", descending: false }]
+}
+}),
+fetchTokenPrecisions(["ELIXIR"])
+]);
+const precision = tokenMeta.get("ELIXIR") ?? 8;
+const topAsk = Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
+const askPrice = topAsk ? parseFloat(topAsk.price) : 0;
+if (!(askPrice > 0)) return null;
+return {
+price: askPrice,
+precision,
+seller: topAsk.account || ""
+};
+}
+
 function recalculateTotals() {
 updateFeeEligibility();
 const discount = parseFloat($("discountSelect").value) || 1;
 const feeEnabled = isFeeEnabled();
+const swapElixir = isSwapElixirEnabled();
 let gross = 0;
 let selectedCount = 0;
 for (const row of state.rows) {
@@ -576,9 +714,28 @@ for (const row of state.rows) {
   if (row.selected) { gross += row.estHive; selectedCount++; }
 }
 const feeTotal = feeEnabled ? Math.floor(gross * 0.02 * 1e8) / 1e8 : 0;
+const net = Math.max(0, gross - feeTotal);
 $("estGross").textContent = fmt8(gross);
 $("estFee").textContent = fmt8(feeTotal);
-$("estNet").textContent = fmt8(Math.max(0, gross - feeTotal));
+$("estNet").textContent = fmt8(net);
+
+const swapMeta = $("elixirSwapMeta");
+if (!swapElixir) {
+swapMeta.textContent = "ELIXIR exchange: Off";
+swapMeta.style.color = "var(--muted)";
+} else if (!state.elixirQuote || !(state.elixirQuote.price > 0)) {
+swapMeta.textContent = "ELIXIR exchange: On (price fetched at broadcast)";
+swapMeta.style.color = "var(--warn)";
+} else {
+const factor = Math.pow(10, state.elixirQuote.precision);
+const estElixir = net > 0 ? Math.floor((net / state.elixirQuote.price) * factor) / factor : 0;
+swapMeta.textContent = `ELIXIR exchange: ~${fmtPrec(estElixir, state.elixirQuote.precision)} ELIXIR @ ${fmt8(state.elixirQuote.price)}`;
+swapMeta.style.color = "var(--ok)";
+}
+
+$("executeBtn").textContent = swapElixir
+  ? "Sell Selected & Exchange for ELIXIR"
+  : "Sell Selected Tokens";
 $("executeBtn").disabled = selectedCount === 0 || !(gross > 0);
 renderTable();
 }
@@ -634,14 +791,16 @@ $("loadBtn").disabled = true;
 setStatus(`Scanning @${account}'s Hive-Engine balances and top buy orders...`);
 
 try {
-const [balances, swapHive, elixirStake] = await Promise.all([
+const [balances, swapHive, elixirStake, elixirQuote] = await Promise.all([
 fetchAllBalances(account),
 fetchSwapHiveBalance(account),
-fetchElixirStake(account)
+fetchElixirStake(account),
+fetchElixirQuote().catch(() => null)
 ]);
 
 state.swapHiveBalance = swapHive;
 state.elixirStake = elixirStake;
+state.elixirQuote = elixirQuote;
 $("swapHiveBal").textContent = fmt8(swapHive);
 updateFeeEligibility();
 
@@ -650,13 +809,17 @@ const precisions = await fetchTokenPrecisions(symbols);
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 
-const rows = [];
-for (const b of balances) {
-const bal = parseFloat(b.balance);
-const prec = precisions.get(b.symbol) ?? 8;
-const topOrder = await fetchTopBuyOrder(b.symbol);
-if (!topOrder) continue;
+const quoteResults = await mapWithConcurrency(balances, CONCURRENCY_LIMIT, async (b) => {
+const topOrder = await fetchTopBuyOrder(b.symbol).catch(() => null);
+return { balanceItem: b, topOrder };
+});
 
+const rows = [];
+for (const { balanceItem: b, topOrder } of quoteResults) {
+if (!topOrder) continue;
+const rawBalStr = String(b.balance ?? "0");
+const bal = parseFloat(rawBalStr);
+const prec = precisions.get(b.symbol) ?? 8;
 const topBid = parseFloat(topOrder.price);
 const bidQty = parseFloat(topOrder.quantity);
 if (!(topBid > 0)) continue;
@@ -665,6 +828,7 @@ const est = bal * topBid * discount;
 rows.push({
 symbol: b.symbol,
 balance: bal,
+rawBalance: rawBalStr,
 precision: prec,
 topBid,
 bidQty,
@@ -726,6 +890,7 @@ async function executeBatchSell() {
   const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
   const discount = Number($("discountSelect").value);
   const selectedRows = state.rows.filter((r) => r.selected);
+  const swapElixir = isSwapElixirEnabled();
   if (!account || selectedRows.length === 0) return;
   if (![1, 0.98, 0.95].includes(discount)) {
     setStatus("Invalid sell-speed selection. Please choose 100%, 98%, or 95%.", "err");
@@ -735,32 +900,46 @@ async function executeBatchSell() {
   $("executeBtn").disabled = true;
   try {
     setStatus("Refreshing top bids, ELIXIR stake, and validating token balances...");
-    const liveElixirStake = await fetchElixirStake(account);
+    const [liveElixirStake, elixirQuote] = await Promise.all([
+      fetchElixirStake(account),
+      swapElixir ? fetchElixirQuote() : Promise.resolve(null)
+    ]);
     state.elixirStake = liveElixirStake;
+    state.elixirQuote = elixirQuote;
     updateFeeEligibility();
     const feeEnabled = isFeeEnabled();
+
+    if (swapElixir && (!elixirQuote || !(elixirQuote.price > 0))) {
+      throw new Error("No active ELIXIR sell orders found on Hive-Engine.");
+    }
+
+    const refreshed = await mapWithConcurrency(selectedRows, CONCURRENCY_LIMIT, async (row) => {
+      const [freshBalances, topOrder] = await Promise.all([
+        rpcCall("contracts", {
+          jsonrpc: "2.0", id: 21, method: "findOne",
+          params: { contract: "tokens", table: "balances", query: { account, symbol: row.symbol } }
+        }),
+        fetchTopBuyOrder(row.symbol)
+      ]);
+      return { row, freshBalances, topOrder };
+    });
 
     const ops = [];
     const preview = [];
     let totalGross = 0;
-    for (const row of selectedRows) {
+    for (const { row, freshBalances, topOrder } of refreshed) {
       // Refresh the actual account balance so the order cannot exceed available holdings.
-      const freshBalances = await rpcCall("contracts", {
-        jsonrpc: "2.0", id: 21, method: "findOne",
-        params: { contract: "tokens", table: "balances", query: { account, symbol: row.symbol } }
-      });
-      const rawBalance = String(freshBalances?.balance ?? "0");
+      const rawBalance = String(freshBalances?.balance ?? row.rawBalance ?? "0");
       const balance = Number(rawBalance);
       const precision = Number(row.precision);
       if (!Number.isFinite(balance) || balance <= 0 || !Number.isInteger(precision) || precision < 0 || precision > 8) {
         throw new Error(`${row.symbol}: invalid live balance or token precision; no orders were sent.`);
       }
-      const topOrder = await fetchTopBuyOrder(row.symbol);
       const topBid = Number(topOrder?.price);
       if (!Number.isFinite(topBid) || topBid <= 0) {
         throw new Error(`${row.symbol}: no valid live top bid; no orders were sent.`);
       }
-      const quantity = balance.toFixed(precision);
+      const quantity = clampDecimalStrToMax(balance, precision, rawBalance);
       const price = (topBid * discount).toFixed(8);
       if (!(Number(quantity) > 0) || !(Number(price) > 0) || !Number.isFinite(Number(quantity)) || !Number.isFinite(Number(price))) {
         throw new Error(`${row.symbol}: invalid quantity or price; no orders were sent.`);
@@ -783,10 +962,12 @@ async function executeBatchSell() {
     // Match the proven Dust Seller transaction pattern: sell operations first,
     // followed by the fee transfers in the same Hive-Engine custom JSON.
     const feeOps = [];
+    let feeTotal = 0;
     if (feeEnabled) {
       for (const recipient of FEE_RECIPIENTS) {
         const amount = Math.floor(totalGross * recipient.rate * 1e8) / 1e8;
         if (amount >= 0.00000001) {
+          feeTotal += amount;
           feeOps.push({
             contractName: "tokens",
             contractAction: "transfer",
@@ -802,15 +983,38 @@ async function executeBatchSell() {
       ops.push(...feeOps);
     }
 
-    const feeTotal = feeOps.reduce((sum, op) => sum + Number(op.contractPayload.quantity), 0);
-    const actionLabel = feeEnabled
-      ? `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`
-      : `Nectar Sweep: sell ${preview.length} token(s) (fee waived)`;
-    setStatus(`Review in Hive Keychain. Sell orders${feeEnabled ? " and 1% + 1% fee transfers" : " (2% fee waived)"}:
+    let elixirBuyPreview = "";
+    if (swapElixir && elixirQuote && elixirQuote.price > 0) {
+      const netProceeds = Math.max(0, totalGross - feeTotal);
+      const factor = Math.pow(10, elixirQuote.precision);
+      const buyQty = Math.floor((netProceeds / elixirQuote.price) * factor) / factor;
+      const minUnit = 1 / factor;
+      if (buyQty >= minUnit) {
+        const qtyStr = buyQty.toFixed(elixirQuote.precision);
+        const priceStr = elixirQuote.price.toFixed(8);
+        ops.push({
+          contractName: "market",
+          contractAction: "buy",
+          contractPayload: {
+            symbol: "ELIXIR",
+            quantity: qtyStr,
+            price: priceStr
+          }
+        });
+        elixirBuyPreview = `\nExchange proceeds for ELIXIR: ${qtyStr} ELIXIR @ ${priceStr}`;
+      }
+    }
+
+    const actionLabel = swapElixir
+      ? `Nectar Sweep: sell ${preview.length} token(s) + buy ELIXIR`
+      : (feeEnabled
+          ? `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`
+          : `Nectar Sweep: sell ${preview.length} token(s) (fee waived)`);
+    setStatus(`Review in Hive Keychain. Sell orders${feeEnabled ? " and 1% + 1% fee transfers" : " (2% fee waived)"}${elixirBuyPreview ? " and ELIXIR buy order" : ""}:
 ${preview.join("\n")}
 Fee to @nectarbytes: ${fmt8(feeOps.find(x => x.contractPayload.to === "nectarbytes")?.contractPayload.quantity || 0)} SWAP.HIVE
 Fee to @bulliontools: ${fmt8(feeOps.find(x => x.contractPayload.to === "bulliontools")?.contractPayload.quantity || 0)} SWAP.HIVE
-Total fee: ${fmt8(feeTotal)} SWAP.HIVE`);
+Total fee: ${fmt8(feeTotal)} SWAP.HIVE${elixirBuyPreview}`);
 
     window.hive_keychain.requestCustomJson(
       account,
@@ -840,6 +1044,7 @@ updateThemeButton(document.documentElement.getAttribute("data-theme") || "dark")
 updateFeeEligibility();
 $("themeToggleBtn").addEventListener("click", toggleTheme);
 $("feeCheckbox").addEventListener("change", recalculateTotals);
+$("swapElixirCheckbox").addEventListener("change", recalculateTotals);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
