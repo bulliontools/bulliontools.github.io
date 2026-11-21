@@ -6,17 +6,17 @@
 <title>Nectar Sweep — Simple Sell</title>
 <style>
 :root {
---bg: #0f131a;
---panel: #171d28;
---panel-2: #1f2736;
---text: #eef2f7;
---muted: #9aa7bd;
+--bg: #161f30;
+--panel: #212e45;
+--panel-2: #2a3b57;
+--text: #f8fafc;
+--muted: #a1aec0;
 --accent: #e31337;
 --accent-hover: #c50f2e;
 --ok: #22c55e;
 --warn: #f59e0b;
 --err: #ef4444;
---border: #2b3548;
+--border: #3c5275;
 }
 [data-theme="light"] {
 --bg: #f8fafc;
@@ -111,6 +111,10 @@ padding: 0;
 accent-color: var(--accent);
 cursor: pointer;
 }
+input[type="checkbox"]:disabled {
+cursor: not-allowed;
+opacity: 0.6;
+}
 button {
 padding: 10px 16px;
 border-radius: 8px;
@@ -159,6 +163,24 @@ display: flex;
 align-items: center;
 justify-content: space-between;
 gap: 6px;
+}
+.fee-toggle {
+display: inline-flex;
+align-items: center;
+gap: 5px;
+color: var(--text);
+font-size: 0.78rem;
+cursor: pointer;
+user-select: none;
+}
+.fee-toggle.disabled {
+color: var(--muted);
+cursor: not-allowed;
+}
+.stat-meta {
+font-size: 0.75rem;
+color: var(--muted);
+margin-top: 4px;
 }
 .tip-toggle {
 display: inline-flex;
@@ -222,7 +244,6 @@ class="banner-img"
 
 <header>
 <div>
-<h1>Nectar Sweep</h1>
 <div class="subtitle">Simple token selling at 100%, 98%, or 95% of the live top bid via Hive Keychain</div>
 </div>
 <div class="header-actions">
@@ -271,9 +292,13 @@ class="banner-img"
 <div class="stat">
 <div class="stat-label">
 <span>2% Fee (1% / 1%)</span>
-<span>@nectarbytes + @bulliontools</span>
+<label class="fee-toggle disabled" id="feeToggleLabel" for="feeCheckbox" title="Requires at least 100 staked ELIXIR to waive fee">
+<input id="feeCheckbox" type="checkbox" checked disabled />
+<span>Fee</span>
+</label>
 </div>
 <div class="stat-val warn" id="estFee">0.00000000</div>
+<div class="stat-meta" id="elixirStakeStatus">Staked ELIXIR: 0.0000 (100+ required to waive fee)</div>
 </div>
 <div class="stat">
 <div class="stat-label">Est. Net to You</div>
@@ -288,7 +313,7 @@ Sell Selected Tokens
 </div>
 
 <div class="notice">
-<strong>Fee:</strong> 2% total, split into 1% SWAP.HIVE transfers to <strong>@nectarbytes</strong> and <strong>@bulliontools</strong>. As in the original Dust Seller flow, the fee transfers are included after the sell operations in the same Hive-Engine custom JSON transaction.
+<strong>Fee:</strong> 2% total, split into 1% SWAP.HIVE transfers to <strong>@nectarbytes</strong> and <strong>@bulliontools</strong> (waivable with <strong>100+ staked <code>ELIXIR</code></strong>).
 </div>
 
 <div id="statusBox" class="status">Ready. Enter a Hive username or connect Keychain, scan balances, select tokens, then sell.</div>
@@ -322,6 +347,7 @@ const FEE_RECIPIENTS = [
   { account: "nectarbytes", rate: 0.01 },
   { account: "bulliontools", rate: 0.01 }
 ];
+const ELIXIR_FEE_WAIVER_STAKE = 100;
 const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
@@ -336,8 +362,45 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
 rows: [],
-swapHiveBalance: 0
+swapHiveBalance: 0,
+elixirStake: 0
 };
+
+function canWaiveFee() {
+return Number(state.elixirStake || 0) >= ELIXIR_FEE_WAIVER_STAKE;
+}
+
+function isFeeEnabled() {
+if (!canWaiveFee()) return true;
+return $("feeCheckbox").checked;
+}
+
+function updateFeeEligibility() {
+const allowed = canWaiveFee();
+const cb = $("feeCheckbox");
+const lbl = $("feeToggleLabel");
+const meta = $("elixirStakeStatus");
+
+cb.disabled = !allowed;
+lbl.classList.toggle("disabled", !allowed);
+
+if (!allowed) {
+cb.checked = true;
+}
+
+const stakeFormatted = Number(state.elixirStake || 0).toLocaleString(undefined, {
+minimumFractionDigits: 0,
+maximumFractionDigits: 4
+});
+
+if (allowed) {
+meta.textContent = `Staked ELIXIR: ${stakeFormatted} (fee waiver unlocked)`;
+meta.style.color = "var(--ok)";
+} else {
+meta.textContent = `Staked ELIXIR: ${stakeFormatted} (${ELIXIR_FEE_WAIVER_STAKE}+ required to waive fee)`;
+meta.style.color = "var(--muted)";
+}
+}
 
 function updateThemeButton(theme) {
 const btn = $("themeToggleBtn");
@@ -487,8 +550,24 @@ query: { account, symbol: "SWAP.HIVE" }
 return res ? parseFloat(res.balance) : 0;
 }
 
+async function fetchElixirStake(account) {
+const res = await rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 5,
+method: "findOne",
+params: {
+contract: "tokens",
+table: "balances",
+query: { account, symbol: "ELIXIR" }
+}
+});
+return res ? parseFloat(res.stake || 0) : 0;
+}
+
 function recalculateTotals() {
+updateFeeEligibility();
 const discount = parseFloat($("discountSelect").value) || 1;
+const feeEnabled = isFeeEnabled();
 let gross = 0;
 let selectedCount = 0;
 for (const row of state.rows) {
@@ -496,7 +575,7 @@ for (const row of state.rows) {
   row.estHive = row.selected ? row.balance * row.sellPrice : 0;
   if (row.selected) { gross += row.estHive; selectedCount++; }
 }
-const feeTotal = Math.floor(gross * 0.02 * 1e8) / 1e8;
+const feeTotal = feeEnabled ? Math.floor(gross * 0.02 * 1e8) / 1e8 : 0;
 $("estGross").textContent = fmt8(gross);
 $("estFee").textContent = fmt8(feeTotal);
 $("estNet").textContent = fmt8(Math.max(0, gross - feeTotal));
@@ -555,13 +634,16 @@ $("loadBtn").disabled = true;
 setStatus(`Scanning @${account}'s Hive-Engine balances and top buy orders...`);
 
 try {
-const [balances, swapHive] = await Promise.all([
+const [balances, swapHive, elixirStake] = await Promise.all([
 fetchAllBalances(account),
-fetchSwapHiveBalance(account)
+fetchSwapHiveBalance(account),
+fetchElixirStake(account)
 ]);
 
 state.swapHiveBalance = swapHive;
+state.elixirStake = elixirStake;
 $("swapHiveBal").textContent = fmt8(swapHive);
+updateFeeEligibility();
 
 const symbols = balances.map((b) => b.symbol);
 const precisions = await fetchTokenPrecisions(symbols);
@@ -652,7 +734,12 @@ async function executeBatchSell() {
 
   $("executeBtn").disabled = true;
   try {
-    setStatus("Refreshing top bids and validating token balances...");
+    setStatus("Refreshing top bids, ELIXIR stake, and validating token balances...");
+    const liveElixirStake = await fetchElixirStake(account);
+    state.elixirStake = liveElixirStake;
+    updateFeeEligibility();
+    const feeEnabled = isFeeEnabled();
+
     const ops = [];
     const preview = [];
     let totalGross = 0;
@@ -696,26 +783,30 @@ async function executeBatchSell() {
     // Match the proven Dust Seller transaction pattern: sell operations first,
     // followed by the fee transfers in the same Hive-Engine custom JSON.
     const feeOps = [];
-    for (const recipient of FEE_RECIPIENTS) {
-      const amount = Math.floor(totalGross * recipient.rate * 1e8) / 1e8;
-      if (amount >= 0.00000001) {
-        feeOps.push({
-          contractName: "tokens",
-          contractAction: "transfer",
-          contractPayload: {
-            symbol: "SWAP.HIVE",
-            to: recipient.account,
-            quantity: amount.toFixed(8),
-            memo: `1% Nectar Sweep fee (${ops.length} token(s))`
-          }
-        });
+    if (feeEnabled) {
+      for (const recipient of FEE_RECIPIENTS) {
+        const amount = Math.floor(totalGross * recipient.rate * 1e8) / 1e8;
+        if (amount >= 0.00000001) {
+          feeOps.push({
+            contractName: "tokens",
+            contractAction: "transfer",
+            contractPayload: {
+              symbol: "SWAP.HIVE",
+              to: recipient.account,
+              quantity: amount.toFixed(8),
+              memo: `1% Nectar Sweep fee (${ops.length} token(s))`
+            }
+          });
+        }
       }
+      ops.push(...feeOps);
     }
-    ops.push(...feeOps);
 
     const feeTotal = feeOps.reduce((sum, op) => sum + Number(op.contractPayload.quantity), 0);
-    const actionLabel = `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`;
-    setStatus(`Review in Hive Keychain. Sell orders and 1% + 1% fee transfers:
+    const actionLabel = feeEnabled
+      ? `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`
+      : `Nectar Sweep: sell ${preview.length} token(s) (fee waived)`;
+    setStatus(`Review in Hive Keychain. Sell orders${feeEnabled ? " and 1% + 1% fee transfers" : " (2% fee waived)"}:
 ${preview.join("\n")}
 Fee to @nectarbytes: ${fmt8(feeOps.find(x => x.contractPayload.to === "nectarbytes")?.contractPayload.quantity || 0)} SWAP.HIVE
 Fee to @bulliontools: ${fmt8(feeOps.find(x => x.contractPayload.to === "bulliontools")?.contractPayload.quantity || 0)} SWAP.HIVE
@@ -746,7 +837,9 @@ This is not confirmation of a fill. Hive-Engine must execute the order. Rescanni
 }
 
 updateThemeButton(document.documentElement.getAttribute("data-theme") || "dark");
+updateFeeEligibility();
 $("themeToggleBtn").addEventListener("click", toggleTheme);
+$("feeCheckbox").addEventListener("change", recalculateTotals);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
