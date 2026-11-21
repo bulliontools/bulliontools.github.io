@@ -205,15 +205,6 @@ font-size: 0.75rem;
 color: var(--muted);
 margin-top: 4px;
 }
-.tip-toggle {
-display: inline-flex;
-align-items: center;
-gap: 5px;
-color: var(--text);
-font-size: 0.78rem;
-cursor: pointer;
-user-select: none;
-}
 .stat-val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
 table {
 width: 100%;
@@ -290,9 +281,9 @@ class="banner-img"
 <div>
 <label for="discountSelect">Sell Price vs. Top Bid</label>
 <select id="discountSelect">
-<option value="1" selected>100% of Top Bid (Instant fill up to bid depth)</option>
-<option value="0.98">98% of Top Bid (Higher fill priority)</option>
-<option value="0.95">95% of Top Bid (Fastest fill)</option>
+<option value="1" selected>100% of Top Bid (Match bids &ge; 100% top bid)</option>
+<option value="0.98">98% of Top Bid (Match bids &ge; 98% top bid)</option>
+<option value="0.95">95% of Top Bid (Match bids &ge; 95% top bid)</option>
 </select>
 </div>
 <div>
@@ -320,6 +311,7 @@ class="banner-img"
 <div class="stat">
 <div class="stat-label">Est. Gross Proceeds</div>
 <div class="stat-val" id="estGross">0.00000000</div>
+<div class="stat-meta" id="estMatchedMeta">Matched on buy book: 0.00000000</div>
 </div>
 <div class="stat">
 <div class="stat-label">
@@ -360,9 +352,9 @@ Sell Selected Tokens
 <th>Sell</th>
 <th>Token</th>
 <th class="num">Balance</th>
-<th class="num">Top Bid (SWAP.HIVE)</th>
-<th class="num">Bid Depth</th>
-<th class="num">Sell Price</th>
+<th class="num">Top Bid</th>
+<th class="num">Matched Qty</th>
+<th class="num">Min Sell Price</th>
 <th class="num">Est. SWAP.HIVE</th>
 </tr>
 </thead>
@@ -459,6 +451,48 @@ str = maxAtPrec;
 }
 }
 return str;
+}
+
+/**
+ * Simulates matching a limit sell of `sellQty` at minimum limit `limitPrice`
+ * against open `buyBook` orders sorted from highest bid price to lowest.
+ * Returns matched quantity, estimated SWAP.HIVE from matched bids, and
+ * estimated total value if any remaining quantity rests at `limitPrice`.
+ */
+function matchBuyBookForSell(buyOrders, sellQty, discount) {
+const validSorted = (Array.isArray(buyOrders) ? buyOrders : [])
+.filter((o) => Number(o?.price) > 0 && Number(o?.quantity) > 0)
+.sort((a, b) => Number(b.price) - Number(a.price));
+
+const topBid = validSorted.length > 0 ? Number(validSorted[0].price) : 0;
+const limitPrice = topBid * discount;
+
+let remainingToSell = Math.max(0, Number(sellQty || 0));
+let matchedQty = 0;
+let matchedHive = 0;
+
+for (const order of validSorted) {
+if (remainingToSell <= 1e-12) break;
+const bidPrice = Number(order.price);
+const availQty = Number(order.quantity);
+if (bidPrice + 1e-12 < limitPrice) break;
+const takeQty = Math.min(remainingToSell, availQty);
+matchedQty += takeQty;
+matchedHive += takeQty * bidPrice;
+remainingToSell -= takeQty;
+}
+
+const unfilledQty = Math.max(0, remainingToSell);
+const estTotalHive = matchedHive + unfilledQty * limitPrice;
+
+return {
+topBid,
+limitPrice,
+matchedQty,
+matchedHive,
+unfilledQty,
+estTotalHive
+};
 }
 
 async function mapWithConcurrency(items, limit, worker) {
@@ -596,21 +630,12 @@ throw new Error(errors[errors.length - 1] || "All Hive-Engine RPC nodes failed."
 
 async function fetchEngineTxInfo(txId) {
 if (!txId || txId === "(no transaction ID returned)") return null;
-const cleanBase = (state.preferredEndpoint || RPC_ENDPOINTS[0]).replace(/\/+$/, "");
-const url = cleanBase.endsWith("/rpc") ? cleanBase : `${cleanBase}/rpc`;
-const res = await fetchWithTimeout(url, {
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
+return await rpcCall("blockchain", {
 jsonrpc: "2.0",
 id: 99,
 method: "getTransactionInfo",
 params: { txid: txId }
-})
 });
-if (!res.ok) return null;
-const data = await res.json();
-return data?.result || null;
 }
 
 async function fetchAllBalances(account) {
@@ -658,7 +683,7 @@ map.set(t.symbol, Number(t.precision ?? 8));
 return map;
 }
 
-async function fetchTopBuyOrder(symbol) {
+async function fetchBuyBookOrders(symbol) {
 const orders = await rpcCall("contracts", {
 jsonrpc: "2.0",
 id: 3,
@@ -667,16 +692,15 @@ params: {
 contract: "market",
 table: "buyBook",
 query: { symbol },
-limit: 25,
+limit: 50,
 offset: 0,
 indexes: [{ index: "priceDec", descending: true }]
 }
 });
-if (!Array.isArray(orders) || orders.length === 0) return null;
-const sorted = [...orders]
+if (!Array.isArray(orders) || orders.length === 0) return [];
+return [...orders]
 .filter((o) => Number(o?.price) > 0 && Number(o?.quantity) > 0)
 .sort((a, b) => Number(b.price) - Number(a.price));
-return sorted[0] || null;
 }
 
 async function fetchSwapHiveBalance(account) {
@@ -744,15 +768,26 @@ const discount = parseFloat($("discountSelect").value) || 1;
 const feeEnabled = isFeeEnabled();
 const swapElixir = isSwapElixirEnabled();
 let gross = 0;
+let matchedHiveTotal = 0;
 let selectedCount = 0;
+
 for (const row of state.rows) {
-  row.sellPrice = row.topBid * discount;
-  row.estHive = row.selected ? row.balance * row.sellPrice : 0;
-  if (row.selected) { gross += row.estHive; selectedCount++; }
+  const match = matchBuyBookForSell(row.buyOrders, row.balance, discount);
+  row.sellPrice = match.limitPrice;
+  row.matchedQty = match.matchedQty;
+  row.matchedHive = match.matchedHive;
+  row.estHive = match.estTotalHive;
+  if (row.selected) {
+    gross += row.estHive;
+    matchedHiveTotal += row.matchedHive;
+    selectedCount++;
+  }
 }
+
 const feeTotal = feeEnabled ? Math.floor(gross * 0.02 * 1e8) / 1e8 : 0;
 const net = Math.max(0, gross - feeTotal);
 $("estGross").textContent = fmt8(gross);
+$("estMatchedMeta").textContent = `Matched on buy book: ${fmt8(matchedHiveTotal)}`;
 $("estFee").textContent = fmt8(feeTotal);
 $("estNet").textContent = fmt8(net);
 
@@ -783,8 +818,8 @@ const discount = parseFloat($("discountSelect").value) || 1;
 const tbody = $("tokensTbody");
 
 const filtered = state.rows.filter((r) => {
-const rawEst = r.balance * r.topBid * discount;
-return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
+const match = matchBuyBookForSell(r.buyOrders, r.balance, discount);
+return Number.isFinite(maxDust) ? match.estTotalHive <= maxDust : true;
 });
 
 $("selectAllBtn").disabled = filtered.length === 0;
@@ -795,15 +830,18 @@ tbody.innerHTML = `<tr><td colspan="7" style="color: var(--muted);">No tokens ma
 return;
 }
 
-tbody.innerHTML = filtered.map((r) => `<tr>
+tbody.innerHTML = filtered.map((r) => {
+const match = matchBuyBookForSell(r.buyOrders, r.balance, discount);
+return `<tr>
 <td><input type="checkbox" data-symbol="${r.symbol}" ${r.selected ? "checked" : ""} /></td>
 <td><strong>${r.symbol}</strong></td>
 <td class="num">${fmtPrec(r.balance, r.precision)}</td>
 <td class="num">${fmt8(r.topBid)}</td>
-<td class="num">${fmtPrec(r.bidQty, r.precision)}</td>
-<td class="num">${fmt8(r.sellPrice)}</td>
-<td class="num">${fmt8(r.balance * r.sellPrice)}</td>
-</tr>`).join("");
+<td class="num">${fmtPrec(match.matchedQty, r.precision)}</td>
+<td class="num">${fmt8(match.limitPrice)}</td>
+<td class="num">${fmt8(match.estTotalHive)}</td>
+</tr>`;
+}).join("");
 
 tbody.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
 cb.addEventListener("change", (e) => {
@@ -825,7 +863,7 @@ return;
 }
 
 $("loadBtn").disabled = true;
-setStatus(`Scanning @${account}'s Hive-Engine balances and top buy orders...`);
+setStatus(`Scanning @${account}'s Hive-Engine balances and buy orders...`);
 
 try {
 const [balances, swapHive, elixirStake, elixirQuote] = await Promise.all([
@@ -847,31 +885,31 @@ const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 
 const quoteResults = await mapWithConcurrency(balances, CONCURRENCY_LIMIT, async (b) => {
-const topOrder = await fetchTopBuyOrder(b.symbol).catch(() => null);
-return { balanceItem: b, topOrder };
+const buyOrders = await fetchBuyBookOrders(b.symbol).catch(() => []);
+return { balanceItem: b, buyOrders };
 });
 
 const rows = [];
-for (const { balanceItem: b, topOrder } of quoteResults) {
-if (!topOrder) continue;
+for (const { balanceItem: b, buyOrders } of quoteResults) {
+if (!Array.isArray(buyOrders) || buyOrders.length === 0) continue;
 const rawBalStr = String(b.balance ?? "0");
 const bal = parseFloat(rawBalStr);
 const prec = precisions.get(b.symbol) ?? 8;
-const topBid = parseFloat(topOrder.price);
-const bidQty = parseFloat(topOrder.quantity);
-if (!(topBid > 0)) continue;
+const match = matchBuyBookForSell(buyOrders, bal, discount);
+if (!(match.topBid > 0)) continue;
 
-const est = bal * topBid * discount;
 rows.push({
 symbol: b.symbol,
 balance: bal,
 rawBalance: rawBalStr,
 precision: prec,
-topBid,
-bidQty,
-sellPrice: topBid * discount,
-estHive: est,
-selected: est > 0 && (!Number.isFinite(maxDust) || est <= maxDust)
+topBid: match.topBid,
+buyOrders,
+matchedQty: match.matchedQty,
+matchedHive: match.matchedHive,
+sellPrice: match.limitPrice,
+estHive: match.estTotalHive,
+selected: match.estTotalHive > 0 && (!Number.isFinite(maxDust) || match.estTotalHive <= maxDust)
 });
 }
 
@@ -936,7 +974,7 @@ async function executeBatchSell() {
 
   $("executeBtn").disabled = true;
   try {
-    setStatus("Refreshing top bids, ELIXIR stake, and validating token balances...");
+    setStatus("Refreshing buy orders, ELIXIR stake, and validating token balances...");
     const [liveElixirStake, elixirQuote] = await Promise.all([
       fetchElixirStake(account),
       swapElixir ? fetchElixirQuote() : Promise.resolve(null)
@@ -951,36 +989,36 @@ async function executeBatchSell() {
     }
 
     const refreshed = await mapWithConcurrency(selectedRows, CONCURRENCY_LIMIT, async (row) => {
-      const [freshBalances, topOrder] = await Promise.all([
+      const [freshBalances, buyOrders] = await Promise.all([
         rpcCall("contracts", {
           jsonrpc: "2.0", id: 21, method: "findOne",
           params: { contract: "tokens", table: "balances", query: { account, symbol: row.symbol } }
         }),
-        fetchTopBuyOrder(row.symbol)
+        fetchBuyBookOrders(row.symbol)
       ]);
-      return { row, freshBalances, topOrder };
+      return { row, freshBalances, buyOrders };
     });
 
     const ops = [];
     const preview = [];
     let totalGross = 0;
-    for (const { row, freshBalances, topOrder } of refreshed) {
+    for (const { row, freshBalances, buyOrders } of refreshed) {
       const rawBalance = String(freshBalances?.balance ?? row.rawBalance ?? "0").trim();
       const balance = Number(rawBalance);
       const precision = Number(row.precision);
       if (!Number.isFinite(balance) || balance <= 0 || !Number.isInteger(precision) || precision < 0 || precision > 8) {
         throw new Error(`${row.symbol}: invalid live balance or token precision; no orders were sent.`);
       }
-      const topBid = Number(topOrder?.price);
-      if (!Number.isFinite(topBid) || topBid <= 0) {
-        throw new Error(`${row.symbol}: no valid live top bid; no orders were sent.`);
+      const match = matchBuyBookForSell(buyOrders, balance, discount);
+      if (!(match.topBid > 0) || !(match.limitPrice > 0)) {
+        throw new Error(`${row.symbol}: no valid live buy orders; no orders were sent.`);
       }
       const quantity = clampDecimalStrToMax(balance, precision, rawBalance);
-      const price = (topBid * discount).toFixed(8);
+      const price = match.limitPrice.toFixed(8);
       if (!(Number(quantity) > 0) || !(Number(price) > 0) || !Number.isFinite(Number(quantity)) || !Number.isFinite(Number(price))) {
         throw new Error(`${row.symbol}: invalid quantity or price; no orders were sent.`);
       }
-      const gross = Number(quantity) * Number(price);
+      const gross = Number(match.estTotalHive);
       if (!Number.isFinite(gross) || gross <= 0) {
         throw new Error(`${row.symbol}: calculated proceeds are invalid; no orders were sent.`);
       }
@@ -990,7 +1028,7 @@ async function executeBatchSell() {
         contractAction: "sell",
         contractPayload: { symbol: row.symbol, quantity, price }
       });
-      preview.push(`${row.symbol}: ${quantity} @ ${price} (bal ${rawBalance}, prec ${precision})`);
+      preview.push(`${row.symbol}: ${quantity} @ min ${price} (matched ${fmtPrec(match.matchedQty, precision)} on buy book)`);
     }
 
     if (!ops.length) throw new Error("No valid sell operations were built.");
@@ -1044,17 +1082,19 @@ async function executeBatchSell() {
       : (feeEnabled
           ? `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`
           : `Nectar Sweep: sell ${preview.length} token(s) (fee waived)`);
+    const opsJson = JSON.stringify(ops);
     setStatus(`Review in Hive Keychain. Sell orders${feeEnabled ? " and 1% + 1% fee transfers" : " (2% fee waived)"}${elixirBuyPreview ? " and ELIXIR buy order" : ""}:
 ${preview.join("\n")}
 Fee to @nectarbytes: ${fmt8(feeOps.find(x => x.contractPayload.to === "nectarbytes")?.contractPayload.quantity || 0)} SWAP.HIVE
 Fee to @bulliontools: ${fmt8(feeOps.find(x => x.contractPayload.to === "bulliontools")?.contractPayload.quantity || 0)} SWAP.HIVE
-Total fee: ${fmt8(feeTotal)} SWAP.HIVE${elixirBuyPreview}`);
+Total fee: ${fmt8(feeTotal)} SWAP.HIVE${elixirBuyPreview}
+Payload: ${opsJson}`);
 
     window.hive_keychain.requestCustomJson(
       account,
       ENGINE_CHAIN_ID,
       "Active",
-      JSON.stringify(ops),
+      opsJson,
       actionLabel,
       async (res) => {
         $("executeBtn").disabled = false;
@@ -1064,17 +1104,21 @@ Total fee: ${fmt8(feeTotal)} SWAP.HIVE${elixirBuyPreview}`);
           await new Promise((r) => setTimeout(r, 6000));
           const txInfo = await fetchEngineTxInfo(txId).catch(() => null);
           let engineNote = "";
-          if (txInfo && txInfo.logs) {
+          if (txInfo) {
             try {
               const parsedLogs = typeof txInfo.logs === "string" ? JSON.parse(txInfo.logs) : txInfo.logs;
               if (parsedLogs && parsedLogs.errors && parsedLogs.errors.length > 0) {
                 engineNote = `\nHive-Engine contract errors: ${JSON.stringify(parsedLogs.errors)}`;
-              } else {
+              } else if (txInfo.logs) {
                 engineNote = `\nHive-Engine block ${txInfo.blockNumber || "?"}: executed cleanly.`;
+              } else {
+                engineNote = `\nHive-Engine tx lookup returned no logs yet (txId: ${txId}).`;
               }
             } catch (_) {
               engineNote = `\nHive-Engine tx logs: ${String(txInfo.logs).slice(0, 240)}`;
             }
+          } else {
+            engineNote = `\nCould not fetch Hive-Engine tx info yet for ${txId}.`;
           }
           setStatus(`Hive Keychain broadcast accepted. TX ID: ${txId}${engineNote}`, engineNote.includes("errors") ? "warn" : "ok");
           handleScan();
@@ -1103,8 +1147,8 @@ $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
 for (const r of state.rows) {
-const est = r.balance * r.topBid * discount;
-if (!Number.isFinite(maxDust) || est <= maxDust) {
+const match = matchBuyBookForSell(r.buyOrders, r.balance, discount);
+if (!Number.isFinite(maxDust) || match.estTotalHive <= maxDust) {
 r.selected = true;
 }
 }
