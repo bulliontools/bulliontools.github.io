@@ -305,10 +305,6 @@ class="banner-img"
 <input id="swapElixirCheckbox" type="checkbox" />
 <span>Exchange sold tokens for <strong>ELIXIR</strong></span>
 </label>
-<label class="swap-option-box" for="singleSellCheckbox">
-<input id="singleSellCheckbox" type="checkbox" checked />
-<span>Send single <code>market.sell</code> object (recommended for testing)</span>
-</label>
 </div>
 
 <div class="row-actions">
@@ -419,10 +415,6 @@ return $("feeCheckbox").checked;
 
 function isSwapElixirEnabled() {
 return Boolean($("swapElixirCheckbox")?.checked);
-}
-
-function isSingleSellMode() {
-return Boolean($("singleSellCheckbox")?.checked);
 }
 
 function floorPrec(num, prec) {
@@ -636,26 +628,20 @@ errors.push(`${url} -> ${err.message}`);
 }
 }
 }
+if (state.preferredEndpoint) {
+state.preferredEndpoint = null;
+}
 throw new Error(errors[errors.length - 1] || "All Hive-Engine RPC nodes failed.");
 }
 
 async function fetchEngineTxInfo(txId) {
 if (!txId || txId === "(no transaction ID returned)") return null;
-const base = (state.preferredEndpoint || RPC_ENDPOINTS[0]).replace(/\/+$/, "");
-const rpcUrl = base.endsWith("/rpc") ? base : `${base}/rpc`;
-const res = await fetchWithTimeout(rpcUrl, {
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify({
+return await rpcCall("blockchain", {
 jsonrpc: "2.0",
 id: 99,
 method: "getTransactionInfo",
 params: { txid: txId }
-})
 });
-if (!res.ok) return null;
-const data = await res.json();
-return data?.result || null;
 }
 
 async function fetchAllBalances(account) {
@@ -986,7 +972,6 @@ async function executeBatchSell() {
   const discount = Number($("discountSelect").value);
   const selectedRows = state.rows.filter((r) => r.selected);
   const swapElixir = isSwapElixirEnabled();
-  const singleSell = isSingleSellMode();
   if (!account || selectedRows.length === 0) return;
   if (![1, 0.98, 0.95].includes(discount)) {
     setStatus("Invalid sell-speed selection. Please choose 100%, 98%, or 95%.", "err");
@@ -1054,7 +1039,7 @@ async function executeBatchSell() {
 
     if (!ops.length) throw new Error("No valid sell operations were built.");
 
-    const useSingleObject = singleSell && ops.length === 1 && !feeEnabled && !swapElixir;
+    const useSingleObject = ops.length === 1 && !feeEnabled && !swapElixir;
     let payloadToSend = ops;
 
     if (!useSingleObject) {
