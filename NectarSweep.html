@@ -20,6 +20,7 @@
   --border: #465770;
   --banner-shadow: 0 12px 30px rgba(15, 20, 28, 0.25);
   --banner-overlay: linear-gradient(180deg, rgba(35, 44, 58, 0.0) 0%, rgba(35, 44, 58, 0.35) 100%);
+  --modal-backdrop: rgba(11, 15, 22, 0.72);
 }
 
 [data-theme="light"] {
@@ -36,6 +37,7 @@
   --border: #d7dfeb;
   --banner-shadow: 0 10px 26px rgba(20, 25, 35, 0.12);
   --banner-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(20, 25, 35, 0.25) 100%);
+  --modal-backdrop: rgba(20, 25, 35, 0.5);
 }
 
 * {
@@ -301,6 +303,78 @@ th {
 .table-wrap {
   overflow-x: auto;
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--banner-shadow);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.modal-desc {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.modal-details {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.88rem;
+  display: grid;
+  gap: 8px;
+}
+
+.modal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-row span:first-child {
+  color: var(--muted);
+}
+
+.modal-memo {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
 </style>
 </head>
 <body>
@@ -412,6 +486,41 @@ th {
   </div>
 </div>
 
+<div id="depositModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="depositModalTitle">
+  <div class="modal-card">
+    <h2 id="depositModalTitle" class="modal-title">Deposit HIVE for SWAP.HIVE</h2>
+    <p class="modal-desc">
+      Your liquid <code>SWAP.HIVE</code> balance is below the required fee. Send <code>HIVE</code> to mint <code>SWAP.HIVE</code> on Hive-Engine before continuing.
+    </p>
+    <div class="modal-details">
+      <div class="modal-row">
+        <span>Current SWAP.HIVE</span>
+        <strong id="modalCurrentSwapHive">0.00000000</strong>
+      </div>
+      <div class="modal-row">
+        <span>Required Fee</span>
+        <strong class="warn" id="modalRequiredFee">0.00000000</strong>
+      </div>
+      <div class="modal-row">
+        <span>Recipient</span>
+        <strong id="modalRecipient">@honey-swap</strong>
+      </div>
+      <div class="modal-row">
+        <span>Deposit Amount</span>
+        <strong class="ok" id="modalDepositAmount">0.010 HIVE</strong>
+      </div>
+      <div>
+        <div style="color: var(--muted); font-size: 0.78rem;">Hive-Engine Deposit Memo</div>
+        <div class="modal-memo" id="modalDepositMemo"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="cancelDepositBtn" type="button">Cancel</button>
+      <button id="confirmDepositBtn" class="primary" type="button">Send HIVE &amp; Continue</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const FEE_ACCOUNT_1 = "bulliontools";
 const FEE_ACCOUNT_2 = "nectarbytes";
@@ -443,6 +552,53 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+function promptDepositConfirmation({ availableSwapHive, totalFee, depositAmountStr }) {
+  return new Promise((resolve) => {
+    const modal = $("depositModal");
+    const confirmBtn = $("confirmDepositBtn");
+    const cancelBtn = $("cancelDepositBtn");
+
+    $("modalCurrentSwapHive").textContent = `${fmt8(availableSwapHive)} SWAP.HIVE`;
+    $("modalRequiredFee").textContent = `${fmt8(totalFee)} SWAP.HIVE`;
+    $("modalRecipient").textContent = `@${ENGINE_DEPOSIT_ACCOUNT}`;
+    $("modalDepositAmount").textContent = `${depositAmountStr} HIVE`;
+    $("modalDepositMemo").textContent = HIVE_PEGGED_BUY_MEMO;
+
+    modal.classList.remove("hidden");
+    confirmBtn.focus();
+
+    function cleanup(result) {
+      modal.classList.add("hidden");
+      confirmBtn.removeEventListener("click", onConfirm);
+      cancelBtn.removeEventListener("click", onCancel);
+      modal.removeEventListener("click", onBackdropClick);
+      document.removeEventListener("keydown", onKeyDown);
+      resolve(result);
+    }
+
+    function onConfirm() {
+      cleanup(true);
+    }
+
+    function onCancel() {
+      cleanup(false);
+    }
+
+    function onBackdropClick(e) {
+      if (e.target === modal) cleanup(false);
+    }
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") cleanup(false);
+    }
+
+    confirmBtn.addEventListener("click", onConfirm);
+    cancelBtn.addEventListener("click", onCancel);
+    modal.addEventListener("click", onBackdropClick);
+    document.addEventListener("keydown", onKeyDown);
+  });
+}
 
 function hasWaiverEligibility() {
   return Number(state.stakedElixir || 0) >= STAKED_ELIXIR_WAIVER_THRESHOLD;
@@ -1031,10 +1187,11 @@ async function executeBatchSell() {
     if (availableSwapHive + 1e-12 < totalFee) {
       const shortfall = Math.max(0.001, Number((totalFee - availableSwapHive).toFixed(3)));
       const depositAmountStr = Math.max(0.01, shortfall).toFixed(3);
-      const wantsDeposit = window.confirm(
-        `Insufficient SWAP.HIVE (${fmt8(availableSwapHive)}) for the ${fmt8(totalFee)} fee.\n\n` +
-        `Send ${depositAmountStr} HIVE to @${ENGINE_DEPOSIT_ACCOUNT} with the Hive-Engine deposit memo to convert into SWAP.HIVE and continue?`
-      );
+      const wantsDeposit = await promptDepositConfirmation({
+        availableSwapHive,
+        totalFee,
+        depositAmountStr
+      });
 
       if (!wantsDeposit) {
         $("executeBtn").disabled = false;
