@@ -135,7 +135,7 @@ label {
   margin-bottom: 6px;
 }
 
-input,
+input:not([type="checkbox"]),
 select {
   width: 100%;
   padding: 10px 12px;
@@ -220,7 +220,37 @@ button.primary:hover:not(:disabled) {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+}
+
+.waiver-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.opt-in-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.opt-in-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.hidden {
+  display: none !important;
 }
 
 table {
@@ -310,6 +340,10 @@ th {
         </select>
       </div>
       <div>
+        <label for="rpcInput">Engine Contracts RPC URL</label>
+        <input id="rpcInput" type="text" value="https://api.hive-engine.com/rpc/contracts" autocomplete="off" />
+      </div>
+      <div>
         <button id="loadBtn" class="primary" type="button">Scan Balances</button>
       </div>
     </div>
@@ -321,7 +355,13 @@ th {
 
     <div class="waiver-banner">
       <span><strong>ELIXIR Staked:</strong> <span id="stakedElixirVal">0.00000000</span> / 100.00000000 required for fee waiver</span>
-      <span id="feeWaiverBadge" class="warn">2% FEE ACTIVE</span>
+      <div class="waiver-right">
+        <label id="payFeeOptInWrap" class="opt-in-label hidden" for="payFeeOptInCheckbox">
+          <input id="payFeeOptInCheckbox" type="checkbox" />
+          Still pay 2% support fee
+        </label>
+        <span id="feeWaiverBadge" class="warn">2% FEE ACTIVE</span>
+      </div>
     </div>
 
     <div class="summary-grid">
@@ -350,7 +390,7 @@ th {
     </div>
 
     <div class="notice">
-      <strong>Fee &amp; Waiver Disclosure:</strong> Standard batches include a 2% total <code>SWAP.HIVE</code> fee split evenly—1% to <strong id="feeAcc1Notice"></strong> and 1% to <strong id="feeAcc2Notice"></strong>—bundled into the same Keychain transaction. Having at least <strong>100 staked ELIXIR</strong> waives the entire fee. When active, if your current <code>SWAP.HIVE</code> balance is lower than the calculated fee and orders do not settle in the exact same block, Hive-Engine may reject the transfer ops.
+      <strong>Fee &amp; Waiver Disclosure:</strong> Standard batches include a 2% total <code>SWAP.HIVE</code> fee split evenly—1% to <strong id="feeAcc1Notice"></strong> and 1% to <strong id="feeAcc2Notice"></strong>—bundled into the same Keychain transaction. Having at least <strong>100 staked ELIXIR</strong> waives the fee automatically, with an option to still contribute the 2% fee if desired. When a fee is active, if your current <code>SWAP.HIVE</code> balance is lower than the calculated fee and orders do not settle in the exact same block, Hive-Engine may reject the transfer ops.
     </div>
 
     <div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
@@ -386,10 +426,10 @@ const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const THEME_STORAGE_KEY = "nectar_sweep_theme";
 
-const RPC_ENDPOINTS = [
-  "https://api.hive-engine.com/rpc",
-  "https://engine.rishipanthee.com",
-  "https://herpc.dtools.dev"
+const FALLBACK_RPC_ENDPOINTS = [
+  "https://api.hive-engine.com/rpc/contracts",
+  "https://engine.rishipanthee.com/contracts",
+  "https://herpc.dtools.dev/contracts"
 ];
 
 const state = {
@@ -400,8 +440,12 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-function isFeeWaived() {
+function hasWaiverEligibility() {
   return Number(state.stakedElixir || 0) >= STAKED_ELIXIR_WAIVER_THRESHOLD;
+}
+
+function isFeeWaived() {
+  return hasWaiverEligibility() && !$("payFeeOptInCheckbox").checked;
 }
 
 function applyTheme(theme) {
@@ -457,13 +501,21 @@ function calcSplitFees(gross) {
 }
 
 function updateWaiverUI() {
+  const eligible = hasWaiverEligibility();
   const waived = isFeeWaived();
+
   $("stakedElixirVal").textContent = fmt8(state.stakedElixir);
+  $("payFeeOptInWrap").classList.toggle("hidden", !eligible);
+
   const badge = $("feeWaiverBadge");
   if (waived) {
     badge.textContent = "FEE WAIVED (100+ STAKED ELIXIR)";
     badge.className = "ok";
     $("estFee").className = "stat-val ok";
+  } else if (eligible) {
+    badge.textContent = "2% SUPPORT FEE OPT-IN ACTIVE";
+    badge.className = "warn";
+    $("estFee").className = "stat-val warn";
   } else {
     badge.textContent = "2% FEE ACTIVE";
     badge.className = "warn";
@@ -471,22 +523,27 @@ function updateWaiverUI() {
   }
 }
 
-function buildRpcUrl(base, route) {
-  const cleanBase = base.replace(/\/+$/, "");
-  const cleanRoute = route.replace(/^\/+/, "");
-  if (cleanBase.endsWith("/rpc") && cleanRoute.startsWith("rpc/")) {
-    return `${cleanBase}/${cleanRoute.slice(4)}`;
+function getCandidateRpcUrls() {
+  const custom = $("rpcInput").value.trim().replace(/\/+$/, "");
+  const list = [];
+  if (custom) {
+    list.push(custom);
+    if (!custom.endsWith("/contracts")) {
+      list.push(custom.endsWith("/rpc") ? `${custom}/contracts` : `${custom}/rpc/contracts`);
+    }
   }
-  if (!cleanBase.endsWith("/rpc") && !cleanRoute.startsWith("rpc/")) {
-    return `${cleanBase}/rpc/${cleanRoute}`;
+  for (const fallback of FALLBACK_RPC_ENDPOINTS) {
+    if (!list.includes(fallback)) list.push(fallback);
   }
-  return `${cleanBase}/${cleanRoute}`;
+  return list;
 }
 
-async function rpcCall(route, payload) {
+async function rpcCall(payload) {
+  const urls = getCandidateRpcUrls();
   const errors = [];
-  for (const base of RPC_ENDPOINTS) {
-    const url = buildRpcUrl(base, route);
+  let hadNetworkError = false;
+
+  for (const url of urls) {
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -504,10 +561,18 @@ async function rpcCall(route, payload) {
       }
       return data ? data.result : null;
     } catch (err) {
+      hadNetworkError = true;
       errors.push(`${url} -> ${err.message || err}`);
     }
   }
-  throw new Error(errors.join(" | ") || "All Hive-Engine RPC nodes failed.");
+
+  const originHint = window.location.protocol === "file:"
+    ? " (Opened via file:// — try serving over http://localhost or check CORS/RPC endpoint)"
+    : hadNetworkError
+      ? " (Check browser CORS/network access or enter a CORS-enabled RPC URL)"
+      : "";
+
+  throw new Error(`${errors.join(" | ")}${originHint}`);
 }
 
 async function fetchAllBalances(account) {
@@ -515,7 +580,7 @@ async function fetchAllBalances(account) {
   const limit = 1000;
   let offset = 0;
   while (true) {
-    const batch = await rpcCall("contracts", {
+    const batch = await rpcCall({
       jsonrpc: "2.0",
       id: 1,
       method: "find",
@@ -538,7 +603,7 @@ async function fetchAllBalances(account) {
 async function fetchTokenPrecisions(symbols) {
   const map = new Map();
   if (!symbols.length) return map;
-  const tokens = await rpcCall("contracts", {
+  const tokens = await rpcCall({
     jsonrpc: "2.0",
     id: 2,
     method: "find",
@@ -556,7 +621,7 @@ async function fetchTokenPrecisions(symbols) {
 }
 
 async function fetchTopBuyOrder(symbol) {
-  const orders = await rpcCall("contracts", {
+  const orders = await rpcCall({
     jsonrpc: "2.0",
     id: 3,
     method: "find",
@@ -573,7 +638,7 @@ async function fetchTopBuyOrder(symbol) {
 }
 
 async function fetchTokenBalanceRecord(account, symbol) {
-  return rpcCall("contracts", {
+  return rpcCall({
     jsonrpc: "2.0",
     id: 4,
     method: "findOne",
@@ -713,8 +778,10 @@ async function handleScan() {
     state.rows = rows;
     recalculateTotals();
 
-    const waiverNote = isFeeWaived()
-      ? ` Fee waived (${fmt8(stakedElixir)} ELIXIR staked >= 100).`
+    const waiverNote = hasWaiverEligibility()
+      ? isFeeWaived()
+        ? ` Fee waived (${fmt8(stakedElixir)} ELIXIR staked >= 100).`
+        : ` Eligible for waiver (${fmt8(stakedElixir)} ELIXIR staked >= 100), 2% support fee opted in.`
       : "";
     setStatus(`Found ${rows.length} sellable tokens with active buy orders for @${account}.${waiverNote}`, "ok");
   } catch (err) {
@@ -842,6 +909,7 @@ $("themeToggleBtn").addEventListener("click", () => {
   applyTheme(current === "dark" ? "light" : "dark");
 });
 
+$("payFeeOptInCheckbox").addEventListener("change", recalculateTotals);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("discountSelect").addEventListener("change", recalculateTotals);
