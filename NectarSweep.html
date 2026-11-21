@@ -1380,31 +1380,47 @@ if (sellItems.length === 0) return { batches: [], requiredExistingSwapHive: 0 };
 
 const batches = [];
 let totalFeeCharged = 0;
+const allSellOps = sellItems.map((x) => x.op);
 
-for (const item of sellItems) {
-const itemSplits = calculateFeeSplits(item.gross, feeEnabled);
-const feeOps = itemSplits
-.filter((s) => s.amount >= 0.00000001)
-.map((s) => {
+const allFeeOps = [];
+const allSplits = calculateFeeSplits(totalGross, feeEnabled);
+for (const s of allSplits) {
+if (s.amount >= 0.00000001) {
 totalFeeCharged += s.amount;
-return {
+allFeeOps.push({
 contractName: "tokens",
 contractAction: "transfer",
 contractPayload: {
 symbol: "SWAP.HIVE",
 to: s.account,
 quantity: s.amount.toFixed(8),
-memo: `${+(s.rate * 100).toFixed(2)}% Nectar Sweep fee (${item.op.contractPayload.symbol})`
+memo: `${+(s.rate * 100).toFixed(2)}% Nectar Sweep fee (${sellItems.length} token(s))`
 }
-};
 });
+}
+}
 
-const singleItemBatch = [item.op, ...feeOps];
-if (utf8ByteLength(JSON.stringify(singleItemBatch)) <= MAX_CUSTOM_JSON_BYTES) {
-batches.push(singleItemBatch);
+let currentBatch = [];
+for (const sellOp of allSellOps) {
+const candidate = [...currentBatch, sellOp];
+if (currentBatch.length > 0 && utf8ByteLength(JSON.stringify(candidate)) > MAX_CUSTOM_JSON_BYTES) {
+batches.push(currentBatch);
+currentBatch = [sellOp];
 } else {
-batches.push([item.op]);
-if (feeOps.length > 0) batches.push(feeOps);
+currentBatch = candidate;
+}
+}
+if (currentBatch.length > 0) {
+batches.push(currentBatch);
+}
+
+if (allFeeOps.length > 0) {
+const lastBatch = batches[batches.length - 1];
+const withFees = [...lastBatch, ...allFeeOps];
+if (utf8ByteLength(JSON.stringify(withFees)) <= MAX_CUSTOM_JSON_BYTES) {
+batches[batches.length - 1] = withFees;
+} else {
+batches.push(allFeeOps);
 }
 }
 
@@ -1427,7 +1443,13 @@ quantity: buyQty.toFixed(elixirBuyQuote.precision),
 price: elixirBuyQuote.price.toFixed(8)
 }
 };
+const lastBatch = batches[batches.length - 1];
+const withBuy = [...lastBatch, buyOp];
+if (utf8ByteLength(JSON.stringify(withBuy)) <= MAX_CUSTOM_JSON_BYTES) {
+batches[batches.length - 1] = withBuy;
+} else {
 batches.push([buyOp]);
+}
 }
 }
 
