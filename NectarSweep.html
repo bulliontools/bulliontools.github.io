@@ -7,19 +7,19 @@
 <style>
 :root,
 [data-theme="dark"] {
-  --bg: #171d26;
-  --panel: #202835;
-  --panel-2: #283242;
-  --text: #f1f5f9;
-  --muted: #aab8cc;
-  --accent: #e82546;
-  --accent-hover: #cf1938;
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --err: #f87171;
-  --border: #364357;
-  --banner-shadow: 0 12px 32px rgba(9, 12, 18, 0.35);
-  --banner-overlay: linear-gradient(180deg, rgba(23, 29, 38, 0.02) 0%, rgba(23, 29, 38, 0.45) 100%);
+  --bg: #0f131a;
+  --panel: #171d28;
+  --panel-2: #1f2736;
+  --text: #eef2f7;
+  --muted: #9aa7bd;
+  --accent: #e31337;
+  --accent-hover: #c50f2e;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --err: #ef4444;
+  --border: #2b3548;
+  --banner-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --banner-overlay: linear-gradient(180deg, rgba(15, 19, 26, 0.05) 0%, rgba(15, 19, 26, 0.65) 100%);
 }
 
 [data-theme="light"] {
@@ -419,6 +419,7 @@ const SPLIT_FEE_RATE = 0.01;
 const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const THEME_STORAGE_KEY = "nectar_sweep_theme";
+const MIN_FEE_SHARE = 0.0001;
 
 const RPC_ENDPOINTS = [
   "https://api.hive-engine.com/rpc/contracts",
@@ -507,8 +508,10 @@ function calcSplitFees(gross) {
   if (isFeeWaived() || gross <= 0) {
     return { share1: 0, share2: 0, totalFee: 0 };
   }
-  const share1 = Math.floor(gross * SPLIT_FEE_RATE * 1e8) / 1e8;
-  const share2 = Math.floor(gross * SPLIT_FEE_RATE * 1e8) / 1e8;
+  const raw1 = Math.floor(gross * SPLIT_FEE_RATE * 1e8) / 1e8;
+  const raw2 = Math.floor(gross * SPLIT_FEE_RATE * 1e8) / 1e8;
+  const share1 = raw1 >= MIN_FEE_SHARE ? raw1 : 0;
+  const share2 = raw2 >= MIN_FEE_SHARE ? raw2 : 0;
   const totalFee = Number((share1 + share2).toFixed(8));
   return { share1, share2, totalFee };
 }
@@ -679,6 +682,10 @@ function matchSellAgainstBuyBook(balance, orders, minPrice, precision) {
   };
 }
 
+function isRowFillable(row) {
+  return Number(row.matchedQty || 0) > 0 && Number(row.sellPrice || 0) > 0 && Number(row.matchedQty || 0) * Number(row.sellPrice || 0) > 0;
+}
+
 async function fetchTokenBalanceRecord(account, symbol) {
   return rpcCall({
     jsonrpc: "2.0",
@@ -705,6 +712,9 @@ function recalculateTotals() {
 
     row.sellPrice = match.effectivePrice;
     row.matchedQty = match.matchedQty;
+    if (!isRowFillable(row)) {
+      row.selected = false;
+    }
     row.estHive = row.selected ? match.estProceeds : 0;
     if (row.selected) {
       gross += row.estHive;
@@ -726,10 +736,10 @@ function recalculateTotals() {
 
 function renderTable() {
   const maxDust = parseFloat($("maxDustInput").value);
-  const discount = parseFloat($("discountSelect").value) || 1;
   const tbody = $("tokensTbody");
 
   const filtered = state.rows.filter((r) => {
+    if (!isRowFillable(r)) return false;
     const rawEst = (r.matchedQty ?? r.balance) * r.sellPrice;
     return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
   });
@@ -738,7 +748,7 @@ function renderTable() {
   $("clearAllBtn").disabled = state.rows.every((r) => !r.selected);
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color: var(--muted);">No tokens match the current dust threshold and active buy orders.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="color: var(--muted);">No fillable tokens match the current dust threshold and active buy orders.</td></tr>`;
     return;
   }
 
@@ -758,7 +768,7 @@ function renderTable() {
     cb.addEventListener("change", (e) => {
       const sym = e.target.getAttribute("data-symbol");
       const target = state.rows.find((x) => x.symbol === sym);
-      if (target) {
+      if (target && isRowFillable(target)) {
         target.selected = e.target.checked;
         recalculateTotals();
       }
@@ -812,6 +822,9 @@ async function handleScan() {
 
       const match = matchSellAgainstBuyBook(bal, buyOrders, topBid * discount, prec);
       const est = match.estProceeds;
+      const fillable = match.matchedQty > 0 && match.effectivePrice > 0 && est > 0;
+      if (!fillable) continue;
+
       rows.push({
         symbol: b.symbol,
         balance: bal,
@@ -865,6 +878,14 @@ function connectKeychain() {
   );
 }
 
+function requestCustomJsonAsync(account, chainId, keyType, jsonStr, displayMsg) {
+  return new Promise((resolve) => {
+    window.hive_keychain.requestCustomJson(account, chainId, keyType, jsonStr, displayMsg, (res) => {
+      resolve(res);
+    });
+  });
+}
+
 async function executeBatchSell() {
   if (!window.hive_keychain) {
     setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
@@ -873,15 +894,14 @@ async function executeBatchSell() {
 
   const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
   const discount = parseFloat($("discountSelect").value) || 1;
-  const selectedRows = state.rows.filter((r) => r.selected);
+  const selectedRows = state.rows.filter((r) => r.selected && isRowFillable(r));
 
   if (!account || selectedRows.length === 0) return;
 
   $("executeBtn").disabled = true;
   setStatus("Verifying live buy orders before broadcasting...");
 
-  const ops = [];
-  let totalGross = 0;
+  const sellItems = [];
 
   for (const r of selectedRows) {
     try {
@@ -901,91 +921,147 @@ async function executeBatchSell() {
         continue;
       }
 
-      totalGross += qtyVal * priceVal;
-      ops.push({
-        contractName: "market",
-        contractAction: "sell",
-        contractPayload: {
-          symbol: String(r.symbol).toUpperCase(),
-          quantity: qtyStr,
-          price: priceStr
+      const symbol = String(r.symbol).toUpperCase();
+      sellItems.push({
+        symbol,
+        grossValue: qtyVal * priceVal,
+        op: {
+          contractName: "market",
+          contractAction: "sell",
+          contractPayload: {
+            symbol,
+            quantity: qtyStr,
+            price: priceStr
+          }
         }
       });
     } catch (_) {
       const qtyStr = toFixedSafe(r.matchedQty ?? r.balance, r.precision, true);
       const priceStr = toFixedSafe(r.sellPrice, 8, false);
       if (!qtyStr || !priceStr) continue;
-      totalGross += Number(qtyStr) * Number(priceStr);
-      ops.push({
-        contractName: "market",
-        contractAction: "sell",
-        contractPayload: {
-          symbol: String(r.symbol).toUpperCase(),
-          quantity: qtyStr,
-          price: priceStr
+      const qtyVal = Number(qtyStr);
+      const priceVal = Number(priceStr);
+      if (!Number.isFinite(qtyVal) || qtyVal <= 0 || !Number.isFinite(priceVal) || priceVal <= 0) {
+        continue;
+      }
+      const symbol = String(r.symbol).toUpperCase();
+      sellItems.push({
+        symbol,
+        grossValue: qtyVal * priceVal,
+        op: {
+          contractName: "market",
+          contractAction: "sell",
+          contractPayload: {
+            symbol,
+            quantity: qtyStr,
+            price: priceStr
+          }
         }
       });
     }
   }
 
-  if (ops.length === 0) {
+  if (sellItems.length === 0) {
     $("executeBtn").disabled = false;
-    setStatus("No valid sell operations to broadcast.", "warn");
+    setStatus("No fillable sell operations to broadcast.", "warn");
     return;
   }
 
-  const sellCount = ops.length;
-  const { share1, share2 } = calcSplitFees(totalGross);
-  if (share1 >= 0.00000001) {
-    ops.push({
+  const succeededTxs = [];
+  const failedMsgs = [];
+  let filledGross = 0;
+
+  for (let i = 0; i < sellItems.length; i++) {
+    const item = sellItems[i];
+    setStatus(`Broadcasting sell order ${i + 1} of ${sellItems.length} (${item.symbol})...`);
+    const res = await requestCustomJsonAsync(
+      account,
+      ENGINE_CHAIN_ID,
+      "Active",
+      JSON.stringify(item.op),
+      `Sell ${item.symbol} (${i + 1}/${sellItems.length})`
+    );
+    if (res && res.success) {
+      succeededTxs.push(`${item.symbol}: ${res.result.id}`);
+      filledGross += item.grossValue;
+    } else {
+      failedMsgs.push(`${item.symbol}: ${(res && res.message) || "Failed or rejected"}`);
+    }
+  }
+
+  const { share1, share2 } = calcSplitFees(filledGross);
+  let feeRejected = false;
+
+  if (succeededTxs.length > 0 && share1 >= MIN_FEE_SHARE) {
+    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_1}...`);
+    const feeOp1 = {
       contractName: "tokens",
       contractAction: "transfer",
       contractPayload: {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_1,
         quantity: share1.toFixed(8),
-        memo: `1% dust sweeper fee (${sellCount} tokens)`
+        memo: `1% dust sweeper fee (${succeededTxs.length} tokens)`
       }
-    });
+    };
+    const res1 = await requestCustomJsonAsync(
+      account,
+      ENGINE_CHAIN_ID,
+      "Active",
+      JSON.stringify(feeOp1),
+      `1% support fee to @${FEE_ACCOUNT_1}`
+    );
+    if (res1 && res1.success) {
+      succeededTxs.push(`Fee @${FEE_ACCOUNT_1}: ${res1.result.id}`);
+    } else {
+      feeRejected = true;
+      failedMsgs.push(`Fee @${FEE_ACCOUNT_1}: ${(res1 && res1.message) || "Skipped or rejected"}`);
+    }
   }
-  if (share2 >= 0.00000001) {
-    ops.push({
+
+  if (!feeRejected && succeededTxs.length > 0 && share2 >= MIN_FEE_SHARE) {
+    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_2}...`);
+    const feeOp2 = {
       contractName: "tokens",
       contractAction: "transfer",
       contractPayload: {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_2,
         quantity: share2.toFixed(8),
-        memo: `1% dust sweeper fee (${sellCount} tokens)`
+        memo: `1% dust sweeper fee (${succeededTxs.length} tokens)`
       }
-    });
+    };
+    const res2 = await requestCustomJsonAsync(
+      account,
+      ENGINE_CHAIN_ID,
+      "Active",
+      JSON.stringify(feeOp2),
+      `1% support fee to @${FEE_ACCOUNT_2}`
+    );
+    if (res2 && res2.success) {
+      succeededTxs.push(`Fee @${FEE_ACCOUNT_2}: ${res2.result.id}`);
+    } else {
+      failedMsgs.push(`Fee @${FEE_ACCOUNT_2}: ${(res2 && res2.message) || "Skipped or rejected"}`);
+    }
   }
 
-  setStatus("Waiting for Hive Keychain approval...");
+  $("executeBtn").disabled = false;
 
-  const approvalMessage = isFeeWaived()
-    ? `Sell ${sellCount} dust token(s) (Fee waived: 100+ ELIXIR staked)`
-    : `Sell ${sellCount} dust token(s) + 1% to @${FEE_ACCOUNT_1} & 1% to @${FEE_ACCOUNT_2}`;
-
-  window.hive_keychain.requestCustomJson(
-    account,
-    ENGINE_CHAIN_ID,
-    "Active",
-    JSON.stringify(ops),
-    approvalMessage,
-    (res) => {
-      $("executeBtn").disabled = false;
-      if (res.success) {
-        setStatus(
-          `Broadcasted! Hive TX ID: ${res.result.id}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
-          "ok"
-        );
-        setTimeout(handleScan, 5000);
-      } else {
-        setStatus(`Transaction failed or rejected: ${res.message}`, "err");
-      }
-    }
-  );
+  if (succeededTxs.length > 0 && failedMsgs.length === 0) {
+    setStatus(
+      `Broadcasted ${succeededTxs.length} transaction(s)!\n${succeededTxs.join("\n")}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
+      "ok"
+    );
+    setTimeout(handleScan, 5000);
+  } else if (succeededTxs.length > 0) {
+    setStatus(
+      `Completed ${succeededTxs.length} transaction(s), with ${failedMsgs.length} issue(s):\nSucceeded:\n${succeededTxs.join("\n")}\nFailed/Rejected:\n${failedMsgs.join("\n")}\nRescanning balances shortly...`,
+      "warn"
+    );
+    setTimeout(handleScan, 5000);
+  } else {
+    setStatus(`Transactions failed or rejected:\n${failedMsgs.join("\n")}`, "err");
+  }
 }
 
 $("themeToggleBtn").addEventListener("click", () => {
@@ -1003,6 +1079,7 @@ $("selectAllBtn").addEventListener("click", () => {
   const maxDust = parseFloat($("maxDustInput").value);
   const discount = parseFloat($("discountSelect").value) || 1;
   for (const r of state.rows) {
+    if (!isRowFillable(r)) continue;
     const est = (r.matchedQty ?? r.balance) * (r.topBid * discount);
     if (!Number.isFinite(maxDust) || est <= maxDust) {
       r.selected = true;
