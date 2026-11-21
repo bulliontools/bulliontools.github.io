@@ -6,22 +6,40 @@
 <title>Nectar Sweep</title>
 <style>
 :root {
---bg: #0f131a;
---panel: #171d28;
---panel-2: #1f2736;
---text: #eef2f7;
---muted: #9aa7bd;
---accent: #e31337;
---accent-hover: #c50f2e;
---ok: #22c55e;
---warn: #f59e0b;
---err: #ef4444;
---border: #2b3548;
+--bg: #161f30;
+--panel: #212e45;
+--panel-2: #2a3b57;
+--text: #f8fafc;
+--muted: #a1aec0;
+--accent: #f43f5e;
+--accent-hover: #fb7185;
+--ok: #34d399;
+--warn: #fbbf24;
+--err: #f87171;
+--border: #3c5275;
 }
+
+[data-theme="light"] {
+--bg: #f8fafc;
+--panel: #ffffff;
+--panel-2: #f1f5f9;
+--text: #0f172a;
+--muted: #64748b;
+--border: #cbd5e1;
+--ok: #059669;
+--warn: #d97706;
+--err: #dc2626;
+}
+
 * { box-sizing: border-box; }
+html, body {
+background-color: var(--bg) !important;
+color: var(--text) !important;
+transition: background-color 0.2s ease, color 0.2s ease;
+}
 body {
 margin: 0;
-font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 background: var(--bg);
 color: var(--text);
 line-height: 1.5;
@@ -38,6 +56,12 @@ justify-content: space-between;
 align-items: center;
 gap: 12px;
 margin-bottom: 20px;
+}
+.header-actions {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 8px;
 }
 h1 { margin: 0; font-size: 1.5rem; }
 .subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 4px; }
@@ -82,7 +106,6 @@ opacity: 0.6;
 button {
 padding: 10px 16px;
 border-radius: 8px;
-border: none;
 font-weight: 600;
 font-size: 0.95rem;
 cursor: pointer;
@@ -98,6 +121,10 @@ border-color: var(--accent);
 color: #fff;
 }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.theme-btn {
+padding: 8px 12px;
+font-size: 0.85rem;
+}
 .row-actions {
 display: flex;
 flex-wrap: wrap;
@@ -193,6 +220,14 @@ display: block;
 }
 .table-wrap { overflow-x: auto; }
 </style>
+<script>
+(function () {
+try {
+var savedTheme = localStorage.getItem("nectarseeker_theme") || "dark";
+document.documentElement.setAttribute("data-theme", savedTheme);
+} catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div class="container">
@@ -201,7 +236,10 @@ display: block;
 <h1>Nectar Sweep</h1>
 <div class="subtitle">Batch-sell small token balances into active top buy orders via Hive Keychain</div>
 </div>
+<div class="header-actions">
+<button id="themeToggleBtn" class="theme-btn" type="button">☀️ Light Theme</button>
 <button id="connectBtn" type="button">Connect via Keychain</button>
+</div>
 </header>
 
 <div class="card">
@@ -312,6 +350,7 @@ const PREFERRED_ELIXIR_SELLER = "nectarbytes";
 const ELIXIR_FEE_WAIVER_STAKE = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const MAX_CUSTOM_JSON_BYTES = 7500;
+const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
 "https://api.hive-engine.com/rpc",
@@ -332,6 +371,21 @@ elixirQuote: null
 
 $("feeSplitLabel").textContent = "5% / 5%";
 $("feeRecipientsNotice").textContent = FEE_RECIPIENTS.map((r) => `@${r.account}`).join(" and ");
+
+function updateThemeButton(theme) {
+const btn = $("themeToggleBtn");
+if (btn) {
+btn.textContent = theme === "dark" ? "☀️ Light Theme" : "🌙 Dark Theme";
+}
+}
+
+function toggleTheme() {
+const current = document.documentElement.getAttribute("data-theme") || "dark";
+const next = current === "dark" ? "light" : "dark";
+document.documentElement.setAttribute("data-theme", next);
+try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+updateThemeButton(next);
+}
 
 function setStatus(msg, cls = "") {
 const box = $("statusBox");
@@ -956,6 +1010,8 @@ $("executeBtn").disabled = false;
 }
 }
 
+updateThemeButton(document.documentElement.getAttribute("data-theme") || "dark");
+$("themeToggleBtn").addEventListener("click", toggleTheme);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
