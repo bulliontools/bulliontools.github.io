@@ -124,7 +124,7 @@ align-items: center;
 justify-content: space-between;
 gap: 6px;
 }
-.tip-toggle {
+.fee-toggle {
 display: inline-flex;
 align-items: center;
 gap: 5px;
@@ -133,7 +133,7 @@ font-size: 0.78rem;
 cursor: pointer;
 user-select: none;
 }
-.tip-toggle.disabled {
+.fee-toggle.disabled {
 color: var(--muted);
 cursor: not-allowed;
 }
@@ -224,14 +224,15 @@ margin-top: 10px;
 </div>
 <div class="stat">
 <div class="stat-label">
-<span>10% Tip (<span id="creatorLabel"></span>)</span>
-<label class="tip-toggle disabled" id="tipToggleLabel" for="tipCheckbox" title="Requires at least 100 staked ELIXIR to opt out">
-<input id="tipCheckbox" type="checkbox" checked disabled />
-<span>Tip</span>
+<span>10% Fee (<span id="feeSplitLabel"></span>)</span>
+<label class="fee-toggle disabled" id="feeToggleLabel" for="feeCheckbox" title="Requires at least 100 staked ELIXIR to waive fee">
+<input id="feeCheckbox" type="checkbox" checked disabled />
+<span>Fee</span>
 </label>
 </div>
 <div class="stat-val warn" id="estFee">0.00000000</div>
-<div class="stat-meta" id="elixirStakeStatus">Staked ELIXIR: 0.0000 (100+ required to opt out)</div>
+<div class="stat-meta" id="feeBreakdownMeta">5% @nectarbytes: 0.00000000 | 5% @bulliontools: 0.00000000</div>
+<div class="stat-meta" id="elixirStakeStatus">Staked ELIXIR: 0.0000 (100+ required to waive fee)</div>
 </div>
 <div class="stat">
 <div class="stat-label">Est. Net to You</div>
@@ -246,7 +247,7 @@ Sell Selected Tokens
 </div>
 
 <div class="notice">
-<strong>10% Tip &amp; Opt-Out Policy:</strong> A 10% tip to <strong id="creatorNotice"></strong> is <strong>included by default</strong>. Opting out is unlocked only if your scanned account has at least <strong>100 staked <code>ELIXIR</code></strong>. When enabled, a <code>SWAP.HIVE</code> transfer operation is bundled into the transaction; if your current <code>SWAP.HIVE</code> balance is lower than the calculated tip and your sell orders do not settle in the exact same block, Hive-Engine may reject the transfer operation.
+<strong>10% Service Fee &amp; Waiver Policy:</strong> A 10% service fee split equally between <strong id="feeRecipientsNotice"></strong> (5% each) is <strong>applied by default</strong>. Waiving the fee is unlocked only if your scanned account has at least <strong>100 staked <code>ELIXIR</code></strong>. When applied, two <code>SWAP.HIVE</code> transfer operations are bundled into the transaction; if your current <code>SWAP.HIVE</code> balance is lower than the calculated fee and your sell orders do not settle in the exact same block, Hive-Engine may reject the transfer operations.
 </div>
 
 <div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
@@ -275,9 +276,11 @@ Sell Selected Tokens
 </div>
 
 <script>
-const CREATOR_ACCOUNT = "bulliontools";
-const TIP_RATE = 0.10;
-const ELIXIR_OPT_OUT_STAKE = 100;
+const FEE_RECIPIENTS = [
+{ account: "nectarbytes", rate: 0.05 },
+{ account: "bulliontools", rate: 0.05 }
+];
+const ELIXIR_FEE_WAIVER_STAKE = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const MAX_CUSTOM_JSON_BYTES = 7500;
 
@@ -297,8 +300,8 @@ swapHiveBalance: 0,
 elixirStake: 0
 };
 
-$("creatorLabel").textContent = `@${CREATOR_ACCOUNT}`;
-$("creatorNotice").textContent = `@${CREATOR_ACCOUNT}`;
+$("feeSplitLabel").textContent = "5% / 5%";
+$("feeRecipientsNotice").textContent = FEE_RECIPIENTS.map((r) => `@${r.account}`).join(" and ");
 
 function setStatus(msg, cls = "") {
 const box = $("statusBox");
@@ -319,19 +322,30 @@ function utf8ByteLength(str) {
 return new TextEncoder().encode(str).length;
 }
 
-function canOptOutOfTip() {
-return Number(state.elixirStake || 0) >= ELIXIR_OPT_OUT_STAKE;
+function canWaiveFee() {
+return Number(state.elixirStake || 0) >= ELIXIR_FEE_WAIVER_STAKE;
 }
 
-function isTipEnabled() {
-if (!canOptOutOfTip()) return true;
-return $("tipCheckbox").checked;
+function isFeeEnabled() {
+if (!canWaiveFee()) return true;
+return $("feeCheckbox").checked;
 }
 
-function updateTipEligibility() {
-const allowed = canOptOutOfTip();
-const cb = $("tipCheckbox");
-const lbl = $("tipToggleLabel");
+function calculateFeeSplits(gross, feeEnabled) {
+if (!feeEnabled || gross <= 0) {
+return FEE_RECIPIENTS.map((r) => ({ account: r.account, rate: r.rate, amount: 0 }));
+}
+return FEE_RECIPIENTS.map((r) => ({
+account: r.account,
+rate: r.rate,
+amount: Math.floor(gross * r.rate * 1e8) / 1e8
+}));
+}
+
+function updateFeeEligibility() {
+const allowed = canWaiveFee();
+const cb = $("feeCheckbox");
+const lbl = $("feeToggleLabel");
 const meta = $("elixirStakeStatus");
 
 cb.disabled = !allowed;
@@ -347,10 +361,10 @@ maximumFractionDigits: 4
 });
 
 if (allowed) {
-meta.textContent = `Staked ELIXIR: ${stakeFormatted} (opt-out unlocked)`;
+meta.textContent = `Staked ELIXIR: ${stakeFormatted} (fee waiver unlocked)`;
 meta.style.color = "var(--ok)";
 } else {
-meta.textContent = `Staked ELIXIR: ${stakeFormatted} (${ELIXIR_OPT_OUT_STAKE}+ required to opt out)`;
+meta.textContent = `Staked ELIXIR: ${stakeFormatted} (${ELIXIR_FEE_WAIVER_STAKE}+ required to waive fee)`;
 meta.style.color = "var(--muted)";
 }
 }
@@ -488,9 +502,9 @@ return res ? parseFloat(res.stake || 0) : 0;
 }
 
 function recalculateTotals() {
-updateTipEligibility();
+updateFeeEligibility();
 const discount = parseFloat($("discountSelect").value) || 1;
-const tipEnabled = isTipEnabled();
+const feeEnabled = isFeeEnabled();
 let gross = 0;
 let selectedCount = 0;
 
@@ -503,11 +517,15 @@ selectedCount++;
 }
 }
 
-const tip = tipEnabled ? Math.floor(gross * TIP_RATE * 1e8) / 1e8 : 0;
-const net = Math.max(0, gross - tip);
+const splits = calculateFeeSplits(gross, feeEnabled);
+const totalFee = splits.reduce((sum, s) => sum + s.amount, 0);
+const net = Math.max(0, gross - totalFee);
 
 $("estGross").textContent = fmt8(gross);
-$("estFee").textContent = fmt8(tip);
+$("estFee").textContent = fmt8(totalFee);
+$("feeBreakdownMeta").textContent = splits
+.map((s) => `${Math.round(s.rate * 100)}% @${s.account}: ${fmt8(s.amount)}`)
+.join(" | ");
 $("estNet").textContent = fmt8(net);
 $("executeBtn").disabled = selectedCount === 0 || gross <= 0;
 
@@ -574,7 +592,7 @@ fetchElixirStake(account)
 state.swapHiveBalance = swapHive;
 state.elixirStake = elixirStake;
 $("swapHiveBal").textContent = fmt8(swapHive);
-updateTipEligibility();
+updateFeeEligibility();
 
 const symbols = balances.map((b) => b.symbol);
 const precisions = await fetchTokenPrecisions(symbols);
@@ -649,7 +667,7 @@ setStatus(`Keychain connection cancelled or failed: ${res?.message || "Unknown e
 );
 }
 
-function buildSellBatches(selectedRows, discount, tipEnabled) {
+function buildSellBatches(selectedRows, discount, feeEnabled) {
 const sellOps = [];
 let totalGross = 0;
 
@@ -672,19 +690,19 @@ price: priceStr
 
 if (sellOps.length === 0) return [];
 
-const tipAmount = tipEnabled ? Math.floor(totalGross * TIP_RATE * 1e8) / 1e8 : 0;
-const tipOp = tipEnabled && tipAmount >= 0.00000001
-? {
+const splits = calculateFeeSplits(totalGross, feeEnabled);
+const feeOps = splits
+.filter((s) => s.amount >= 0.00000001)
+.map((s) => ({
 contractName: "tokens",
 contractAction: "transfer",
 contractPayload: {
 symbol: "SWAP.HIVE",
-to: CREATOR_ACCOUNT,
-quantity: tipAmount.toFixed(8),
-memo: `10% Nectar Sweep tip (${sellOps.length} tokens)`
+to: s.account,
+quantity: s.amount.toFixed(8),
+memo: `${Math.round(s.rate * 100)}% Nectar Sweep fee (${sellOps.length} tokens)`
 }
-}
-: null;
+}));
 
 const batches = [];
 let currentOps = [];
@@ -702,13 +720,13 @@ if (currentOps.length > 0) {
 batches.push(currentOps);
 }
 
-if (tipOp) {
+for (const feeOp of feeOps) {
 const lastBatch = batches[batches.length - 1];
-const withTip = [...lastBatch, tipOp];
-if (utf8ByteLength(JSON.stringify(withTip)) <= MAX_CUSTOM_JSON_BYTES) {
-batches[batches.length - 1] = withTip;
+const withFee = [...lastBatch, feeOp];
+if (utf8ByteLength(JSON.stringify(withFee)) <= MAX_CUSTOM_JSON_BYTES) {
+batches[batches.length - 1] = withFee;
 } else {
-batches.push([tipOp]);
+batches.push([feeOp]);
 }
 }
 
@@ -742,12 +760,12 @@ return;
 
 const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
 const discount = parseFloat($("discountSelect").value) || 1;
-const tipEnabled = isTipEnabled();
+const feeEnabled = isFeeEnabled();
 const selectedRows = state.rows.filter((r) => r.selected);
 
 if (!account || selectedRows.length === 0) return;
 
-const batches = buildSellBatches(selectedRows, discount, tipEnabled);
+const batches = buildSellBatches(selectedRows, discount, feeEnabled);
 if (batches.length === 0) {
 setStatus("No valid sell operations to broadcast.", "warn");
 return;
@@ -759,16 +777,21 @@ const txIds = [];
 try {
 for (let i = 0; i < batches.length; i++) {
 const batchOps = batches[i];
-const hasTip = batchOps.some(
+const hasFee = batchOps.some(
 (op) => op.contractName === "tokens" && op.contractAction === "transfer"
 );
 const sellCount = batchOps.filter((op) => op.contractAction === "sell").length;
 
-const actionLabel = batches.length > 1
-? `Batch ${i + 1}/${batches.length}: Sell ${sellCount} token(s)${hasTip ? ` + 10% tip to @${CREATOR_ACCOUNT}` : ""}`
-: hasTip
-? `Sell ${sellCount} dust token(s) + 10% SWAP.HIVE tip to @${CREATOR_ACCOUNT}`
+let actionLabel;
+if (sellCount === 0 && hasFee) {
+actionLabel = `Batch ${i + 1}/${batches.length}: Nectar Sweep 10% fee (5% @nectarbytes, 5% @bulliontools)`;
+} else if (batches.length > 1) {
+actionLabel = `Batch ${i + 1}/${batches.length}: Sell ${sellCount} token(s)${hasFee ? " + 10% fee (5% @nectarbytes, 5% @bulliontools)" : ""}`;
+} else {
+actionLabel = hasFee
+? `Sell ${sellCount} dust token(s) + 10% SWAP.HIVE fee (5% @nectarbytes, 5% @bulliontools)`
 : `Sell ${sellCount} dust token(s)`;
+}
 
 setStatus(`Waiting for Hive Keychain approval (batch ${i + 1} of ${batches.length})...`);
 const res = await broadcastSingleBatch(account, batchOps, actionLabel);
@@ -794,7 +817,7 @@ $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
 $("maxDustInput").addEventListener("change", renderTable);
 $("discountSelect").addEventListener("change", recalculateTotals);
-$("tipCheckbox").addEventListener("change", recalculateTotals);
+$("feeCheckbox").addEventListener("change", recalculateTotals);
 
 $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
