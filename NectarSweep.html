@@ -340,10 +340,6 @@ th {
         </select>
       </div>
       <div>
-        <label for="rpcInput">Engine Contracts RPC URL</label>
-        <input id="rpcInput" type="text" value="https://api.hive-engine.com/rpc/contracts" autocomplete="off" />
-      </div>
-      <div>
         <button id="loadBtn" class="primary" type="button">Scan Balances</button>
       </div>
     </div>
@@ -424,7 +420,7 @@ const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const THEME_STORAGE_KEY = "nectar_sweep_theme";
 
-const FALLBACK_RPC_ENDPOINTS = [
+const RPC_ENDPOINTS = [
   "https://api.hive-engine.com/rpc/contracts",
   "https://engine.rishipanthee.com/contracts",
   "https://herpc.dtools.dev/contracts"
@@ -521,27 +517,11 @@ function updateWaiverUI() {
   }
 }
 
-function getCandidateRpcUrls() {
-  const custom = $("rpcInput").value.trim().replace(/\/+$/, "");
-  const list = [];
-  if (custom) {
-    list.push(custom);
-    if (!custom.endsWith("/contracts")) {
-      list.push(custom.endsWith("/rpc") ? `${custom}/contracts` : `${custom}/rpc/contracts`);
-    }
-  }
-  for (const fallback of FALLBACK_RPC_ENDPOINTS) {
-    if (!list.includes(fallback)) list.push(fallback);
-  }
-  return list;
-}
-
 async function rpcCall(payload) {
-  const urls = getCandidateRpcUrls();
   const errors = [];
   let hadNetworkError = false;
 
-  for (const url of urls) {
+  for (const url of RPC_ENDPOINTS) {
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -567,7 +547,7 @@ async function rpcCall(payload) {
   const originHint = window.location.protocol === "file:"
     ? " (Opened via file:// — try serving over http://localhost or check CORS/RPC endpoint)"
     : hadNetworkError
-      ? " (Check browser CORS/network access or enter a CORS-enabled RPC URL)"
+      ? " (Check browser CORS/network access)"
       : "";
 
   throw new Error(`${errors.join(" | ")}${originHint}`);
