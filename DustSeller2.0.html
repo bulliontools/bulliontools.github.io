@@ -264,6 +264,7 @@ Sell Selected Tokens
 const CREATOR_ACCOUNT = "bulliontools";
 const TIP_RATE = 0.10;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
+const MAX_CUSTOM_JSON_BYTES = 7500;
 
 const RPC_ENDPOINTS = [
 "https://api.hive-engine.com/rpc",
@@ -296,6 +297,10 @@ return Number(num || 0).toFixed(8);
 function fmtPrec(num, prec) {
 const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
 return Number(num || 0).toFixed(p);
+}
+
+function utf8ByteLength(str) {
+return new TextEncoder().encode(str).length;
 }
 
 function buildCandidateUrls(base, route) {
@@ -574,7 +579,92 @@ setStatus(`Keychain connection cancelled or failed: ${res?.message || "Unknown e
 );
 }
 
-function executeBatchSell() {
+function buildSellBatches(selectedRows, discount, tipEnabled) {
+const sellOps = [];
+let totalGross = 0;
+
+for (const r of selectedRows) {
+const qtyStr = r.balance.toFixed(r.precision);
+const priceStr = (r.topBid * discount).toFixed(8);
+if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0) continue;
+
+totalGross += parseFloat(qtyStr) * parseFloat(priceStr);
+sellOps.push({
+contractName: "market",
+contractAction: "sell",
+contractPayload: {
+symbol: r.symbol,
+quantity: qtyStr,
+price: priceStr
+}
+});
+}
+
+if (sellOps.length === 0) return [];
+
+const tipAmount = tipEnabled ? Math.floor(totalGross * TIP_RATE * 1e8) / 1e8 : 0;
+const tipOp = tipEnabled && tipAmount >= 0.00000001
+? {
+contractName: "tokens",
+contractAction: "transfer",
+contractPayload: {
+symbol: "SWAP.HIVE",
+to: CREATOR_ACCOUNT,
+quantity: tipAmount.toFixed(8),
+memo: `10% Dust Seller tip (${sellOps.length} tokens)`
+}
+}
+: null;
+
+const batches = [];
+let currentOps = [];
+
+for (const op of sellOps) {
+const candidate = [...currentOps, op];
+if (currentOps.length > 0 && utf8ByteLength(JSON.stringify(candidate)) > MAX_CUSTOM_JSON_BYTES) {
+batches.push(currentOps);
+currentOps = [op];
+} else {
+currentOps = candidate;
+}
+}
+if (currentOps.length > 0) {
+batches.push(currentOps);
+}
+
+if (tipOp) {
+const lastBatch = batches[batches.length - 1];
+const withTip = [...lastBatch, tipOp];
+if (utf8ByteLength(JSON.stringify(withTip)) <= MAX_CUSTOM_JSON_BYTES) {
+batches[batches.length - 1] = withTip;
+} else {
+batches.push([tipOp]);
+}
+}
+
+return batches;
+}
+
+function broadcastSingleBatch(account, ops, actionLabel) {
+return new Promise((resolve, reject) => {
+window.hive_keychain.requestCustomJson(
+account,
+ENGINE_CHAIN_ID,
+"Active",
+JSON.stringify(ops),
+actionLabel,
+(res) => {
+if (res && res.success) {
+resolve(res);
+} else {
+reject(new Error(res?.message || "Unknown error"));
+}
+}
+);
+});
+}
+
+async function executeBatchSell() {
 if (!window.hive_keychain) {
 setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
 return;
@@ -587,71 +677,47 @@ const selectedRows = state.rows.filter((r) => r.selected);
 
 if (!account || selectedRows.length === 0) return;
 
-const ops = [];
-let totalGross = 0;
-
-for (const r of selectedRows) {
-const qtyStr = r.balance.toFixed(r.precision);
-const priceStr = (r.topBid * discount).toFixed(8);
-if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0) continue;
-
-totalGross += parseFloat(qtyStr) * parseFloat(priceStr);
-ops.push({
-contractName: "market",
-contractAction: "sell",
-contractPayload: {
-symbol: r.symbol,
-quantity: qtyStr,
-price: priceStr
-}
-});
-}
-
-if (ops.length === 0) {
+const batches = buildSellBatches(selectedRows, discount, tipEnabled);
+if (batches.length === 0) {
 setStatus("No valid sell operations to broadcast.", "warn");
 return;
 }
 
-const tipAmount = tipEnabled ? Math.floor(totalGross * TIP_RATE * 1e8) / 1e8 : 0;
-if (tipEnabled && tipAmount >= 0.00000001) {
-ops.push({
-contractName: "tokens",
-contractAction: "transfer",
-contractPayload: {
-symbol: "SWAP.HIVE",
-to: CREATOR_ACCOUNT,
-quantity: tipAmount.toFixed(8),
-memo: `10% Dust Seller tip (${ops.length} tokens)`
-}
-});
-}
-
-const actionLabel = tipEnabled && tipAmount >= 0.00000001
-? `Sell ${selectedRows.length} dust token(s) + 10% SWAP.HIVE tip to @${CREATOR_ACCOUNT}`
-: `Sell ${selectedRows.length} dust token(s)`;
-
 $("executeBtn").disabled = true;
-setStatus("Waiting for Hive Keychain approval...");
+const txIds = [];
 
-window.hive_keychain.requestCustomJson(
-account,
-ENGINE_CHAIN_ID,
-"Active",
-JSON.stringify(ops),
-actionLabel,
-(res) => {
-$("executeBtn").disabled = false;
-if (res && res.success) {
+try {
+for (let i = 0; i < batches.length; i++) {
+const batchOps = batches[i];
+const hasTip = batchOps.some(
+(op) => op.contractName === "tokens" && op.contractAction === "transfer"
+);
+const sellCount = batchOps.filter((op) => op.contractAction === "sell").length;
+
+const actionLabel = batches.length > 1
+? `Batch ${i + 1}/${batches.length}: Sell ${sellCount} token(s)${hasTip ? ` + 10% tip to @${CREATOR_ACCOUNT}` : ""}`
+: hasTip
+? `Sell ${sellCount} dust token(s) + 10% SWAP.HIVE tip to @${CREATOR_ACCOUNT}`
+: `Sell ${sellCount} dust token(s)`;
+
+setStatus(`Waiting for Hive Keychain approval (batch ${i + 1} of ${batches.length})...`);
+const res = await broadcastSingleBatch(account, batchOps, actionLabel);
+if (res?.result?.id) txIds.push(res.result.id);
+}
+
 setStatus(
-`Broadcasted! Hive TX ID: ${res.result.id}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
+`Broadcasted ${batches.length} batch(es)! TX IDs: ${txIds.join(", ")}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
 "ok"
 );
 setTimeout(handleScan, 5000);
-} else {
-setStatus(`Transaction failed or rejected: ${res?.message || "Unknown error"}`, "err");
-}
-}
+} catch (err) {
+setStatus(
+`Transaction failed or rejected after ${txIds.length} of ${batches.length} batch(es): ${err.message}`,
+"err"
 );
+} finally {
+$("executeBtn").disabled = false;
+}
 }
 
 $("connectBtn").addEventListener("click", connectKeychain);
