@@ -638,11 +638,6 @@ async function fetchBuyBookOrders(symbol, limit = 50) {
   return Array.isArray(orders) ? orders : [];
 }
 
-async function fetchTopBuyOrder(symbol) {
-  const orders = await fetchBuyBookOrders(symbol, 1);
-  return orders.length > 0 ? orders[0] : null;
-}
-
 function matchSellAgainstBuyBook(balance, orders, minPrice, precision) {
   const flooredBalance = floorToDecimals(balance, precision);
   if (flooredBalance <= 0) {
@@ -868,12 +863,12 @@ function connectKeychain() {
     `Nectar Sweep login: ${Date.now()}`,
     "Posting",
     (res) => {
-      if (res.success) {
+      if (res && res.success) {
         $("usernameInput").value = res.data.username;
         setStatus(`Connected as @${res.data.username}. Scanning balances...`, "ok");
         handleScan();
       } else {
-        setStatus(`Keychain connection cancelled or failed: ${res.message}`, "err");
+        setStatus(`Keychain connection cancelled or failed: ${(res && res.message) || "Unknown error"}`, "err");
       }
     }
   );
@@ -881,26 +876,34 @@ function connectKeychain() {
 
 function requestCustomJsonAsync(account, chainId, keyType, jsonStr, displayMsg) {
   return new Promise((resolve) => {
+    if (!window.hive_keychain || typeof window.hive_keychain.requestCustomJson !== "function") {
+      resolve({ success: false, message: "Hive Keychain extension not detected." });
+      return;
+    }
     window.hive_keychain.requestCustomJson(account, chainId, keyType, jsonStr, displayMsg, (res) => {
-      resolve(res);
+      resolve(res || { success: false, message: "Empty response from Hive Keychain." });
     });
   });
 }
 
 function requestHiveTransferAsync(account, to, amountHiveStr, memo) {
   return new Promise((resolve) => {
+    if (!window.hive_keychain || typeof window.hive_keychain.requestTransfer !== "function") {
+      resolve({ success: false, message: "Hive Keychain extension not detected." });
+      return;
+    }
     window.hive_keychain.requestTransfer(account, to, amountHiveStr, memo, "HIVE", (res) => {
-      resolve(res);
-    }, true);
+      resolve(res || { success: false, message: "Empty response from Hive Keychain." });
+    });
   });
 }
 
-async function waitForSwapHiveBalance(account, requiredFee, maxWaitMs = 30000) {
+async function waitForSwapHiveBalance(account, requiredFee, maxWaitMs = 60000) {
   const start = Date.now();
   let latest = state.swapHiveBalance;
 
   while (Date.now() - start < maxWaitMs) {
-    await new Promise((r) => setTimeout(r, 2500));
+    await new Promise((r) => setTimeout(r, 3000));
     try {
       const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
       latest = rec ? parseFloat(rec.balance) || 0 : 0;
@@ -909,6 +912,10 @@ async function waitForSwapHiveBalance(account, requiredFee, maxWaitMs = 30000) {
       if (latest + 1e-12 >= requiredFee) {
         return latest;
       }
+      const elapsedSec = Math.round((Date.now() - start) / 1000);
+      setStatus(
+        `Deposit broadcasted. Waiting for Hive-Engine to credit SWAP.HIVE (${fmt8(latest)} / ${fmt8(requiredFee)} needed, ${elapsedSec}s elapsed)...`
+      );
     } catch (_) {}
   }
 
@@ -1047,16 +1054,17 @@ async function executeBatchSell() {
         return;
       }
 
-      succeededTxs.push(`Deposit HIVE: ${depRes.result.id}`);
+      const depTxId = (depRes.result && depRes.result.id) || "broadcasted";
+      succeededTxs.push(`Deposit HIVE: ${depTxId}`);
       setStatus(
-        `Deposit sent (${depRes.result.id}). Waiting for SWAP.HIVE to credit on Hive-Engine—you may need to wait up to 15 seconds before Keychain prompts for the fee transfer again...`
+        `Deposit sent (${depTxId}). Waiting up to 60 seconds for SWAP.HIVE to credit on Hive-Engine before prompting for the fee transfer...`
       );
-      availableSwapHive = await waitForSwapHiveBalance(account, totalFee, 30000);
+      availableSwapHive = await waitForSwapHiveBalance(account, totalFee, 60000);
 
       if (availableSwapHive + 1e-12 < totalFee) {
         $("executeBtn").disabled = false;
         setStatus(
-          `Deposit broadcasted (${depRes.result.id}), but SWAP.HIVE is still ${fmt8(availableSwapHive)} (need ${fmt8(totalFee)}). Please wait a moment and click Sell Tokens again.`,
+          `Deposit broadcasted (${depTxId}), but SWAP.HIVE is still ${fmt8(availableSwapHive)} (need ${fmt8(totalFee)}). Please wait a moment and click Sell Tokens again.`,
           "warn"
         );
         return;
@@ -1084,7 +1092,7 @@ async function executeBatchSell() {
       `1% support fee to @${FEE_ACCOUNT_1}`
     );
     if (res1 && res1.success) {
-      succeededTxs.push(`Fee @${FEE_ACCOUNT_1}: ${res1.result.id}`);
+      succeededTxs.push(`Fee @${FEE_ACCOUNT_1}: ${(res1.result && res1.result.id) || "ok"}`);
     } else {
       $("executeBtn").disabled = false;
       setStatus(
@@ -1115,7 +1123,7 @@ async function executeBatchSell() {
       `1% support fee to @${FEE_ACCOUNT_2}`
     );
     if (res2 && res2.success) {
-      succeededTxs.push(`Fee @${FEE_ACCOUNT_2}: ${res2.result.id}`);
+      succeededTxs.push(`Fee @${FEE_ACCOUNT_2}: ${(res2.result && res2.result.id) || "ok"}`);
     } else {
       $("executeBtn").disabled = false;
       setStatus(
@@ -1137,7 +1145,7 @@ async function executeBatchSell() {
       `Sell ${item.symbol} (${i + 1}/${sellItems.length})`
     );
     if (res && res.success) {
-      succeededTxs.push(`${item.symbol}: ${res.result.id}`);
+      succeededTxs.push(`${item.symbol}: ${(res.result && res.result.id) || "ok"}`);
     } else {
       failedMsgs.push(`${item.symbol}: ${(res && res.message) || "Failed or rejected"}`);
     }
