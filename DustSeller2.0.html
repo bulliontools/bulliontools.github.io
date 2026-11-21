@@ -75,6 +75,10 @@ padding: 0;
 accent-color: var(--accent);
 cursor: pointer;
 }
+input[type="checkbox"]:disabled {
+cursor: not-allowed;
+opacity: 0.6;
+}
 button {
 padding: 10px 16px;
 border-radius: 8px;
@@ -128,6 +132,15 @@ color: var(--text);
 font-size: 0.78rem;
 cursor: pointer;
 user-select: none;
+}
+.tip-toggle.disabled {
+color: var(--muted);
+cursor: not-allowed;
+}
+.stat-meta {
+font-size: 0.75rem;
+color: var(--muted);
+margin-top: 4px;
 }
 .stat-val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
 table {
@@ -212,12 +225,13 @@ margin-top: 10px;
 <div class="stat">
 <div class="stat-label">
 <span>10% Tip (<span id="creatorLabel"></span>)</span>
-<label class="tip-toggle" for="tipCheckbox">
-<input id="tipCheckbox" type="checkbox" checked />
+<label class="tip-toggle disabled" id="tipToggleLabel" for="tipCheckbox" title="Requires at least 100 staked ELIXIR to opt out">
+<input id="tipCheckbox" type="checkbox" checked disabled />
 <span>Tip</span>
 </label>
 </div>
 <div class="stat-val warn" id="estFee">0.00000000</div>
+<div class="stat-meta" id="elixirStakeStatus">Staked ELIXIR: 0.0000 (100+ required to opt out)</div>
 </div>
 <div class="stat">
 <div class="stat-label">Est. Net to You</div>
@@ -232,7 +246,7 @@ Sell Selected Tokens
 </div>
 
 <div class="notice">
-<strong>Optional 10% Tip Box Disclosure:</strong> The 10% tip to <strong id="creatorNotice"></strong> is <strong>selected by default</strong> and is completely optional. You can uncheck the <strong>Tip</strong> box at any time to skip the tip and keep 100% of your estimated proceeds. When checked, a single 10% <code>SWAP.HIVE</code> transfer operation is bundled into the same Hive Keychain transaction; if your current <code>SWAP.HIVE</code> balance is lower than the calculated tip and your sell orders do not settle in the exact same block, Hive-Engine may reject the transfer operation.
+<strong>10% Tip &amp; Opt-Out Policy:</strong> A 10% tip to <strong id="creatorNotice"></strong> is <strong>included by default</strong>. Opting out is unlocked only if your scanned account has at least <strong>100 staked <code>ELIXIR</code></strong>. When enabled, a <code>SWAP.HIVE</code> transfer operation is bundled into the transaction; if your current <code>SWAP.HIVE</code> balance is lower than the calculated tip and your sell orders do not settle in the exact same block, Hive-Engine may reject the transfer operation.
 </div>
 
 <div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
@@ -263,6 +277,7 @@ Sell Selected Tokens
 <script>
 const CREATOR_ACCOUNT = "bulliontools";
 const TIP_RATE = 0.10;
+const ELIXIR_OPT_OUT_STAKE = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const MAX_CUSTOM_JSON_BYTES = 7500;
 
@@ -278,7 +293,8 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
 rows: [],
-swapHiveBalance: 0
+swapHiveBalance: 0,
+elixirStake: 0
 };
 
 $("creatorLabel").textContent = `@${CREATOR_ACCOUNT}`;
@@ -301,6 +317,42 @@ return Number(num || 0).toFixed(p);
 
 function utf8ByteLength(str) {
 return new TextEncoder().encode(str).length;
+}
+
+function canOptOutOfTip() {
+return Number(state.elixirStake || 0) >= ELIXIR_OPT_OUT_STAKE;
+}
+
+function isTipEnabled() {
+if (!canOptOutOfTip()) return true;
+return $("tipCheckbox").checked;
+}
+
+function updateTipEligibility() {
+const allowed = canOptOutOfTip();
+const cb = $("tipCheckbox");
+const lbl = $("tipToggleLabel");
+const meta = $("elixirStakeStatus");
+
+cb.disabled = !allowed;
+lbl.classList.toggle("disabled", !allowed);
+
+if (!allowed) {
+cb.checked = true;
+}
+
+const stakeFormatted = Number(state.elixirStake || 0).toLocaleString(undefined, {
+minimumFractionDigits: 0,
+maximumFractionDigits: 4
+});
+
+if (allowed) {
+meta.textContent = `Staked ELIXIR: ${stakeFormatted} (opt-out unlocked)`;
+meta.style.color = "var(--ok)";
+} else {
+meta.textContent = `Staked ELIXIR: ${stakeFormatted} (${ELIXIR_OPT_OUT_STAKE}+ required to opt out)`;
+meta.style.color = "var(--muted)";
+}
 }
 
 function buildCandidateUrls(base, route) {
@@ -421,9 +473,24 @@ query: { account, symbol: "SWAP.HIVE" }
 return res ? parseFloat(res.balance) : 0;
 }
 
+async function fetchElixirStake(account) {
+const res = await rpcCall("contracts", {
+jsonrpc: "2.0",
+id: 5,
+method: "findOne",
+params: {
+contract: "tokens",
+table: "balances",
+query: { account, symbol: "ELIXIR" }
+}
+});
+return res ? parseFloat(res.stake || 0) : 0;
+}
+
 function recalculateTotals() {
+updateTipEligibility();
 const discount = parseFloat($("discountSelect").value) || 1;
-const tipEnabled = $("tipCheckbox").checked;
+const tipEnabled = isTipEnabled();
 let gross = 0;
 let selectedCount = 0;
 
@@ -495,16 +562,19 @@ return;
 }
 
 $("loadBtn").disabled = true;
-setStatus(`Scanning @${account}'s Hive-Engine balances and top buy orders...`);
+setStatus(`Scanning @${account}'s Hive-Engine balances, ELIXIR stake, and top buy orders...`);
 
 try {
-const [balances, swapHive] = await Promise.all([
+const [balances, swapHive, elixirStake] = await Promise.all([
 fetchAllBalances(account),
-fetchSwapHiveBalance(account)
+fetchSwapHiveBalance(account),
+fetchElixirStake(account)
 ]);
 
 state.swapHiveBalance = swapHive;
+state.elixirStake = elixirStake;
 $("swapHiveBal").textContent = fmt8(swapHive);
+updateTipEligibility();
 
 const symbols = balances.map((b) => b.symbol);
 const precisions = await fetchTokenPrecisions(symbols);
@@ -672,7 +742,7 @@ return;
 
 const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
 const discount = parseFloat($("discountSelect").value) || 1;
-const tipEnabled = $("tipCheckbox").checked;
+const tipEnabled = isTipEnabled();
 const selectedRows = state.rows.filter((r) => r.selected);
 
 if (!account || selectedRows.length === 0) return;
