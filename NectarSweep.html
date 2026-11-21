@@ -193,6 +193,13 @@ select {
   font-size: 0.95rem;
 }
 
+.swap-split-select {
+  width: auto;
+  min-width: 92px;
+  padding: 6px 10px;
+  font-size: 0.88rem;
+}
+
 button {
   padding: 10px 16px;
   border-radius: 8px;
@@ -229,6 +236,14 @@ button.primary:hover:not(:disabled) {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+  align-items: center;
+}
+
+.swap-elixir-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .summary-grid {
@@ -447,7 +462,7 @@ th {
         <li><strong>Scan Balances:</strong> Enter a Hive username (or connect via Hive Keychain) and click <strong>Scan Balances</strong> to check your Hive-Engine tokens, <code>SWAP.HIVE</code> balance, staked <code>ELIXIR</code>, and active buy orders.</li>
         <li><strong>Filter &amp; Select:</strong> Adjust <strong>Max Dust Value</strong> and <strong>Sell Price vs. Top Bid</strong>, then review the checkboxes in the table to pick which tokens to sell.</li>
         <li><strong>Cover Fees if Needed:</strong> Standard batches apply a 2% <code>SWAP.HIVE</code> fee (waived with 100+ staked <code>ELIXIR</code> unless you opt in). If your liquid <code>SWAP.HIVE</code> is short, you can send <code>HIVE</code> to <code>@honey-swap</code> to mint <code>SWAP.HIVE</code> first.</li>
-        <li><strong>Approve in Keychain:</strong> Click <strong>Sell Tokens</strong> and approve the fee transfer(s) and market sell orders in Hive Keychain.</li>
+        <li><strong>Approve in Keychain &amp; Swap:</strong> Click <strong>Sell Tokens</strong>, approve the fee transfer(s) and market sell orders in Hive Keychain, and optionally swap 25%, 50%, 75%, or 100% of your <code>SWAP.HIVE</code> into <code>ELIXIR</code> afterward.</li>
       </ol>
     </div>
   </details>
@@ -512,6 +527,18 @@ th {
 
     <div class="row-actions">
       <button id="executeBtn" class="primary" type="button" disabled>Sell Tokens</button>
+      <div class="swap-elixir-controls">
+        <label class="opt-in-label" for="swapToElixirCheckbox">
+          <input id="swapToElixirCheckbox" type="checkbox" checked />
+          Swap SWAP.HIVE to ELIXIR after selling
+        </label>
+        <select id="elixirSplitSelect" class="swap-split-select" aria-label="Percentage of SWAP.HIVE to swap for ELIXIR">
+          <option value="0.25">25%</option>
+          <option value="0.5">50%</option>
+          <option value="0.75">75%</option>
+          <option value="1" selected>100%</option>
+        </select>
+      </div>
     </div>
 
     <div class="notice">
@@ -622,6 +649,10 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+function syncElixirSplitControl() {
+  $("elixirSplitSelect").disabled = !$("swapToElixirCheckbox").checked;
+}
 
 function promptDepositConfirmation({ availableSwapHive, totalFee, shortfall, depositFeeHive, depositAmountStr }) {
   return new Promise((resolve) => {
@@ -869,6 +900,23 @@ async function fetchBuyBookOrders(symbol, limit = 50) {
       limit,
       offset: 0,
       indexes: [{ index: "priceDec", descending: true }]
+    }
+  });
+  return Array.isArray(orders) ? orders : [];
+}
+
+async function fetchSellBookOrders(symbol, limit = 20) {
+  const orders = await rpcCall({
+    jsonrpc: "2.0",
+    id: 5,
+    method: "find",
+    params: {
+      contract: "market",
+      table: "sellBook",
+      query: { symbol },
+      limit,
+      offset: 0,
+      indexes: [{ index: "priceDec", descending: false }]
     }
   });
   return Array.isArray(orders) ? orders : [];
@@ -1134,6 +1182,98 @@ function requestHiveTransferAsync(account, to, amountHiveStr, memo) {
   });
 }
 
+async function swapAvailableHiveForElixir(account, splitRatio = 1) {
+  const pct = Math.round(splitRatio * 100);
+  setStatus(`Checking updated SWAP.HIVE balance (${pct}% swap to ELIXIR)...`);
+  let latestSwapHive = 0;
+  try {
+    const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
+    latestSwapHive = rec ? parseFloat(rec.balance) || 0 : 0;
+    state.swapHiveBalance = latestSwapHive;
+    $("swapHiveBal").textContent = fmt8(latestSwapHive);
+  } catch (_) {
+    latestSwapHive = state.swapHiveBalance;
+  }
+
+  const spendHive = floorToDecimals(latestSwapHive * splitRatio, 8);
+  if (!(spendHive > 0)) {
+    return { status: "skipped", message: `ELIXIR swap skipped: no liquid SWAP.HIVE available for ${pct}% split.` };
+  }
+
+  let elixirPrec = 8;
+  try {
+    const precMap = await fetchTokenPrecisions(["ELIXIR"]);
+    if (precMap.has("ELIXIR")) elixirPrec = precMap.get("ELIXIR");
+  } catch (_) {}
+
+  let askPrice = 0;
+  try {
+    const sells = await fetchSellBookOrders("ELIXIR", 10);
+    for (const ord of sells) {
+      const p = Number(ord.price);
+      if (Number.isFinite(p) && p > 0) {
+        askPrice = p;
+        break;
+      }
+    }
+  } catch (_) {}
+
+  if (!(askPrice > 0)) {
+    try {
+      const bids = await fetchBuyBookOrders("ELIXIR", 10);
+      for (const ord of bids) {
+        const p = Number(ord.price);
+        if (Number.isFinite(p) && p > 0) {
+          askPrice = p;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!(askPrice > 0)) {
+    return { status: "error", message: "ELIXIR swap skipped: could not determine an active ELIXIR market price." };
+  }
+
+  const priceStr = toFixedSafe(askPrice, 8, false);
+  const rawQty = spendHive / Number(priceStr);
+  const qtyStr = toFixedSafe(rawQty, elixirPrec, true);
+  if (!priceStr || !qtyStr) {
+    return { status: "skipped", message: `ELIXIR swap skipped: ${pct}% SWAP.HIVE allocation is too small to buy ELIXIR.` };
+  }
+
+  setStatus(`Broadcasting ELIXIR buy order (${qtyStr} ELIXIR @ ${priceStr} SWAP.HIVE, ${pct}% split)...`);
+  const buyOp = {
+    contractName: "market",
+    contractAction: "buy",
+    contractPayload: {
+      symbol: "ELIXIR",
+      quantity: qtyStr,
+      price: priceStr
+    }
+  };
+
+  const res = await requestCustomJsonAsync(
+    account,
+    ENGINE_CHAIN_ID,
+    "Active",
+    JSON.stringify(buyOp),
+    `Swap ${pct}% (${spendHive.toFixed(8)} SWAP.HIVE) for ${qtyStr} ELIXIR`
+  );
+
+  if (res && res.success) {
+    return {
+      status: "ok",
+      txEntry: `Swap ${pct}% ELIXIR: ${(res.result && res.result.id) || "ok"}`
+    };
+  }
+
+  return {
+    status: "error",
+    message: `ELIXIR swap rejected or failed: ${(res && res.message) || "Unknown error"}`
+  };
+}
+
 async function waitForSwapHiveBalance(account, requiredFee, maxWaitMs = 60000) {
   const start = Date.now();
   let latest = state.swapHiveBalance;
@@ -1166,6 +1306,8 @@ async function executeBatchSell() {
 
   const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
   const discount = parseFloat($("discountSelect").value) || 1;
+  const wantElixirSwap = Boolean($("swapToElixirCheckbox").checked);
+  const elixirSplitRatio = parseFloat($("elixirSplitSelect").value) || 1;
   const selectedRows = state.rows.filter((r) => r.selected && isRowFillable(r));
 
   if (!account || selectedRows.length === 0) return;
@@ -1376,6 +1518,7 @@ async function executeBatchSell() {
     }
   }
 
+  let anySellSucceeded = false;
   for (let i = 0; i < sellItems.length; i++) {
     const item = sellItems[i];
     setStatus(`Broadcasting sell order ${i + 1} of ${sellItems.length} (${item.symbol})...`);
@@ -1387,9 +1530,21 @@ async function executeBatchSell() {
       `Sell ${item.symbol} (${i + 1}/${sellItems.length})`
     );
     if (res && res.success) {
+      anySellSucceeded = true;
       succeededTxs.push(`${item.symbol}: ${(res.result && res.result.id) || "ok"}`);
     } else {
       failedMsgs.push(`${item.symbol}: ${(res && res.message) || "Failed or rejected"}`);
+    }
+  }
+
+  if (wantElixirSwap && anySellSucceeded) {
+    setStatus("Waiting 3 seconds for side-chain sell proceeds to settle before swapping to ELIXIR...");
+    await new Promise((r) => setTimeout(r, 3000));
+    const swapResult = await swapAvailableHiveForElixir(account, elixirSplitRatio);
+    if (swapResult.status === "ok") {
+      succeededTxs.push(swapResult.txEntry);
+    } else if (swapResult.status === "error") {
+      failedMsgs.push(swapResult.message);
     }
   }
 
@@ -1417,6 +1572,7 @@ $("themeToggleBtn").addEventListener("click", () => {
   applyTheme(current === "dark" ? "light" : "dark");
 });
 
+$("swapToElixirCheckbox").addEventListener("change", syncElixirSplitControl);
 $("payFeeOptInCheckbox").addEventListener("change", recalculateTotals);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("loadBtn").addEventListener("click", handleScan);
@@ -1445,6 +1601,7 @@ $("executeBtn").addEventListener("click", executeBatchSell);
 
 initTheme();
 updateWaiverUI();
+syncElixirSplitControl();
 </script>
 </body>
 </html>
