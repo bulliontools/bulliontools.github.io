@@ -94,7 +94,7 @@ header {
 }
 .controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
   gap: 12px;
   align-items: end;
 }
@@ -272,6 +272,10 @@ th {
       <div>
         <label for="usernameInput">Hive Username</label>
         <input id="usernameInput" type="text" placeholder="e.g. alice" autocomplete="off" />
+      </div>
+      <div>
+        <label for="minHiveFilter">Min Est. Value (SWAP.HIVE)</label>
+        <input id="minHiveFilter" type="number" step="0.01" min="0" placeholder="Leave blank for 0" />
       </div>
       <div>
         <label for="maxHiveFilter">Max Est. Value (SWAP.HIVE)</label>
@@ -611,14 +615,20 @@ function evaluateBuyBook(buyOrders, sellQty, ratio) {
   };
 }
 
+function matchesValueBounds(estHive, minVal, maxVal) {
+  if (Number.isFinite(minVal) && minVal > 0 && estHive < minVal) return false;
+  if (Number.isFinite(maxVal) && maxVal > 0 && estHive > maxVal) return false;
+  return true;
+}
+
 function getVisibleTokens() {
   const ratio = parseFloat($("priceModeSelect").value) || 1;
+  const minVal = parseFloat($("minHiveFilter").value);
   const maxVal = parseFloat($("maxHiveFilter").value);
   return appState.tokens.filter((item) => {
     const evalRes = evaluateBuyBook(item.buyOrders, item.liquidBal, ratio);
     if (!(evalRes.topBid > 0)) return false;
-    if (Number.isFinite(maxVal) && maxVal > 0 && evalRes.estHive > maxVal) return false;
-    return true;
+    return matchesValueBounds(evalRes.estHive, minVal, maxVal);
   });
 }
 
@@ -628,6 +638,7 @@ function refreshSummaryAndTable() {
   const feeOn = isFeeActive();
   const swapElixir = isSwapElixirEnabled();
   const visible = getVisibleTokens();
+  const visibleSymbols = new Set(visible.map((t) => t.symbol));
 
   let selectedCount = 0;
   let grossTotal = 0;
@@ -636,6 +647,9 @@ function refreshSummaryAndTable() {
   for (const item of appState.tokens) {
     const ev = evaluateBuyBook(item.buyOrders, item.liquidBal, ratio);
     item.calc = ev;
+    if (!visibleSymbols.has(item.symbol)) {
+      item.selected = false;
+    }
     if (item.selected && ev.estHive > 0) {
       selectedCount++;
       grossTotal += ev.estHive;
@@ -669,7 +683,7 @@ function refreshSummaryAndTable() {
     ? "Sell Selected & Swap to ELIXIR"
     : "Sell Selected Tokens";
   $("selectAllBtn").disabled = visible.length === 0;
-  $("clearAllBtn").disabled = !appState.tokens.some((t) => t.selected);
+  $("clearAllBtn").disabled = !visible.some((t) => t.selected);
   $("sweepAllBtn").disabled = selectedCount === 0 || !(grossTotal > 0);
 
   const tbody = $("tokensTbody");
@@ -845,6 +859,7 @@ async function scanAllTokens() {
 
     const precMap = await fetchPrecisions(sellableBalances.map((b) => b.symbol));
     const ratio = parseFloat($("priceModeSelect").value) || 1;
+    const minVal = parseFloat($("minHiveFilter").value);
     const maxVal = parseFloat($("maxHiveFilter").value);
 
     const bookResults = await poolMap(sellableBalances, CONCURRENCY, async (balRow) => {
@@ -866,7 +881,9 @@ async function scanAllTokens() {
       const ev = evaluateBuyBook(orders, liquidBal, ratio);
       if (!(ev.topBid > 0) || !(ev.sellPrice > 0)) continue;
 
-      const passesMax = !(Number.isFinite(maxVal) && maxVal > 0) || ev.estHive <= maxVal;
+      const passesBounds = matchesValueBounds(ev.estHive, minVal, maxVal);
+      if (!passesBounds) continue;
+
       list.push({
         symbol: balRow.symbol,
         rawBal,
@@ -874,14 +891,14 @@ async function scanAllTokens() {
         precision,
         buyOrders: orders,
         calc: ev,
-        selected: passesMax && ev.estHive > 0
+        selected: ev.estHive > 0
       });
     }
 
     list.sort((a, b) => a.calc.estHive - b.calc.estHive);
     appState.tokens = list;
     refreshSummaryAndTable();
-    setStatus(`Scan complete for @${account}: found ${list.length} token(s) with open buy orders.`, "ok");
+    setStatus(`Scan complete for @${account}: found ${list.length} token(s) within your filter.`, "ok");
   } catch (err) {
     setStatus(`Scan error: ${err.message}`, "err");
   } finally {
@@ -955,7 +972,7 @@ async function sweepSelectedTokens() {
     return;
   }
   const account = $("usernameInput").value.trim().toLowerCase().replace(/^@/, "");
-  const chosen = appState.tokens.filter((t) => t.selected);
+  const chosen = getVisibleTokens().filter((t) => t.selected);
   const ratio = Number($("priceModeSelect").value);
   const swapElixir = isSwapElixirEnabled();
 
@@ -1126,6 +1143,7 @@ $("themeToggleBtn").addEventListener("click", toggleTheme);
 $("connectBtn").addEventListener("click", connectKeychain);
 $("scanBtn").addEventListener("click", scanAllTokens);
 $("priceModeSelect").addEventListener("change", refreshSummaryAndTable);
+$("minHiveFilter").addEventListener("input", refreshSummaryAndTable);
 $("maxHiveFilter").addEventListener("input", refreshSummaryAndTable);
 $("feeCheckbox").addEventListener("change", refreshSummaryAndTable);
 $("swapElixirCheckbox").addEventListener("change", refreshSummaryAndTable);
