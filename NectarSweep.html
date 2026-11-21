@@ -642,50 +642,47 @@ const orders = Array.isArray(row.buyOrders) && row.buyOrders.length > 0
 : (row.topBid > 0 ? [{ price: String(row.topBid), quantity: String(row.bidQty) }] : []);
 
 if (isMatchAllOrdersEnabled()) {
-let remaining = Math.max(0, Number(row.balance) || 0);
-const slices = [];
+const balance = Math.max(0, Number(row.balance) || 0);
+let remaining = balance;
 let matchedQty = 0;
 let estProceeds = 0;
+let lowestMatchedPrice = 0;
+let totalBookDepth = 0;
 
-for (let i = 0; i < orders.length; i++) {
-if (remaining <= 0) break;
-const order = orders[i];
+for (const order of orders) {
 const orderPrice = parseFloat(order.price);
 const orderQty = Math.max(0, parseFloat(order.quantity) || 0);
 if (!(orderPrice > 0) || !(orderQty > 0)) continue;
+totalBookDepth += orderQty;
 
-const isLastOrder = i === orders.length - 1;
-const desiredQty = isLastOrder
-? Math.min(remaining, orderQty)
-: Math.min(remaining, orderQty);
-const takeQty = floorPrec(desiredQty, row.precision);
-if (takeQty <= 0) continue;
-
-const slicePrice = orderPrice * discount;
-const qtyStr = takeQty.toFixed(row.precision);
-const priceStr = slicePrice.toFixed(8);
-const parsedQty = parseFloat(qtyStr);
-const parsedPrice = parseFloat(priceStr);
-if (!(parsedQty > 0) || !(parsedPrice > 0)) continue;
-
-slices.push({
-quantity: qtyStr,
-price: priceStr,
-gross: parsedQty * parsedPrice
-});
-matchedQty += parsedQty;
-estProceeds += parsedQty * parsedPrice;
-remaining = Math.max(0, remaining - parsedQty);
+if (remaining > 1e-12) {
+const takeQty = Math.min(remaining, orderQty);
+matchedQty += takeQty;
+estProceeds += takeQty * orderPrice;
+lowestMatchedPrice = orderPrice;
+remaining = Math.max(0, remaining - takeQty);
+}
 }
 
 const totalQty = floorPrec(matchedQty, row.precision);
-const avgPrice = totalQty > 0 ? estProceeds / totalQty : (row.topBid * discount);
+const qtyStr = totalQty.toFixed(row.precision);
+const parsedQty = parseFloat(qtyStr);
+const basePrice = lowestMatchedPrice > 0 ? lowestMatchedPrice : row.topBid;
+const sellPrice = basePrice * discount;
+const priceStr = sellPrice.toFixed(8);
+const parsedPrice = parseFloat(priceStr);
+const aggGross = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
+const slices = aggGross > 0
+? [{ quantity: qtyStr, price: priceStr, gross: aggGross }]
+: [];
+
 return {
-sellQty: totalQty,
-sellPrice: avgPrice,
-estHive: estProceeds,
+sellQty: parsedQty,
+sellPrice,
+estHive: aggGross,
 slices,
-totalBookDepth: orders.reduce((sum, o) => sum + Math.max(0, parseFloat(o.quantity) || 0), 0)
+totalBookDepth,
+unmatchedQty: Math.max(0, floorPrec(balance - parsedQty, row.precision))
 };
 }
 
@@ -702,11 +699,12 @@ const slices = estHive > 0
 : [];
 
 return {
-sellQty,
+sellQty: parsedQty,
 sellPrice,
 estHive,
 slices,
-totalBookDepth: row.bidQty
+totalBookDepth: row.bidQty,
+unmatchedQty: Math.max(0, floorPrec(row.balance - parsedQty, row.precision))
 };
 }
 
@@ -1021,6 +1019,7 @@ const quote = computeRowQuote(row, discount);
 row.sellQty = quote.sellQty;
 row.sellPrice = quote.sellPrice;
 row.sellSlices = quote.slices;
+row.unmatchedQty = quote.unmatchedQty;
 row.estHive = row.selected ? quote.estHive : 0;
 if (row.selected && row.sellQty > 0 && row.estHive > 0) {
 gross += row.estHive;
@@ -1096,6 +1095,7 @@ const tr = document.createElement("tr");
 const quote = computeRowQuote(r, discount);
 const sellQty = quote.sellQty;
 const exceedsDepth = r.balance > r.bidQty + 1e-12;
+const partialFill = quote.unmatchedQty > 1e-12;
 
 const tdCheck = document.createElement("td");
 const cb = document.createElement("input");
@@ -1112,11 +1112,14 @@ const tdSym = document.createElement("td");
 const strong = document.createElement("strong");
 strong.textContent = String(r.symbol || "");
 tdSym.appendChild(strong);
-if (exceedsDepth) {
+if (exceedsDepth || partialFill) {
 const badge = document.createElement("span");
 badge.className = "depth-badge";
-if (matchAll) {
-badge.title = "Balance exceeds top bid; matching across available buy orders on the book.";
+if (partialFill) {
+badge.title = `Buy book depth covers ${fmtPrec(sellQty, r.precision)} of ${fmtPrec(r.balance, r.precision)} (${fmtPrec(quote.unmatchedQty, r.precision)} unmatched).`;
+badge.textContent = "Partial depth";
+} else if (matchAll) {
+badge.title = "Balance exceeds top bid; aggregated across matching buy orders on the book.";
 badge.textContent = "Multi-order";
 } else {
 badge.title = isCapDepthEnabled()
@@ -1130,7 +1133,7 @@ tr.appendChild(tdSym);
 
 const tdQty = document.createElement("td");
 tdQty.className = "num";
-tdQty.textContent = exceedsDepth
+tdQty.textContent = exceedsDepth || partialFill
 ? `${fmtPrec(sellQty, r.precision)} / ${fmtPrec(r.balance, r.precision)}`
 : fmtPrec(r.balance, r.precision);
 tr.appendChild(tdQty);
@@ -1224,6 +1227,7 @@ topBid,
 bidQty,
 buyOrders,
 sellSlices: quote.slices,
+unmatchedQty: quote.unmatchedQty,
 sellPrice: quote.sellPrice,
 estHive: est,
 selected: est > 0 && (matchAll || !Number.isFinite(maxDust) || est <= maxDust)
@@ -1512,8 +1516,15 @@ const res = await broadcastSingleBatch(account, batchOps, actionLabel);
 if (res?.result?.id) txIds.push(res.result.id);
 }
 
+const partialNotes = selectedRows
+.filter((r) => (r.unmatchedQty || 0) > 1e-12)
+.map((r) => `${r.symbol}: ${fmtPrec(r.unmatchedQty, r.precision)} left`);
+const partialSuffix = partialNotes.length > 0
+? `\nUnmatched due to buy-book depth: ${partialNotes.join(", ")}`
+: "";
+
 setStatus(
-`Broadcasted ${batches.length} batch(es)! TX IDs: ${txIds.join(", ")}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
+`Broadcasted ${batches.length} batch(es)! TX IDs: ${txIds.join(", ")}${partialSuffix}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
 "ok"
 );
 setTimeout(handleScan, 5000);
