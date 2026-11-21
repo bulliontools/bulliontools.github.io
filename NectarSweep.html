@@ -752,19 +752,38 @@ async function fetchPrecisions(symbols) {
 }
 
 async function fetchBuyOrders(symbol) {
-  const orders = await engineContractsCall({
+  try {
+    const indexedOrders = await engineContractsCall({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "find",
+      params: {
+        contract: "market",
+        table: "buyBook",
+        query: { symbol },
+        limit: 100,
+        offset: 0,
+        indexes: [{ index: "price", descending: true }]
+      }
+    });
+    if (Array.isArray(indexedOrders) && indexedOrders.length > 0) {
+      return indexedOrders;
+    }
+  } catch (_) {}
+
+  const fallbackOrders = await engineContractsCall({
     jsonrpc: "2.0",
-    id: 3,
+    id: 31,
     method: "find",
     params: {
       contract: "market",
       table: "buyBook",
       query: { symbol },
-      limit: 200,
+      limit: 500,
       offset: 0
     }
   });
-  return Array.isArray(orders) ? orders : [];
+  return Array.isArray(fallbackOrders) ? fallbackOrders : [];
 }
 
 async function fetchElixirAskQuote() {
@@ -778,9 +797,10 @@ async function fetchElixirAskQuote() {
         table: "sellBook",
         query: { symbol: "ELIXIR" },
         limit: 100,
-        offset: 0
+        offset: 0,
+        indexes: [{ index: "price", descending: false }]
       }
-    }),
+    }).catch(() => []),
     fetchPrecisions(["ELIXIR"])
   ]);
 
@@ -965,7 +985,10 @@ async function sweepSelectedTokens() {
     }
 
     const liveBooks = await poolMap(chosen, CONCURRENCY, async (item) => {
-      const orders = await fetchBuyOrders(item.symbol);
+      let orders = await fetchBuyOrders(item.symbol).catch(() => []);
+      if ((!Array.isArray(orders) || !orders.length) && Array.isArray(item.buyOrders) && item.buyOrders.length) {
+        orders = item.buyOrders;
+      }
       return { item, orders };
     });
 
@@ -1003,7 +1026,6 @@ async function sweepSelectedTokens() {
       throw new Error("Nothing to sell.");
     }
 
-    // Size the fee from guaranteed fillable proceeds + existing SWAP.HIVE so the transfer won't overdraw
     const availableForFee = Math.max(0, startSwapHive + instantProceeds);
     let feeTotal = 0;
     if (feeOn && availableForFee > 0) {
