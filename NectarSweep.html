@@ -402,9 +402,9 @@ class="banner-img"
 <input id="capDepthCheckbox" type="checkbox" />
 <span>Limit sells to available top-bid quantity</span>
 </label>
-<label class="swap-option-box" for="matchAllOrdersCheckbox" title="Matches your available balance across all active buy orders on the book so tokens sell off instead of capping at the top bid">
-<input id="matchAllOrdersCheckbox" type="checkbox" checked />
-<span>Match &amp; sell all available across order book</span>
+<label class="swap-option-box" for="matchAllOrdersCheckbox" title="Creates separate sell orders priced against each available buy-book level. Off by default; the standard mode mirrors Dust Seller.">
+<input id="matchAllOrdersCheckbox" type="checkbox" />
+<span>Sell across available buy-book levels (multi-order mode)</span>
 </label>
 <label class="swap-option-box" for="swapElixirCheckbox">
 <input id="swapElixirCheckbox" type="checkbox" />
@@ -691,38 +691,32 @@ const topOrderPrice = orders.length > 0 ? orders[0].price : (Number(row.topBid) 
 const topOrderQty = orders.length > 0 ? orders[0].quantity : (Number(row.bidQty) || 0);
 const totalBookDepth = orders.reduce((sum, o) => sum + o.quantity, 0);
 const balance = Math.max(0, Number(row.balance) || 0);
+const safeDiscount = Number.isFinite(Number(discount)) && Number(discount) > 0
+? Number(discount)
+: 1;
 
-if (isMatchAllOrdersEnabled()) {
-let remaining = balance;
-let matchedQty = 0;
-let estProceeds = 0;
-let lowestMatchedBid = 0;
-
-for (const order of orders) {
-if (remaining <= 1e-12) break;
-const takeQty = Math.min(remaining, order.quantity);
-if (takeQty <= 0) continue;
-matchedQty += takeQty;
-estProceeds += takeQty * order.price;
-lowestMatchedBid = order.price;
-remaining = Math.max(0, remaining - takeQty);
+if (!(topOrderPrice > 0) || !(balance > 0)) {
+return {
+sellQty: 0, sellPrice: 0, estHive: 0, slices: [], totalBookDepth,
+topBid: topOrderPrice, bidQty: topOrderQty, unmatchedQty: balance
+};
 }
 
-const qtyStr = clampDecimalStrToMax(matchedQty, row.precision, row.rawBalance);
-const parsedQty = parseFloat(qtyStr);
-const anchorBid = lowestMatchedBid > 0 ? lowestMatchedBid : topOrderPrice;
-const sellPrice = anchorBid * discount;
-const priceStr = sellPrice.toFixed(8);
-const parsedPrice = parseFloat(priceStr);
-const aggGross = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
-const slices = aggGross > 0
-? [{ quantity: qtyStr, price: priceStr, gross: aggGross }]
-: [];
-
+// The default path deliberately mirrors Dust Seller: one market sell for the
+// full balance at the live top bid (optionally discounted). If the top bid
+// cannot absorb the whole balance, the unfilled remainder remains an open sell.
+if (!isMatchAllOrdersEnabled()) {
+const rawQty = isCapDepthEnabled() ? Math.min(balance, topOrderQty) : balance;
+const qtyStr = clampDecimalStrToMax(rawQty, row.precision, row.rawBalance);
+const parsedQty = parseFloat(qtyStr) || 0;
+const priceStr = (topOrderPrice * safeDiscount).toFixed(8);
+const parsedPrice = parseFloat(priceStr) || 0;
+const gross = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
+const slices = gross > 0 ? [{ quantity: qtyStr, price: priceStr, gross }] : [];
 return {
 sellQty: parsedQty,
-sellPrice,
-estHive: aggGross,
+sellPrice: parsedPrice,
+estHive: gross,
 slices,
 totalBookDepth,
 topBid: topOrderPrice,
@@ -731,26 +725,44 @@ unmatchedQty: Math.max(0, floorPrec(balance - parsedQty, row.precision))
 };
 }
 
-const raw = isCapDepthEnabled() ? Math.min(balance, topOrderQty) : balance;
-const qtyStr = clampDecimalStrToMax(raw, row.precision, row.rawBalance);
-const parsedQty = parseFloat(qtyStr);
-const sellPrice = topOrderPrice * discount;
-const priceStr = sellPrice.toFixed(8);
-const parsedPrice = parseFloat(priceStr);
-const estHive = parsedQty > 0 && parsedPrice > 0 ? parsedQty * parsedPrice : 0;
-const slices = estHive > 0
-? [{ quantity: qtyStr, price: priceStr, gross: estHive }]
-: [];
+// Multi-level mode emits one sell operation per buy-book level. This makes
+// every submitted limit price marketable against the specific bid quantity it
+// is intended to consume, rather than pricing the entire balance at the last
+// (lowest) matched bid and relying on a single aggregate order.
+let remaining = balance;
+let sellQty = 0;
+let estHive = 0;
+const slices = [];
+
+for (const order of orders) {
+if (remaining <= 1e-12) break;
+if (!(order.price > 0) || !(order.quantity > 0)) continue;
+
+const rawTake = Math.min(remaining, order.quantity);
+const qtyStr = clampDecimalStrToMax(rawTake, row.precision, row.rawBalance);
+const parsedQty = parseFloat(qtyStr) || 0;
+if (!(parsedQty > 0)) continue;
+
+const priceStr = (order.price * safeDiscount).toFixed(8);
+const parsedPrice = parseFloat(priceStr) || 0;
+if (!(parsedPrice > 0)) continue;
+
+const gross = parsedQty * parsedPrice;
+slices.push({ quantity: qtyStr, price: priceStr, gross });
+sellQty += parsedQty;
+estHive += gross;
+remaining = Math.max(0, remaining - parsedQty);
+}
 
 return {
-sellQty: parsedQty,
-sellPrice,
+sellQty,
+sellPrice: sellQty > 0 ? estHive / sellQty : 0,
 estHive,
 slices,
 totalBookDepth,
 topBid: topOrderPrice,
 bidQty: topOrderQty,
-unmatchedQty: Math.max(0, floorPrec(balance - parsedQty, row.precision))
+unmatchedQty: Math.max(0, floorPrec(balance - sellQty, row.precision))
 };
 }
 
@@ -1431,7 +1443,11 @@ let elixirBuyCost = 0;
 
 if (swapElixir && elixirBuyQuote && elixirBuyQuote.price > 0 && swapBudget > 0) {
 const factor = Math.pow(10, elixirBuyQuote.precision);
-const buyQty = Math.floor((swapBudget / elixirBuyQuote.price) * factor) / factor;
+const budgetQty = Math.floor((swapBudget / elixirBuyQuote.price) * factor) / factor;
+const availableQty = Math.max(0, Number(elixirBuyQuote.availableQty) || 0);
+const buyQty = availableQty > 0
+? Math.floor(Math.min(budgetQty, availableQty) * factor + 1e-9) / factor
+: 0;
 const minUnit = 1 / factor;
 if (buyQty >= minUnit) {
 elixirBuyCost = buyQty * elixirBuyQuote.price;
@@ -1503,16 +1519,18 @@ setStatus("Refreshing live top bids before broadcast...");
 const depthLimit = isMatchAllOrdersEnabled() ? BUY_BOOK_DEPTH_LIMIT : 1;
 await mapWithConcurrency(selectedRows, CONCURRENCY_LIMIT, async (r) => {
 const buyOrders = await fetchBuyOrders(r.symbol, depthLimit);
-if (buyOrders.length > 0) {
+if (!Array.isArray(buyOrders) || buyOrders.length === 0) {
+throw new Error(`No fresh active buy orders for ${r.symbol}; sale cancelled rather than using a stale quote.`);
+}
 const topOrder = buyOrders[0];
 const topBid = parseFloat(topOrder.price);
 const bidQty = parseFloat(topOrder.quantity);
-if (topBid > 0) {
+if (!(topBid > 0) || !(bidQty > 0)) {
+throw new Error(`Invalid fresh top bid for ${r.symbol}; sale cancelled.`);
+}
 r.topBid = topBid;
 r.bidQty = bidQty;
 r.buyOrders = buyOrders;
-}
-}
 });
 
 let elixirQuote = null;
