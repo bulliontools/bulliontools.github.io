@@ -865,14 +865,6 @@ function connectKeychain() {
   );
 }
 
-function requestCustomJsonAsync(account, chainId, keyType, jsonStr, displayMsg) {
-  return new Promise((resolve) => {
-    window.hive_keychain.requestCustomJson(account, chainId, keyType, jsonStr, displayMsg, (res) => {
-      resolve(res);
-    });
-  });
-}
-
 async function executeBatchSell() {
   if (!window.hive_keychain) {
     setStatus("Hive Keychain is required to sign and broadcast transactions.", "err");
@@ -888,7 +880,7 @@ async function executeBatchSell() {
   $("executeBtn").disabled = true;
   setStatus("Verifying live buy orders before broadcasting...");
 
-  const sellItems = [];
+  const ops = [];
   let totalGross = 0;
 
   for (const r of selectedRows) {
@@ -909,137 +901,91 @@ async function executeBatchSell() {
         continue;
       }
 
-      const symbol = String(r.symbol).toUpperCase();
       totalGross += qtyVal * priceVal;
-      sellItems.push({
-        symbol,
-        op: {
-          contractName: "market",
-          contractAction: "sell",
-          contractPayload: {
-            symbol,
-            quantity: qtyStr,
-            price: priceStr
-          }
+      ops.push({
+        contractName: "market",
+        contractAction: "sell",
+        contractPayload: {
+          symbol: String(r.symbol).toUpperCase(),
+          quantity: qtyStr,
+          price: priceStr
         }
       });
     } catch (_) {
       const qtyStr = toFixedSafe(r.matchedQty ?? r.balance, r.precision, true);
       const priceStr = toFixedSafe(r.sellPrice, 8, false);
       if (!qtyStr || !priceStr) continue;
-      const symbol = String(r.symbol).toUpperCase();
       totalGross += Number(qtyStr) * Number(priceStr);
-      sellItems.push({
-        symbol,
-        op: {
-          contractName: "market",
-          contractAction: "sell",
-          contractPayload: {
-            symbol,
-            quantity: qtyStr,
-            price: priceStr
-          }
+      ops.push({
+        contractName: "market",
+        contractAction: "sell",
+        contractPayload: {
+          symbol: String(r.symbol).toUpperCase(),
+          quantity: qtyStr,
+          price: priceStr
         }
       });
     }
   }
 
-  if (sellItems.length === 0) {
+  if (ops.length === 0) {
     $("executeBtn").disabled = false;
     setStatus("No valid sell operations to broadcast.", "warn");
     return;
   }
 
-  const succeededTxs = [];
-  const failedMsgs = [];
-
-  for (let i = 0; i < sellItems.length; i++) {
-    const item = sellItems[i];
-    setStatus(`Broadcasting sell order ${i + 1} of ${sellItems.length} (${item.symbol})...`);
-    const res = await requestCustomJsonAsync(
-      account,
-      ENGINE_CHAIN_ID,
-      "Active",
-      JSON.stringify(item.op),
-      `Sell ${item.symbol} (${i + 1}/${sellItems.length})`
-    );
-    if (res && res.success) {
-      succeededTxs.push(`${item.symbol}: ${res.result.id}`);
-    } else {
-      failedMsgs.push(`${item.symbol}: ${(res && res.message) || "Failed or rejected"}`);
-    }
-  }
-
+  const sellCount = ops.length;
   const { share1, share2 } = calcSplitFees(totalGross);
-  if (succeededTxs.length > 0 && share1 >= 0.00000001) {
-    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_1}...`);
-    const feeOp1 = {
+  if (share1 >= 0.00000001) {
+    ops.push({
       contractName: "tokens",
       contractAction: "transfer",
       contractPayload: {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_1,
         quantity: share1.toFixed(8),
-        memo: `1% dust sweeper fee (${succeededTxs.length} tokens)`
+        memo: `1% dust sweeper fee (${sellCount} tokens)`
       }
-    };
-    const res1 = await requestCustomJsonAsync(
-      account,
-      ENGINE_CHAIN_ID,
-      "Active",
-      JSON.stringify(feeOp1),
-      `1% support fee to @${FEE_ACCOUNT_1}`
-    );
-    if (res1 && res1.success) {
-      succeededTxs.push(`Fee @${FEE_ACCOUNT_1}: ${res1.result.id}`);
-    } else {
-      failedMsgs.push(`Fee @${FEE_ACCOUNT_1}: ${(res1 && res1.message) || "Failed or rejected"}`);
-    }
+    });
   }
-
-  if (succeededTxs.length > 0 && share2 >= 0.00000001) {
-    setStatus(`Broadcasting 1% fee transfer to @${FEE_ACCOUNT_2}...`);
-    const feeOp2 = {
+  if (share2 >= 0.00000001) {
+    ops.push({
       contractName: "tokens",
       contractAction: "transfer",
       contractPayload: {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_2,
         quantity: share2.toFixed(8),
-        memo: `1% dust sweeper fee (${succeededTxs.length} tokens)`
+        memo: `1% dust sweeper fee (${sellCount} tokens)`
       }
-    };
-    const res2 = await requestCustomJsonAsync(
-      account,
-      ENGINE_CHAIN_ID,
-      "Active",
-      JSON.stringify(feeOp2),
-      `1% support fee to @${FEE_ACCOUNT_2}`
-    );
-    if (res2 && res2.success) {
-      succeededTxs.push(`Fee @${FEE_ACCOUNT_2}: ${res2.result.id}`);
-    } else {
-      failedMsgs.push(`Fee @${FEE_ACCOUNT_2}: ${(res2 && res2.message) || "Failed or rejected"}`);
+    });
+  }
+
+  setStatus("Waiting for Hive Keychain approval...");
+
+  const approvalMessage = isFeeWaived()
+    ? `Sell ${sellCount} dust token(s) (Fee waived: 100+ ELIXIR staked)`
+    : `Sell ${sellCount} dust token(s) + 1% to @${FEE_ACCOUNT_1} & 1% to @${FEE_ACCOUNT_2}`;
+
+  window.hive_keychain.requestCustomJson(
+    account,
+    ENGINE_CHAIN_ID,
+    "Active",
+    JSON.stringify(ops),
+    approvalMessage,
+    (res) => {
+      $("executeBtn").disabled = false;
+      if (res.success) {
+        setStatus(
+          `Broadcasted! Hive TX ID: ${res.result.id}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
+          "ok"
+        );
+        setTimeout(handleScan, 5000);
+      } else {
+        setStatus(`Transaction failed or rejected: ${res.message}`, "err");
+      }
     }
-  }
-
-  $("executeBtn").disabled = false;
-
-  if (succeededTxs.length > 0 && failedMsgs.length === 0) {
-    setStatus(
-      `Broadcasted ${succeededTxs.length} transaction(s)!\n${succeededTxs.join("\n")}\nSide-chain execution takes a few seconds—rescanning balances shortly...`,
-      "ok"
-    );
-    setTimeout(handleScan, 5000);
-  } else if (succeededTxs.length > 0) {
-    setStatus(
-      `Completed ${succeededTxs.length} transaction(s), with ${failedMsgs.length} issue(s):\nSucceeded:\n${succeededTxs.join("\n")}\nFailed/Rejected:\n${failedMsgs.join("\n")}\nRescanning balances shortly...`,
-      "warn"
-    );
-    setTimeout(handleScan, 5000);
-  } else {
-    setStatus(`Transactions failed or rejected:\n${failedMsgs.join("\n")}`, "err");
-  }
+  );
 }
 
 $("themeToggleBtn").addEventListener("click", () => {
