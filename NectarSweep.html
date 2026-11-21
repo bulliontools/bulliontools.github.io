@@ -490,7 +490,7 @@ th {
   <div class="modal-card">
     <h2 id="depositModalTitle" class="modal-title">Deposit HIVE for SWAP.HIVE</h2>
     <p class="modal-desc">
-      Your liquid <code>SWAP.HIVE</code> balance is below the required fee. Send <code>HIVE</code> to mint <code>SWAP.HIVE</code> on Hive-Engine before continuing.
+      Your liquid <code>SWAP.HIVE</code> balance is below the required fee. Deposit <code>HIVE</code> (including the 0.75% deposit fee) to mint <code>SWAP.HIVE</code> before continuing.
     </p>
     <div class="modal-details">
       <div class="modal-row">
@@ -502,11 +502,19 @@ th {
         <strong class="warn" id="modalRequiredFee">0.00000000</strong>
       </div>
       <div class="modal-row">
+        <span>Est. SWAP.HIVE Shortfall</span>
+        <strong id="modalShortfall">0.00000000</strong>
+      </div>
+      <div class="modal-row">
+        <span>Deposit Fee (0.75%)</span>
+        <strong class="warn" id="modalDepositFee">0.000 HIVE</strong>
+      </div>
+      <div class="modal-row">
         <span>Recipient</span>
         <strong id="modalRecipient">@honey-swap</strong>
       </div>
       <div class="modal-row">
-        <span>Deposit Amount</span>
+        <span>Total Deposit Amount</span>
         <strong class="ok" id="modalDepositAmount">0.010 HIVE</strong>
       </div>
       <div>
@@ -525,6 +533,7 @@ th {
 const FEE_ACCOUNT_1 = "bulliontools";
 const FEE_ACCOUNT_2 = "nectarbytes";
 const SPLIT_FEE_RATE = 0.01;
+const DEPOSIT_FEE_RATE = 0.0075;
 const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const ENGINE_DEPOSIT_ACCOUNT = "honey-swap";
@@ -553,7 +562,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-function promptDepositConfirmation({ availableSwapHive, totalFee, depositAmountStr }) {
+function promptDepositConfirmation({ availableSwapHive, totalFee, shortfall, depositFeeHive, depositAmountStr }) {
   return new Promise((resolve) => {
     const modal = $("depositModal");
     const confirmBtn = $("confirmDepositBtn");
@@ -561,6 +570,8 @@ function promptDepositConfirmation({ availableSwapHive, totalFee, depositAmountS
 
     $("modalCurrentSwapHive").textContent = `${fmt8(availableSwapHive)} SWAP.HIVE`;
     $("modalRequiredFee").textContent = `${fmt8(totalFee)} SWAP.HIVE`;
+    $("modalShortfall").textContent = `${fmt8(shortfall)} SWAP.HIVE`;
+    $("modalDepositFee").textContent = `${depositFeeHive} HIVE`;
     $("modalRecipient").textContent = `@${ENGINE_DEPOSIT_ACCOUNT}`;
     $("modalDepositAmount").textContent = `${depositAmountStr} HIVE`;
     $("modalDepositMemo").textContent = HIVE_PEGGED_BUY_MEMO;
@@ -1185,11 +1196,16 @@ async function executeBatchSell() {
     } catch (_) {}
 
     if (availableSwapHive + 1e-12 < totalFee) {
-      const shortfall = Math.max(0.001, Number((totalFee - availableSwapHive).toFixed(3)));
-      const depositAmountStr = Math.max(0.01, shortfall).toFixed(3);
+      const shortfall = Math.max(0.001, totalFee - availableSwapHive);
+      const grossHiveNeeded = shortfall / (1 - DEPOSIT_FEE_RATE);
+      const depositAmountStr = Math.max(0.01, Math.ceil(grossHiveNeeded * 1000) / 1000).toFixed(3);
+      const depositFeeHive = (Number(depositAmountStr) * DEPOSIT_FEE_RATE).toFixed(3);
+
       const wantsDeposit = await promptDepositConfirmation({
         availableSwapHive,
         totalFee,
+        shortfall,
+        depositFeeHive,
         depositAmountStr
       });
 
