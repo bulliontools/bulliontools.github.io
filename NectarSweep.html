@@ -484,6 +484,13 @@ function fmtPrec(num, prec) {
   return Number(num || 0).toFixed(p);
 }
 
+function toFixedSafe(val, decimals) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return null;
+  const d = Math.max(0, Math.min(8, Number.isFinite(Number(decimals)) ? Number(decimals) : 8));
+  return n.toFixed(d);
+}
+
 function calcSplitFees(gross) {
   if (isFeeWaived() || gross <= 0) {
     return { share1: 0, share2: 0, totalFee: 0 };
@@ -807,16 +814,24 @@ function executeBatchSell() {
   let totalGross = 0;
 
   for (const r of selectedRows) {
-    const qtyStr = r.balance.toFixed(r.precision);
-    const priceStr = (r.topBid * discount).toFixed(8);
-    if (parseFloat(qtyStr) <= 0 || parseFloat(priceStr) <= 0) continue;
+    const qtyNum = Number(r.balance);
+    const priceNum = Number(r.topBid) * discount;
+    if (!Number.isFinite(qtyNum) || qtyNum <= 0 || !Number.isFinite(priceNum) || priceNum <= 0) {
+      continue;
+    }
 
-    totalGross += parseFloat(qtyStr) * parseFloat(priceStr);
+    const qtyStr = toFixedSafe(qtyNum, r.precision);
+    const priceStr = toFixedSafe(priceNum, 8);
+    if (!qtyStr || !priceStr || Number(qtyStr) <= 0 || Number(priceStr) <= 0) {
+      continue;
+    }
+
+    totalGross += Number(qtyStr) * Number(priceStr);
     ops.push({
       contractName: "market",
       contractAction: "sell",
       contractPayload: {
-        symbol: r.symbol,
+        symbol: String(r.symbol).toUpperCase(),
         quantity: qtyStr,
         price: priceStr
       }
