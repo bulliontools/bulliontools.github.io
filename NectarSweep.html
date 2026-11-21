@@ -98,7 +98,7 @@ body {
 header {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
   gap: 12px;
   margin-bottom: 18px;
@@ -107,6 +107,7 @@ header {
 .header-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   align-items: center;
 }
@@ -209,6 +210,19 @@ button.primary:hover:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
+.waiver-banner {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 0.88rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -305,6 +319,11 @@ th {
       <button id="clearAllBtn" type="button" disabled>Clear Selection</button>
     </div>
 
+    <div class="waiver-banner">
+      <span><strong>ELIXIR Staked:</strong> <span id="stakedElixirVal">0.00000000</span> / 100.00000000 required for fee waiver</span>
+      <span id="feeWaiverBadge" class="warn">2% FEE ACTIVE</span>
+    </div>
+
     <div class="summary-grid">
       <div class="stat">
         <div class="stat-label">SWAP.HIVE Balance</div>
@@ -315,7 +334,7 @@ th {
         <div class="stat-val" id="estGross">0.00000000</div>
       </div>
       <div class="stat">
-        <div class="stat-label">2% Fee (1% <span id="feeAcc1Label"></span> + 1% <span id="feeAcc2Label"></span>)</div>
+        <div class="stat-label" id="feeStatLabel">2% Fee (1% <span id="feeAcc1Label"></span> + 1% <span id="feeAcc2Label"></span>)</div>
         <div class="stat-val warn" id="estFee">0.00000000</div>
       </div>
       <div class="stat">
@@ -326,12 +345,12 @@ th {
 
     <div class="row-actions">
       <button id="executeBtn" class="primary" type="button" disabled>
-        Sell Selected &amp; Send 2% Fee (1 Keychain Approval)
+        Sell Selected &amp; Broadcast (1 Keychain Approval)
       </button>
     </div>
 
     <div class="notice">
-      <strong>Fee Disclosure:</strong> Each batch includes a 2% total <code>SWAP.HIVE</code> fee split evenly—1% to <strong id="feeAcc1Notice"></strong> and 1% to <strong id="feeAcc2Notice"></strong>—bundled into the same Keychain transaction. If your current <code>SWAP.HIVE</code> balance is lower than the calculated fee and orders do not settle in the exact same block, Hive-Engine may reject the transfer ops.
+      <strong>Fee &amp; Waiver Disclosure:</strong> Standard batches include a 2% total <code>SWAP.HIVE</code> fee split evenly—1% to <strong id="feeAcc1Notice"></strong> and 1% to <strong id="feeAcc2Notice"></strong>—bundled into the same Keychain transaction. Having at least <strong>100 staked ELIXIR</strong> waives the entire fee. When active, if your current <code>SWAP.HIVE</code> balance is lower than the calculated fee and orders do not settle in the exact same block, Hive-Engine may reject the transfer ops.
     </div>
 
     <div id="statusBox" class="status">Ready. Enter a Hive username or click Connect Keychain, then click Scan Balances.</div>
@@ -363,7 +382,7 @@ th {
 const FEE_ACCOUNT_1 = "bulliontools";
 const FEE_ACCOUNT_2 = "nectarbytes";
 const SPLIT_FEE_RATE = 0.01;
-const TOTAL_FEE_RATE = SPLIT_FEE_RATE * 2;
+const STAKED_ELIXIR_WAIVER_THRESHOLD = 100;
 const ENGINE_CHAIN_ID = "ssc-mainnet-hive";
 const THEME_STORAGE_KEY = "nectar_sweep_theme";
 
@@ -375,10 +394,15 @@ const RPC_ENDPOINTS = [
 
 const state = {
   rows: [],
-  swapHiveBalance: 0
+  swapHiveBalance: 0,
+  stakedElixir: 0
 };
 
 const $ = (id) => document.getElementById(id);
+
+function isFeeWaived() {
+  return Number(state.stakedElixir || 0) >= STAKED_ELIXIR_WAIVER_THRESHOLD;
+}
 
 function applyTheme(theme) {
   const normalized = theme === "light" ? "light" : "dark";
@@ -423,31 +447,67 @@ function fmtPrec(num, prec) {
 }
 
 function calcSplitFees(gross) {
+  if (isFeeWaived() || gross <= 0) {
+    return { share1: 0, share2: 0, totalFee: 0 };
+  }
   const share1 = Math.floor(gross * SPLIT_FEE_RATE * 1e8) / 1e8;
   const share2 = Math.floor(gross * SPLIT_FEE_RATE * 1e8) / 1e8;
   const totalFee = Number((share1 + share2).toFixed(8));
   return { share1, share2, totalFee };
 }
 
-async function rpcCall(contractOrEndpoint, payload) {
-  let lastErr;
+function updateWaiverUI() {
+  const waived = isFeeWaived();
+  $("stakedElixirVal").textContent = fmt8(state.stakedElixir);
+  const badge = $("feeWaiverBadge");
+  if (waived) {
+    badge.textContent = "FEE WAIVED (100+ STAKED ELIXIR)";
+    badge.className = "ok";
+    $("estFee").className = "stat-val ok";
+  } else {
+    badge.textContent = "2% FEE ACTIVE";
+    badge.className = "warn";
+    $("estFee").className = "stat-val warn";
+  }
+}
+
+function buildRpcUrl(base, route) {
+  const cleanBase = base.replace(/\/+$/, "");
+  const cleanRoute = route.replace(/^\/+/, "");
+  if (cleanBase.endsWith("/rpc") && cleanRoute.startsWith("rpc/")) {
+    return `${cleanBase}/${cleanRoute.slice(4)}`;
+  }
+  if (!cleanBase.endsWith("/rpc") && !cleanRoute.startsWith("rpc/")) {
+    return `${cleanBase}/rpc/${cleanRoute}`;
+  }
+  return `${cleanBase}/${cleanRoute}`;
+}
+
+async function rpcCall(route, payload) {
+  const errors = [];
   for (const base of RPC_ENDPOINTS) {
-    const url = base.endsWith("/rpc") ? `${base}/${contractOrEndpoint}` : `${base}/rpc/${contractOrEndpoint}`;
+    const url = buildRpcUrl(base, route);
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        errors.push(`${url} -> HTTP ${res.status}`);
+        continue;
+      }
       const data = await res.json();
-      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-      return data.result;
+      if (data && data.error) {
+        errors.push(`${url} -> ${data.error.message || JSON.stringify(data.error)}`);
+        continue;
+      }
+      return data ? data.result : null;
     } catch (err) {
-      lastErr = err;
+      errors.push(`${url} -> ${err.message || err}`);
     }
   }
-  throw lastErr || new Error("All Hive-Engine RPC nodes failed.");
+  throw new Error(errors.join(" | ") || "All Hive-Engine RPC nodes failed.");
 }
 
 async function fetchAllBalances(account) {
@@ -512,18 +572,17 @@ async function fetchTopBuyOrder(symbol) {
   return Array.isArray(orders) && orders.length > 0 ? orders[0] : null;
 }
 
-async function fetchSwapHiveBalance(account) {
-  const res = await rpcCall("contracts", {
+async function fetchTokenBalanceRecord(account, symbol) {
+  return rpcCall("contracts", {
     jsonrpc: "2.0",
     id: 4,
     method: "findOne",
     params: {
       contract: "tokens",
       table: "balances",
-      query: { account, symbol: "SWAP.HIVE" }
+      query: { account, symbol }
     }
   });
-  return res ? parseFloat(res.balance) : 0;
 }
 
 function recalculateTotals() {
@@ -540,6 +599,7 @@ function recalculateTotals() {
     }
   }
 
+  updateWaiverUI();
   const { totalFee } = calcSplitFees(gross);
   const net = Math.max(0, gross - totalFee);
 
@@ -601,16 +661,24 @@ async function handleScan() {
   }
 
   $("loadBtn").disabled = true;
-  setStatus(`Scanning @${account}'s Hive-Engine balances and top buy orders...`);
+  setStatus(`Scanning @${account}'s Hive-Engine balances, ELIXIR stake, and top buy orders...`);
 
   try {
-    const [balances, swapHive] = await Promise.all([
+    const [balances, swapHiveRec, elixirRec] = await Promise.all([
       fetchAllBalances(account),
-      fetchSwapHiveBalance(account)
+      fetchTokenBalanceRecord(account, "SWAP.HIVE"),
+      fetchTokenBalanceRecord(account, "ELIXIR")
     ]);
 
+    const swapHive = swapHiveRec ? parseFloat(swapHiveRec.balance) || 0 : 0;
+    const stakedElixir = elixirRec
+      ? parseFloat(elixirRec.stake ?? elixirRec.stakedBalance ?? 0) || 0
+      : 0;
+
     state.swapHiveBalance = swapHive;
+    state.stakedElixir = stakedElixir;
     $("swapHiveBal").textContent = fmt8(swapHive);
+    updateWaiverUI();
 
     const symbols = balances.map((b) => b.symbol);
     const precisions = await fetchTokenPrecisions(symbols);
@@ -644,7 +712,11 @@ async function handleScan() {
     rows.sort((a, b) => a.estHive - b.estHive);
     state.rows = rows;
     recalculateTotals();
-    setStatus(`Found ${rows.length} sellable tokens with active buy orders for @${account}.`, "ok");
+
+    const waiverNote = isFeeWaived()
+      ? ` Fee waived (${fmt8(stakedElixir)} ELIXIR staked >= 100).`
+      : "";
+    setStatus(`Found ${rows.length} sellable tokens with active buy orders for @${account}.${waiverNote}`, "ok");
   } catch (err) {
     setStatus(`Scan failed: ${err.message}`, "err");
   } finally {
@@ -720,7 +792,7 @@ function executeBatchSell() {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_1,
         quantity: share1.toFixed(8),
-        memo: `1% dust sweeper fee (${ops.length} tokens)`
+        memo: `1% dust sweeper fee (${selectedRows.length} tokens)`
       }
     });
   }
@@ -732,7 +804,7 @@ function executeBatchSell() {
         symbol: "SWAP.HIVE",
         to: FEE_ACCOUNT_2,
         quantity: share2.toFixed(8),
-        memo: `1% dust sweeper fee (${ops.length} tokens)`
+        memo: `1% dust sweeper fee (${selectedRows.length} tokens)`
       }
     });
   }
@@ -740,12 +812,16 @@ function executeBatchSell() {
   $("executeBtn").disabled = true;
   setStatus("Waiting for Hive Keychain approval...");
 
+  const approvalMessage = isFeeWaived()
+    ? `Sell ${selectedRows.length} dust token(s) (Fee waived: 100+ ELIXIR staked)`
+    : `Sell ${selectedRows.length} dust token(s) + 1% to @${FEE_ACCOUNT_1} & 1% to @${FEE_ACCOUNT_2}`;
+
   window.hive_keychain.requestCustomJson(
     account,
     ENGINE_CHAIN_ID,
     "Active",
     JSON.stringify(ops),
-    `Sell ${selectedRows.length} dust token(s) + 1% to @${FEE_ACCOUNT_1} & 1% to @${FEE_ACCOUNT_2}`,
+    approvalMessage,
     (res) => {
       $("executeBtn").disabled = false;
       if (res.success) {
@@ -791,6 +867,7 @@ $("clearAllBtn").addEventListener("click", () => {
 $("executeBtn").addEventListener("click", executeBatchSell);
 
 initTheme();
+updateWaiverUI();
 </script>
 </body>
 </html>
