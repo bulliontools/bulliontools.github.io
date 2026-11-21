@@ -332,7 +332,7 @@ th {
     </div>
 
     <div class="notice">
-      <strong>Fee:</strong> 2% total in SWAP.HIVE—1% to <strong>@nectarbytes</strong> and 1% to <strong>@bulliontools</strong> (automatically waived when you have <strong>100+ staked <code>ELIXIR</code></strong>).
+      <strong>Fee:</strong> 2% total in SWAP.HIVE—1% to <strong>@nectarbytes</strong> and 1% to <strong>@bulliontools</strong> (automatically waived when you have <strong>100+ staked <code>ELIXIR</code></strong>). Bundled into the single sell prompt from fillable buy-book proceeds + existing SWAP.HIVE.
     </div>
 
     <div id="statusBox" class="status">Enter a Hive username or connect Keychain, then click "Scan All Tokens".</div>
@@ -368,8 +368,8 @@ const FEE_RECIPIENTS = [
 ];
 const ELIXIR_WAIVER_STAKE = 100;
 const THEME_KEY = "nectarseeker_theme";
-const RPC_TIMEOUT_MS = 4000;
-const CONCURRENCY = 8;
+const RPC_TIMEOUT_MS = 4500;
+const CONCURRENCY = 6;
 
 const RPC_NODES = [
   "https://api.hive-engine.com/rpc",
@@ -403,6 +403,11 @@ function fmtPrec(n, prec) {
   return Number(n || 0).toFixed(p);
 }
 
+function trimDecimalZeros(str) {
+  if (!String(str).includes(".")) return String(str);
+  return String(str).replace(/\.?0+$/, "");
+}
+
 function floorToPrecision(num, prec) {
   const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
   const scale = Math.pow(10, p);
@@ -410,15 +415,25 @@ function floorToPrecision(num, prec) {
 }
 
 function formatQtyForContract(rawBalStr, prec) {
-  const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
+  const p = Math.max(0, Math.min(8, Number(prec)));
+  if (!Number.isInteger(p) || p < 0 || p > 8) return "0";
   const match = String(rawBalStr ?? "0").trim().match(/^(\d+)(?:\.(\d+))?$/);
   if (!match) {
-    return floorToPrecision(Number(rawBalStr || 0), p).toFixed(p);
+    const floored = floorToPrecision(Number(rawBalStr || 0), p);
+    return trimDecimalZeros(floored.toFixed(p));
   }
   const intPart = match[1].replace(/^0+(?=\d)/, "") || "0";
   if (p === 0) return intPart;
-  const fracPart = (match[2] || "").padEnd(p, "0").slice(0, p);
-  return `${intPart}.${fracPart}`;
+  const fracPart = (match[2] || "").slice(0, p);
+  if (!fracPart) return intPart;
+  return trimDecimalZeros(`${intPart}.${fracPart}`);
+}
+
+function formatPriceForContract(priceNum) {
+  const n = Number(priceNum || 0);
+  if (!(n > 0) || !Number.isFinite(n)) return "0";
+  const floored = Math.floor(n * 1e8 + 1e-9) / 1e8;
+  return trimDecimalZeros(floored.toFixed(8));
 }
 
 function canWaiveFee() {
@@ -535,6 +550,18 @@ async function engineBlockchainCall(method, params) {
   return null;
 }
 
+async function waitForTxLogs(txId, maxAttempts = 4) {
+  if (!txId) return null;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, 3500));
+    const info = await engineBlockchainCall("getTransactionInfo", { txid: txId });
+    if (info && (info.logs || info.blockNumber)) {
+      return info;
+    }
+  }
+  return null;
+}
+
 async function poolMap(items, concurrency, fn) {
   const out = new Array(items.length);
   let i = 0;
@@ -554,7 +581,9 @@ function evaluateBuyBook(buyOrders, sellQty, ratio) {
     .sort((a, b) => Number(b.price) - Number(a.price));
 
   const topBid = bids.length ? Number(bids[0].price) : 0;
-  const sellPrice = topBid * ratio;
+  const rawLimit = topBid * ratio;
+  const sellPriceStr = formatPriceForContract(rawLimit);
+  const sellPrice = Number(sellPriceStr);
 
   let remaining = Math.max(0, Number(sellQty || 0));
   let fillableQty = 0;
@@ -575,6 +604,7 @@ function evaluateBuyBook(buyOrders, sellQty, ratio) {
   return {
     topBid,
     sellPrice,
+    sellPriceStr,
     fillableQty,
     instantHive,
     estHive: instantHive + restingHive
@@ -685,7 +715,7 @@ async function fetchAccountBalances(account) {
       params: {
         contract: "tokens",
         table: "balances",
-        query: { account, balance: { $ne: "0" } },
+        query: { account },
         limit,
         offset
       }
@@ -713,7 +743,10 @@ async function fetchPrecisions(symbols) {
     }
   });
   for (const d of defs || []) {
-    map.set(d.symbol, Number(d.precision ?? 8));
+    const p = Number(d.precision);
+    if (Number.isInteger(p) && p >= 0 && p <= 8) {
+      map.set(d.symbol, p);
+    }
   }
   return map;
 }
@@ -727,9 +760,8 @@ async function fetchBuyOrders(symbol) {
       contract: "market",
       table: "buyBook",
       query: { symbol },
-      limit: 50,
-      offset: 0,
-      indexes: [{ index: "priceDec", descending: true }]
+      limit: 200,
+      offset: 0
     }
   });
   return Array.isArray(orders) ? orders : [];
@@ -745,9 +777,8 @@ async function fetchElixirAskQuote() {
         contract: "market",
         table: "sellBook",
         query: { symbol: "ELIXIR" },
-        limit: 25,
-        offset: 0,
-        indexes: [{ index: "price", descending: false }]
+        limit: 100,
+        offset: 0
       }
     }),
     fetchPrecisions(["ELIXIR"])
@@ -757,10 +788,11 @@ async function fetchElixirAskQuote() {
     .filter((o) => Number(o?.price) > 0 && Number(o?.quantity) > 0)
     .sort((a, b) => Number(a.price) - Number(b.price));
 
-  if (!sortedAsks.length) return null;
+  const precision = precMap.get("ELIXIR");
+  if (!sortedAsks.length || precision === undefined) return null;
   return {
     price: Number(sortedAsks[0].price),
-    precision: precMap.get("ELIXIR") ?? 8
+    precision
   };
 }
 
@@ -796,19 +828,23 @@ async function scanAllTokens() {
     const maxVal = parseFloat($("maxHiveFilter").value);
 
     const bookResults = await poolMap(sellableBalances, CONCURRENCY, async (balRow) => {
+      if (!precMap.has(balRow.symbol)) return { balRow, orders: [] };
       const orders = await fetchBuyOrders(balRow.symbol).catch(() => []);
       return { balRow, orders };
     });
 
     const list = [];
     for (const { balRow, orders } of bookResults) {
+      const precision = precMap.get(balRow.symbol);
+      if (precision === undefined) continue;
+
       const rawBal = String(balRow.balance ?? "0").trim();
-      const liquidBal = parseFloat(rawBal);
+      const qtyStr = formatQtyForContract(rawBal, precision);
+      const liquidBal = Number(qtyStr);
       if (!(liquidBal > 0)) continue;
 
-      const precision = precMap.get(balRow.symbol) ?? 8;
       const ev = evaluateBuyBook(orders, liquidBal, ratio);
-      if (!(ev.topBid > 0)) continue;
+      if (!(ev.topBid > 0) || !(ev.sellPrice > 0)) continue;
 
       const passesMax = !(Number.isFinite(maxVal) && maxVal > 0) || ev.estHive <= maxVal;
       list.push({
@@ -860,6 +896,39 @@ function connectKeychain() {
   );
 }
 
+function requestCustomJsonAsync(account, jsonStr, displayName) {
+  return new Promise((resolve) => {
+    window.hive_keychain.requestCustomJson(
+      account,
+      ENGINE_CHAIN_ID,
+      "Active",
+      jsonStr,
+      displayName,
+      (res) => resolve(res)
+    );
+  });
+}
+
+function extractTxId(res) {
+  return (
+    res?.result?.id ||
+    res?.result?.tx_id ||
+    res?.data?.id ||
+    res?.data?.tx_id ||
+    ""
+  );
+}
+
+function parseContractErrors(info) {
+  if (!info || !info.logs) return [];
+  try {
+    const parsed = typeof info.logs === "string" ? JSON.parse(info.logs) : info.logs;
+    return Array.isArray(parsed?.errors) ? parsed.errors : [];
+  } catch (_) {
+    return [];
+  }
+}
+
 async function sweepSelectedTokens() {
   if (!window.hive_keychain) {
     setStatus("Hive Keychain is required to broadcast transactions.", "err");
@@ -875,7 +944,7 @@ async function sweepSelectedTokens() {
   }
 
   $("sweepAllBtn").disabled = true;
-  setStatus(`Checking fresh balances, ELIXIR stake, and buy orders for ${chosen.length} token(s)...`);
+  setStatus(`Validating live balances and buy books for ${chosen.length} token(s)...`);
 
   try {
     const [freshBalances, liveElixirQuote] = await Promise.all([
@@ -884,6 +953,7 @@ async function sweepSelectedTokens() {
     ]);
 
     const balBySymbol = new Map(freshBalances.map((b) => [b.symbol, b]));
+    const startSwapHive = parseFloat(balBySymbol.get("SWAP.HIVE")?.balance || 0);
     const elixirFresh = balBySymbol.get("ELIXIR");
     appState.elixirStake = elixirFresh ? parseFloat(elixirFresh.stake || 0) : 0;
     appState.elixirQuote = liveElixirQuote;
@@ -899,8 +969,8 @@ async function sweepSelectedTokens() {
       return { item, orders };
     });
 
-    const ops = [];
-    let totalGross = 0;
+    const batchOps = [];
+    let instantProceeds = 0;
 
     for (const { item, orders } of liveBooks) {
       const freshRow = balBySymbol.get(item.symbol);
@@ -913,44 +983,41 @@ async function sweepSelectedTokens() {
       }
 
       const ev = evaluateBuyBook(orders, qtyNum, ratio);
-      if (!(ev.topBid > 0) || !(ev.sellPrice > 0)) {
+      if (!(ev.topBid > 0) || !(Number(ev.sellPriceStr) > 0)) {
         throw new Error(`${item.symbol}: no open buy orders found.`);
       }
 
-      const priceStr = ev.sellPrice.toFixed(8);
-      if (!(Number(priceStr) > 0)) {
-        throw new Error(`${item.symbol}: invalid sell price.`);
-      }
-
-      totalGross += qtyNum * Number(priceStr);
-      ops.push({
+      instantProceeds += ev.instantHive;
+      batchOps.push({
         contractName: "market",
         contractAction: "sell",
         contractPayload: {
           symbol: item.symbol,
           quantity: qtyStr,
-          price: priceStr
+          price: ev.sellPriceStr
         }
       });
     }
 
-    if (!ops.length) {
+    if (!batchOps.length) {
       throw new Error("Nothing to sell.");
     }
 
+    // Size the fee from guaranteed fillable proceeds + existing SWAP.HIVE so the transfer won't overdraw
+    const availableForFee = Math.max(0, startSwapHive + instantProceeds);
     let feeTotal = 0;
-    if (feeOn) {
+    if (feeOn && availableForFee > 0) {
       for (const r of FEE_RECIPIENTS) {
-        const feeAmt = Math.floor(totalGross * r.rate * 1e8) / 1e8;
+        const feeAmt = Math.floor(availableForFee * r.rate * 1e8) / 1e8;
         if (feeAmt >= 0.00000001) {
           feeTotal += feeAmt;
-          ops.push({
+          batchOps.push({
             contractName: "tokens",
             contractAction: "transfer",
             contractPayload: {
               symbol: "SWAP.HIVE",
               to: r.account,
-              quantity: feeAmt.toFixed(8),
+              quantity: trimDecimalZeros(feeAmt.toFixed(8)),
               memo: `1% Nectar Sweep fee (${chosen.length} token(s))`
             }
           });
@@ -958,63 +1025,74 @@ async function sweepSelectedTokens() {
       }
     }
 
+    setStatus(
+      `Confirm in Hive Keychain (${batchOps.length} op(s): ${chosen.length} sell(s)${feeTotal > 0 ? ` + ${fmt8(feeTotal)} SWAP.HIVE fee` : ""})...`
+    );
+
+    const sellRes = await requestCustomJsonAsync(
+      account,
+      JSON.stringify(batchOps),
+      feeTotal > 0
+        ? `Nectar Sweep: sell ${chosen.length} token(s) + 2% fee`
+        : `Nectar Sweep: sell ${chosen.length} token(s)`
+    );
+
+    if (!sellRes || !sellRes.success) {
+      setStatus(`Transaction cancelled or rejected: ${sellRes?.message || "Unknown error"}`, "err");
+      $("sweepAllBtn").disabled = false;
+      return;
+    }
+
+    const sellTxId = extractTxId(sellRes);
+    setStatus(`Broadcast succeeded (TX: ${sellTxId || "submitted"}). Checking Hive-Engine execution...`, "ok");
+
+    const sellInfo = await waitForTxLogs(sellTxId, 4);
+    const sellErrors = parseContractErrors(sellInfo);
+    if (sellErrors.length) {
+      setStatus(`Hive-Engine returned contract errors in TX ${sellTxId}:\n${JSON.stringify(sellErrors)}`, "warn");
+      $("sweepAllBtn").disabled = false;
+      return;
+    }
+
     if (swapElixir && liveElixirQuote && liveElixirQuote.price > 0) {
-      const netHive = Math.max(0, totalGross - feeTotal);
-      const elixirQty = floorToPrecision(netHive / liveElixirQuote.price, liveElixirQuote.precision);
+      const postBalances = await fetchAccountBalances(account).catch(() => []);
+      const postSwapHive = parseFloat(postBalances.find((b) => b.symbol === "SWAP.HIVE")?.balance || startSwapHive);
+      const buyBudget = Math.max(0, postSwapHive - startSwapHive);
+      const elixirQty = floorToPrecision(buyBudget / liveElixirQuote.price, liveElixirQuote.precision);
       const minStep = 1 / Math.pow(10, liveElixirQuote.precision);
+
       if (elixirQty >= minStep) {
-        ops.push({
+        setStatus(`Sales & fee confirmed! Confirm ELIXIR buy (${trimDecimalZeros(elixirQty.toFixed(liveElixirQuote.precision))} ELIXIR) in Keychain...`, "ok");
+        const buyOp = {
           contractName: "market",
           contractAction: "buy",
           contractPayload: {
             symbol: "ELIXIR",
-            quantity: elixirQty.toFixed(liveElixirQuote.precision),
-            price: liveElixirQuote.price.toFixed(8)
+            quantity: trimDecimalZeros(elixirQty.toFixed(liveElixirQuote.precision)),
+            price: formatPriceForContract(liveElixirQuote.price)
           }
-        });
+        };
+        const buyRes = await requestCustomJsonAsync(
+          account,
+          JSON.stringify(buyOp),
+          "Nectar Sweep: buy ELIXIR"
+        );
+        if (!buyRes || !buyRes.success) {
+          setStatus(`Sales completed, but ELIXIR buy was cancelled: ${buyRes?.message || "Unknown error"}`, "warn");
+        } else {
+          setStatus(`Sweep & ELIXIR swap complete! Rescanning...`, "ok");
+        }
+      } else {
+        setStatus(`Sales completed, but realized SWAP.HIVE proceeds were too small to buy ELIXIR. Rescanning...`, "warn");
       }
+    } else {
+      setStatus(`Sweep complete! Sold ${chosen.length} token(s). Rescanning...`, "ok");
     }
 
-    const jsonPayload = JSON.stringify(ops);
-    setStatus(
-      `Confirm in Hive Keychain (${ops.length} operation(s), gross ${fmt8(totalGross)} SWAP.HIVE, fee ${fmt8(feeTotal)} SWAP.HIVE${swapElixir ? " + ELIXIR buy" : ""})...`
-    );
-
-    window.hive_keychain.requestCustomJson(
-      account,
-      ENGINE_CHAIN_ID,
-      "Active",
-      jsonPayload,
-      swapElixir
-        ? `Nectar Sweep: sell ${chosen.length} token(s) & buy ELIXIR`
-        : `Nectar Sweep: sell ${chosen.length} token(s)`,
-      async (res) => {
-        $("sweepAllBtn").disabled = false;
-        if (res && res.success) {
-          const txId = res.result?.id || res.data?.id || "";
-          setStatus(`Broadcast succeeded (TX: ${txId || "pending"}). Verifying on Hive-Engine...`, "ok");
-          if (txId) {
-            await new Promise((r) => setTimeout(r, 5000));
-            const info = await engineBlockchainCall("getTransactionInfo", { txid: txId });
-            if (info && info.logs) {
-              try {
-                const parsed = typeof info.logs === "string" ? JSON.parse(info.logs) : info.logs;
-                if (Array.isArray(parsed?.errors) && parsed.errors.length) {
-                  setStatus(`TX ${txId} included with Hive-Engine errors:\n${JSON.stringify(parsed.errors)}`, "warn");
-                  return;
-                }
-              } catch (_) {}
-              setStatus(`TX ${txId} confirmed on Hive-Engine (block ${info.blockNumber || "?"}). Rescanning...`, "ok");
-            }
-          }
-          scanAllTokens();
-        } else {
-          setStatus(`Keychain broadcast failed or cancelled: ${res?.message || "Unknown error"}`, "err");
-        }
-      }
-    );
+    await scanAllTokens();
   } catch (err) {
     setStatus(`Sweep stopped: ${err.message}`, "err");
+  } finally {
     $("sweepAllBtn").disabled = false;
   }
 }
