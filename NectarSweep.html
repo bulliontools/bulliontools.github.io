@@ -205,6 +205,15 @@ font-size: 0.75rem;
 color: var(--muted);
 margin-top: 4px;
 }
+.tip-toggle {
+display: inline-flex;
+align-items: center;
+gap: 5px;
+color: var(--text);
+font-size: 0.78rem;
+cursor: pointer;
+user-select: none;
+}
 .stat-val { font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
 table {
 width: 100%;
@@ -295,6 +304,10 @@ class="banner-img"
 <label class="swap-option-box" for="swapElixirCheckbox">
 <input id="swapElixirCheckbox" type="checkbox" />
 <span>Exchange sold tokens for <strong>ELIXIR</strong></span>
+</label>
+<label class="swap-option-box" for="singleSellCheckbox">
+<input id="singleSellCheckbox" type="checkbox" checked />
+<span>Send single <code>market.sell</code> object (recommended for testing)</span>
 </label>
 </div>
 
@@ -408,6 +421,10 @@ function isSwapElixirEnabled() {
 return Boolean($("swapElixirCheckbox")?.checked);
 }
 
+function isSingleSellMode() {
+return Boolean($("singleSellCheckbox")?.checked);
+}
+
 function floorPrec(num, prec) {
 const p = Math.max(0, Math.min(8, Number(prec ?? 8)));
 const factor = Math.pow(10, p);
@@ -453,12 +470,6 @@ str = maxAtPrec;
 return str;
 }
 
-/**
- * Simulates matching a limit sell of `sellQty` at minimum limit `limitPrice`
- * against open `buyBook` orders sorted from highest bid price to lowest.
- * Returns matched quantity, estimated SWAP.HIVE from matched bids, and
- * estimated total value if any remaining quantity rests at `limitPrice`.
- */
 function matchBuyBookForSell(buyOrders, sellQty, discount) {
 const validSorted = (Array.isArray(buyOrders) ? buyOrders : [])
 .filter((o) => Number(o?.price) > 0 && Number(o?.quantity) > 0)
@@ -630,12 +641,21 @@ throw new Error(errors[errors.length - 1] || "All Hive-Engine RPC nodes failed."
 
 async function fetchEngineTxInfo(txId) {
 if (!txId || txId === "(no transaction ID returned)") return null;
-return await rpcCall("blockchain", {
+const base = (state.preferredEndpoint || RPC_ENDPOINTS[0]).replace(/\/+$/, "");
+const rpcUrl = base.endsWith("/rpc") ? base : `${base}/rpc`;
+const res = await fetchWithTimeout(rpcUrl, {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({
 jsonrpc: "2.0",
 id: 99,
 method: "getTransactionInfo",
 params: { txid: txId }
+})
 });
+if (!res.ok) return null;
+const data = await res.json();
+return data?.result || null;
 }
 
 async function fetchAllBalances(account) {
@@ -966,6 +986,7 @@ async function executeBatchSell() {
   const discount = Number($("discountSelect").value);
   const selectedRows = state.rows.filter((r) => r.selected);
   const swapElixir = isSwapElixirEnabled();
+  const singleSell = isSingleSellMode();
   if (!account || selectedRows.length === 0) return;
   if (![1, 0.98, 0.95].includes(discount)) {
     setStatus("Invalid sell-speed selection. Please choose 100%, 98%, or 95%.", "err");
@@ -1033,61 +1054,61 @@ async function executeBatchSell() {
 
     if (!ops.length) throw new Error("No valid sell operations were built.");
 
-    const feeOps = [];
-    let feeTotal = 0;
-    if (feeEnabled) {
-      for (const recipient of FEE_RECIPIENTS) {
-        const amount = Math.floor(totalGross * recipient.rate * 1e8) / 1e8;
-        if (amount >= 0.00000001) {
-          feeTotal += amount;
-          feeOps.push({
-            contractName: "tokens",
-            contractAction: "transfer",
+    const useSingleObject = singleSell && ops.length === 1 && !feeEnabled && !swapElixir;
+    let payloadToSend = ops;
+
+    if (!useSingleObject) {
+      if (feeEnabled) {
+        for (const recipient of FEE_RECIPIENTS) {
+          const amount = Math.floor(totalGross * recipient.rate * 1e8) / 1e8;
+          if (amount >= 0.00000001) {
+            ops.push({
+              contractName: "tokens",
+              contractAction: "transfer",
+              contractPayload: {
+                symbol: "SWAP.HIVE",
+                to: recipient.account,
+                quantity: amount.toFixed(8),
+                memo: `1% Nectar Sweep fee (${preview.length} token(s))`
+              }
+            });
+          }
+        }
+      }
+
+      if (swapElixir && elixirQuote && elixirQuote.price > 0) {
+        const feeTotal = feeEnabled ? Math.floor(totalGross * 0.02 * 1e8) / 1e8 : 0;
+        const netProceeds = Math.max(0, totalGross - feeTotal);
+        const factor = Math.pow(10, elixirQuote.precision);
+        const buyQty = Math.floor((netProceeds / elixirQuote.price) * factor) / factor;
+        const minUnit = 1 / factor;
+        if (buyQty >= minUnit) {
+          ops.push({
+            contractName: "market",
+            contractAction: "buy",
             contractPayload: {
-              symbol: "SWAP.HIVE",
-              to: recipient.account,
-              quantity: amount.toFixed(8),
-              memo: `1% Nectar Sweep fee (${ops.length} token(s))`
+              symbol: "ELIXIR",
+              quantity: buyQty.toFixed(elixirQuote.precision),
+              price: elixirQuote.price.toFixed(8)
             }
           });
         }
       }
-      ops.push(...feeOps);
+      payloadToSend = ops;
+    } else {
+      payloadToSend = ops[0];
     }
 
-    let elixirBuyPreview = "";
-    if (swapElixir && elixirQuote && elixirQuote.price > 0) {
-      const netProceeds = Math.max(0, totalGross - feeTotal);
-      const factor = Math.pow(10, elixirQuote.precision);
-      const buyQty = Math.floor((netProceeds / elixirQuote.price) * factor) / factor;
-      const minUnit = 1 / factor;
-      if (buyQty >= minUnit) {
-        const qtyStr = buyQty.toFixed(elixirQuote.precision);
-        const priceStr = elixirQuote.price.toFixed(8);
-        ops.push({
-          contractName: "market",
-          contractAction: "buy",
-          contractPayload: {
-            symbol: "ELIXIR",
-            quantity: qtyStr,
-            price: priceStr
-          }
-        });
-        elixirBuyPreview = `\nExchange proceeds for ELIXIR: ${qtyStr} ELIXIR @ ${priceStr}`;
-      }
-    }
-
-    const actionLabel = swapElixir
-      ? `Nectar Sweep: sell ${preview.length} token(s) + buy ELIXIR`
-      : (feeEnabled
-          ? `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`
-          : `Nectar Sweep: sell ${preview.length} token(s) (fee waived)`);
-    const opsJson = JSON.stringify(ops);
-    setStatus(`Review in Hive Keychain. Sell orders${feeEnabled ? " and 1% + 1% fee transfers" : " (2% fee waived)"}${elixirBuyPreview ? " and ELIXIR buy order" : ""}:
+    const actionLabel = useSingleObject
+      ? `Sell ${preview[0].split(":")[0]}`
+      : (swapElixir
+          ? `Nectar Sweep: sell ${preview.length} token(s) + buy ELIXIR`
+          : (feeEnabled
+              ? `Nectar Sweep: sell ${preview.length} token(s) + 2% split fee`
+              : `Nectar Sweep: sell ${preview.length} token(s) (fee waived)`));
+    const opsJson = JSON.stringify(payloadToSend);
+    setStatus(`Review in Hive Keychain (${useSingleObject ? "single market.sell object" : `${ops.length} op(s)`}):
 ${preview.join("\n")}
-Fee to @nectarbytes: ${fmt8(feeOps.find(x => x.contractPayload.to === "nectarbytes")?.contractPayload.quantity || 0)} SWAP.HIVE
-Fee to @bulliontools: ${fmt8(feeOps.find(x => x.contractPayload.to === "bulliontools")?.contractPayload.quantity || 0)} SWAP.HIVE
-Total fee: ${fmt8(feeTotal)} SWAP.HIVE${elixirBuyPreview}
 Payload: ${opsJson}`);
 
     window.hive_keychain.requestCustomJson(
