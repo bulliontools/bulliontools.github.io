@@ -399,11 +399,11 @@ class="banner-img"
 </div>
 <div class="row-actions">
 <label class="swap-option-box" for="capDepthCheckbox" title="Limits each sell order to the top bid quantity so orders fill immediately instead of sitting open on the sell book">
-<input id="capDepthCheckbox" type="checkbox" checked />
+<input id="capDepthCheckbox" type="checkbox" />
 <span>Limit sells to available top-bid quantity</span>
 </label>
 <label class="swap-option-box" for="matchAllOrdersCheckbox" title="Matches your available balance across all active buy orders on the book so tokens sell off instead of capping at the top bid">
-<input id="matchAllOrdersCheckbox" type="checkbox" />
+<input id="matchAllOrdersCheckbox" type="checkbox" checked />
 <span>Match &amp; sell all available across order book</span>
 </label>
 <label class="swap-option-box" for="swapElixirCheckbox">
@@ -520,7 +520,7 @@ const MAX_CUSTOM_JSON_BYTES = 7500;
 const RPC_TIMEOUT_MS = 8000;
 const STALE_QUOTE_SECONDS = 60;
 const CONCURRENCY_LIMIT = 6;
-const BUY_BOOK_DEPTH_LIMIT = 50;
+const BUY_BOOK_DEPTH_LIMIT = 200;
 const THEME_KEY = "nectarseeker_theme";
 
 const RPC_ENDPOINTS = [
@@ -647,13 +647,18 @@ const slices = [];
 let matchedQty = 0;
 let estProceeds = 0;
 
-for (const order of orders) {
+for (let i = 0; i < orders.length; i++) {
 if (remaining <= 0) break;
+const order = orders[i];
 const orderPrice = parseFloat(order.price);
 const orderQty = Math.max(0, parseFloat(order.quantity) || 0);
 if (!(orderPrice > 0) || !(orderQty > 0)) continue;
 
-const takeQty = floorPrec(Math.min(remaining, orderQty), row.precision);
+const isLastOrder = i === orders.length - 1;
+const desiredQty = isLastOrder
+? Math.min(remaining, orderQty)
+: Math.min(remaining, orderQty);
+const takeQty = floorPrec(desiredQty, row.precision);
 if (takeQty <= 0) continue;
 
 const slicePrice = orderPrice * discount;
@@ -1067,6 +1072,7 @@ const tbody = $("tokensTbody");
 tbody.textContent = "";
 
 const filtered = state.rows.filter((r) => {
+if (matchAll) return true;
 const quote = computeRowQuote(r, discount);
 return Number.isFinite(maxDust) ? quote.estHive <= maxDust : true;
 });
@@ -1173,7 +1179,6 @@ fetchElixirQuote()
 
 state.swapHiveBalance = swapHive;
 state.elixirStake = elixirStake;
-state.elixirStake = elixirStake;
 state.elixirQuote = elixirQuote;
 $("swapHiveBal").textContent = fmt8(swapHive);
 updateFeeEligibility();
@@ -1182,7 +1187,8 @@ const symbols = balances.map((b) => b.symbol);
 const precisions = await fetchTokenPrecisions(symbols);
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
-const depthLimit = isMatchAllOrdersEnabled() ? BUY_BOOK_DEPTH_LIMIT : 1;
+const matchAll = isMatchAllOrdersEnabled();
+const depthLimit = matchAll ? BUY_BOOK_DEPTH_LIMIT : 1;
 
 const quoteResults = await mapWithConcurrency(balances, CONCURRENCY_LIMIT, async (b) => {
 const buyOrders = await fetchBuyOrders(b.symbol, depthLimit);
@@ -1220,7 +1226,7 @@ buyOrders,
 sellSlices: quote.slices,
 sellPrice: quote.sellPrice,
 estHive: est,
-selected: est > 0 && (!Number.isFinite(maxDust) || est <= maxDust)
+selected: est > 0 && (matchAll || !Number.isFinite(maxDust) || est <= maxDust)
 });
 }
 
@@ -1573,9 +1579,10 @@ recalculateTotals();
 $("selectAllBtn").addEventListener("click", () => {
 const maxDust = parseFloat($("maxDustInput").value);
 const discount = parseFloat($("discountSelect").value) || 1;
+const matchAll = isMatchAllOrdersEnabled();
 for (const r of state.rows) {
 const est = computeRowQuote(r, discount).estHive;
-if (!Number.isFinite(maxDust) || est <= maxDust) {
+if (matchAll || !Number.isFinite(maxDust) || est <= maxDust) {
 r.selected = true;
 }
 }
