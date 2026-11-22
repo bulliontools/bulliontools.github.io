@@ -462,7 +462,7 @@ th {
         <li><strong>Scan Balances:</strong> Enter a Hive username (or connect via Hive Keychain) and click <strong>Scan Balances</strong> to check your Hive-Engine tokens, <code>SWAP.HIVE</code> balance, staked <code>ELIXIR</code>, and active buy orders.</li>
         <li><strong>Filter &amp; Select:</strong> Adjust <strong>Max Token Value</strong> and <strong>Sell Price vs. Top Bid</strong>, then review the checkboxes in the table to pick which tokens to sell.</li>
         <li><strong>Cover Fees if Needed:</strong> Standard batches apply a 2% <code>SWAP.HIVE</code> fee (waived with 100+ staked <code>ELIXIR</code> unless you opt in). If your liquid <code>SWAP.HIVE</code> is short, you can send <code>HIVE</code> to <code>@honey-swap</code> to mint <code>SWAP.HIVE</code> first.</li>
-        <li><strong>Approve in Keychain &amp; Swap:</strong> Click <strong>Sell Tokens</strong>, approve the fee transfer(s) and market sell orders in Hive Keychain, and optionally swap 25%, 50%, 75%, or 100% of your <code>SWAP.HIVE</code> into <code>ELIXIR</code> afterward.</li>
+        <li><strong>Approve in Keychain &amp; Swap:</strong> Click <strong>Sell Tokens</strong>, approve the fee transfer(s) and market sell orders in Hive Keychain, and optionally swap 25%, 50%, 75%, or 100% of your newly gained <code>SWAP.HIVE</code> proceeds into <code>ELIXIR</code> afterward.</li>
       </ol>
     </div>
   </details>
@@ -530,9 +530,9 @@ th {
       <div class="swap-elixir-controls">
         <label class="opt-in-label" for="swapToElixirCheckbox">
           <input id="swapToElixirCheckbox" type="checkbox" checked />
-          Swap SWAP.HIVE to ELIXIR after selling
+          Swap gained SWAP.HIVE to ELIXIR after selling
         </label>
-        <select id="elixirSplitSelect" class="swap-split-select" aria-label="Percentage of SWAP.HIVE to swap for ELIXIR">
+        <select id="elixirSplitSelect" class="swap-split-select" aria-label="Percentage of gained SWAP.HIVE to swap for ELIXIR">
           <option value="0.25">25%</option>
           <option value="0.5">50%</option>
           <option value="0.75">75%</option>
@@ -1182,22 +1182,50 @@ function requestHiveTransferAsync(account, to, amountHiveStr, memo) {
   });
 }
 
-async function swapAvailableHiveForElixir(account, splitRatio = 1) {
-  const pct = Math.round(splitRatio * 100);
-  setStatus(`Checking updated SWAP.HIVE balance (${pct}% swap to ELIXIR)...`);
-  let latestSwapHive = 0;
+async function waitForSettledProceeds(account, baselineSwapHive, pct, maxExtraWaitMs = 9000) {
+  let latestSwapHive = baselineSwapHive;
   try {
     const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
-    latestSwapHive = rec ? parseFloat(rec.balance) || 0 : 0;
+    latestSwapHive = rec ? parseFloat(rec.balance) || 0 : baselineSwapHive;
     state.swapHiveBalance = latestSwapHive;
     $("swapHiveBal").textContent = fmt8(latestSwapHive);
   } catch (_) {
     latestSwapHive = state.swapHiveBalance;
   }
 
-  const spendHive = floorToDecimals(latestSwapHive * splitRatio, 8);
+  let gainedHive = Math.max(0, Number((latestSwapHive - baselineSwapHive).toFixed(8)));
+  const start = Date.now();
+
+  while (gainedHive <= 0 && Date.now() - start < maxExtraWaitMs) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
+      latestSwapHive = rec ? parseFloat(rec.balance) || 0 : latestSwapHive;
+      state.swapHiveBalance = latestSwapHive;
+      $("swapHiveBal").textContent = fmt8(latestSwapHive);
+      gainedHive = Math.max(0, Number((latestSwapHive - baselineSwapHive).toFixed(8)));
+      if (gainedHive > 0) break;
+      const elapsedSec = 3 + Math.round((Date.now() - start) / 1000);
+      setStatus(
+        `Waiting for side-chain sell proceeds to settle before swapping ${pct}% to ELIXIR (${elapsedSec}s elapsed)...`
+      );
+    } catch (_) {}
+  }
+
+  return { latestSwapHive, gainedHive };
+}
+
+async function swapAvailableHiveForElixir(account, splitRatio = 1, baselineSwapHive = 0) {
+  const pct = Math.round(splitRatio * 100);
+  setStatus(`Checking newly settled SWAP.HIVE proceeds (${pct}% swap to ELIXIR)...`);
+
+  const { gainedHive } = await waitForSettledProceeds(account, baselineSwapHive, pct);
+  const spendHive = floorToDecimals(gainedHive * splitRatio, 8);
   if (!(spendHive > 0)) {
-    return { status: "skipped", message: `ELIXIR swap skipped: no liquid SWAP.HIVE available for ${pct}% split.` };
+    return {
+      status: "skipped",
+      message: `ELIXIR swap skipped: no new SWAP.HIVE proceeds settled for ${pct}% split.`
+    };
   }
 
   let elixirPrec = 8;
@@ -1239,10 +1267,10 @@ async function swapAvailableHiveForElixir(account, splitRatio = 1) {
   const rawQty = spendHive / Number(priceStr);
   const qtyStr = toFixedSafe(rawQty, elixirPrec, true);
   if (!priceStr || !qtyStr) {
-    return { status: "skipped", message: `ELIXIR swap skipped: ${pct}% SWAP.HIVE allocation is too small to buy ELIXIR.` };
+    return { status: "skipped", message: `ELIXIR swap skipped: ${pct}% of gained SWAP.HIVE (${fmt8(gainedHive)}) is too small to buy ELIXIR.` };
   }
 
-  setStatus(`Broadcasting ELIXIR buy order (${qtyStr} ELIXIR @ ${priceStr} SWAP.HIVE, ${pct}% split)...`);
+  setStatus(`Broadcasting ELIXIR buy order (${qtyStr} ELIXIR @ ${priceStr} SWAP.HIVE, ${pct}% of ${fmt8(gainedHive)} gained)...`);
   const buyOp = {
     contractName: "market",
     contractAction: "buy",
@@ -1258,13 +1286,13 @@ async function swapAvailableHiveForElixir(account, splitRatio = 1) {
     ENGINE_CHAIN_ID,
     "Active",
     JSON.stringify(buyOp),
-    `Swap ${pct}% (${spendHive.toFixed(8)} SWAP.HIVE) for ${qtyStr} ELIXIR`
+    `Swap ${pct}% of gained (${spendHive.toFixed(8)} SWAP.HIVE) for ${qtyStr} ELIXIR`
   );
 
   if (res && res.success) {
     return {
       status: "ok",
-      txEntry: `Swap ${pct}% ELIXIR: ${(res.result && res.result.id) || "ok"}`
+      txEntry: `Swap ${pct}% of gained (${spendHive.toFixed(8)} SWAP.HIVE) -> ELIXIR: ${(res.result && res.result.id) || "ok"}`
     };
   }
 
@@ -1518,6 +1546,14 @@ async function executeBatchSell() {
     }
   }
 
+  let baselineSwapHive = state.swapHiveBalance;
+  try {
+    const preSellRec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
+    baselineSwapHive = preSellRec ? parseFloat(preSellRec.balance) || 0 : baselineSwapHive;
+    state.swapHiveBalance = baselineSwapHive;
+    $("swapHiveBal").textContent = fmt8(baselineSwapHive);
+  } catch (_) {}
+
   let anySellSucceeded = false;
   for (let i = 0; i < sellItems.length; i++) {
     const item = sellItems[i];
@@ -1538,9 +1574,9 @@ async function executeBatchSell() {
   }
 
   if (wantElixirSwap && anySellSucceeded) {
-    setStatus("Waiting 3 seconds for side-chain sell proceeds to settle before swapping to ELIXIR...");
+    setStatus("Waiting 3 seconds for side-chain sell proceeds to settle before swapping gained SWAP.HIVE to ELIXIR...");
     await new Promise((r) => setTimeout(r, 3000));
-    const swapResult = await swapAvailableHiveForElixir(account, elixirSplitRatio);
+    const swapResult = await swapAvailableHiveForElixir(account, elixirSplitRatio, baselineSwapHive);
     if (swapResult.status === "ok") {
       succeededTxs.push(swapResult.txEntry);
     } else if (swapResult.status === "error") {
