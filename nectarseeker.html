@@ -2987,7 +2987,7 @@
 
       var title = String(entry.title || entry.name || permlink).trim();
       var created = entry.created || entry.timestamp || entry.createdAt || '';
-      var rawTags = entry.tags || entry.json_metadata?.tags || [];
+      var rawTags = entry.tags || (entry.json_metadata && entry.json_metadata.tags) || [];
       var tagsList = Array.isArray(rawTags)
         ? rawTags
         : String(rawTags || '').split(/[,\s]+/).filter(Boolean);
@@ -3031,7 +3031,7 @@
     function fetchThreeSpeakFeedEndpoint(url) {
       if (!window.fetch) return Promise.resolve([]);
       var controller = window.AbortController ? new AbortController() : null;
-      var timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
+      var timer = controller ? setTimeout(function () { controller.abort(); }, 6500) : null;
       return fetch(url, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
@@ -3062,7 +3062,7 @@
       var obs = getConnectedUser();
       var cleanTag = String(query || '').trim().toLowerCase().replace(/^#/, '');
       var isSingleTag = /^[a-z0-9-]{2,24}$/.test(cleanTag);
-      var cacheKey = '3speak_search_pool_v1_' + windowMonths + 'm_' + (isSingleTag ? cleanTag : 'all');
+      var cacheKey = '3speak_search_pool_v2_' + windowMonths + 'm_' + (isSingleTag ? cleanTag : 'all');
 
       return loadNectarCached(cacheKey, 15 * 60 * 1000, 60 * 60 * 1000, function () {
         var windowMs = windowMonths * 30.5 * 24 * 60 * 60 * 1000;
@@ -3102,9 +3102,7 @@
         });
 
         var hiveTagFeeds = [
-          hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '3speak', limit: 20, observer: obs || '' }).catch(function () { return []; }),
-          hiveCall('bridge.get_ranked_posts', { sort: 'trending', tag: '3speak', limit: 20, observer: obs || '' }).catch(function () { return []; }),
-          hiveCall('condenser_api.get_discussions_by_created', [{ tag: '3speak', limit: 20 }]).catch(function () { return []; })
+          hiveCall('bridge.get_ranked_posts', { sort: 'created', tag: '3speak', limit: 20, observer: obs || '' }).catch(function () { return []; })
         ];
 
         if (isSingleTag && cleanTag !== '3speak' && cleanTag !== 'threespeak') {
@@ -3756,28 +3754,25 @@
         if (Object.prototype.hasOwnProperty.call(authorAffinity, name) && name) names.push({ name: name, weight: Number(authorAffinity[name]) || 0 });
       }
       names.sort(function (a, b) { return b.weight - a.weight; });
-      names = names.slice(0, 12);
-      var cacheKey = 'related-authors-v3:' + (observer || getConnectedUser() || 'anon') + ':' + names.map(function (x) { return x.name; }).join(',');
+      names = names.slice(0, 8);
+      var cacheKey = 'related-authors-v4:' + (observer || getConnectedUser() || 'anon') + ':' + names.map(function (x) { return x.name; }).join(',');
       return loadNectarCached(cacheKey, 30 * 60 * 1000, 2 * 60 * 60 * 1000, function () {
         var collected = [];
         var index = 0;
-        var batchSize = 12;
+        var batchSize = 8;
         function nextBatch() {
           if (index >= names.length) return Promise.resolve(collected);
           var batch = names.slice(index, index + batchSize);
           index += batchSize;
           return Promise.all(batch.map(function (entry) {
             var obs = observer || getConnectedUser() || '';
-            return hiveCall('bridge.get_account_posts', { sort: 'blog', account: entry.name, limit: 8, observer: obs })
+            return hiveCall('bridge.get_account_posts', { sort: 'blog', account: entry.name, limit: 6, observer: obs })
               .then(function (posts) {
                 if (Array.isArray(posts) && posts.length > 0) return posts;
-                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: obs })
+                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 6, observer: obs })
                   .catch(function () { return []; });
               })
-              .catch(function () {
-                return hiveCall('bridge.get_account_posts', { sort: 'posts', account: entry.name, limit: 8, observer: obs })
-                  .catch(function () { return []; });
-              });
+              .catch(function () { return []; });
           })).then(function (groups) {
             for (var g = 0; g < groups.length; g++) {
               var posts = groups[g] || [];
@@ -3808,15 +3803,18 @@
       return merged;
     }
 
-    function fetchUserBehaviorProfile(username, idfMap, ownPosts, months, includeVotes) {
+    function fetchUserBehaviorProfile(username, idfMap, ownPosts, months, includeVotes, prefetchedHistory) {
       if (!username) return Promise.resolve(null);
       var m = months || 24;
       var withVotes = includeVotes !== false;
       var terms = Object.keys(idfMap || {});
       var corpusKey = terms.length + ':' + (terms[0] || '') + ':' + (terms[terms.length - 1] || '');
-      var cacheKey = 'behavior-profile-v4:' + username + ':' + m + ':' + (withVotes ? 'votes' : 'novotes') + ':' + corpusKey;
+      var cacheKey = 'behavior-profile-v5:' + username + ':' + m + ':' + (withVotes ? 'votes' : 'novotes') + ':' + corpusKey;
       return loadNectarCached(cacheKey, 20 * 60 * 1000, 60 * 60 * 1000, function () {
-        return getAccountHistory(username, m, { includeVotes: withVotes }).then(function (history) {
+        var historyPromise = prefetchedHistory
+          ? Promise.resolve(prefetchedHistory)
+          : getAccountHistory(username, m, { includeVotes: withVotes });
+        return historyPromise.then(function (history) {
           history = history || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {} };
           return Promise.all([
             fetchSeedPosts(history.seeds || [], history.skipKeys || {}),
@@ -3854,7 +3852,7 @@
         if (window.fetch) {
           var controller = window.AbortController ? new AbortController() : null;
           var startedAt = Date.now();
-          var timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
+          var timer = controller ? setTimeout(function () { controller.abort(); }, 7500) : null;
           return fetch(node, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3884,7 +3882,7 @@
           var xhr = new XMLHttpRequest();
           xhr.open('POST', node, true);
           var startedAt = Date.now();
-          xhr.timeout = 3500;
+          xhr.timeout = 7500;
           xhr.setRequestHeader('Content-Type', 'application/json');
           xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) return;
@@ -4040,7 +4038,7 @@
       var skipKeys = {};
       var weightedSeeds = {};
       var page = 0;
-      var maxPages = months > 6 ? 40 : 10;
+      var maxPages = months > 6 ? 14 : 6;
       var negativeSeeds = {};
       var commentTexts = [];
       var authorAffinity = {};
@@ -4184,9 +4182,9 @@
           return (Date.parse((b.timestamp || '') + 'Z') || 0) - (Date.parse((a.timestamp || '') + 'Z') || 0);
         });
         return {
-          seeds: list.slice(0, months > 6 ? 100 : 30),
-          negativeSeeds: negativeList.slice(0, months > 6 ? 35 : 12),
-          commentTexts: commentTexts.slice(0, months > 6 ? 250 : 60),
+          seeds: list.slice(0, months > 6 ? 40 : 20),
+          negativeSeeds: negativeList.slice(0, months > 6 ? 12 : 8),
+          commentTexts: commentTexts.slice(0, months > 6 ? 75 : 35),
           authorAffinity: authorAffinity,
           skipKeys: skipKeys
         };
@@ -4198,7 +4196,7 @@
     function fetchSeedPosts(seeds, skipKeys) {
       var results = [];
       var idx = 0;
-      var batchSize = 25;
+      var batchSize = 16;
 
       function nextBatch() {
         if (idx >= seeds.length) return Promise.resolve(results);
@@ -4264,12 +4262,9 @@
     function fetchAllFrontendsPool(observer) {
       var obs = observer || getConnectedUser();
       return Promise.all([
-        hiveCall('condenser_api.get_discussions_by_created', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
-        hiveCall('condenser_api.get_discussions_by_trending', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
-        hiveCall('condenser_api.get_discussions_by_hot', [{ tag: '', limit: 20 }]).catch(function () { return []; }),
-        fetchPaginatedRanked('created', 3, obs),
+        fetchPaginatedRanked('created', 2, obs),
         fetchPaginatedRanked('trending', 2, obs),
-        fetchPaginatedRanked('hot', 2, obs)
+        fetchPaginatedRanked('hot', 1, obs)
       ]).then(function (groups) {
         var map = {};
         var list = [];
@@ -4290,12 +4285,12 @@
       });
     }
 
-    function fetchSearchPool(months, query) {
+    function fetchSearchPool(months, query, seedPool) {
       var windowMonths = months || 24;
       var obs = getConnectedUser();
       var cleanTag = String(query || '').trim().toLowerCase().replace(/^#/, '');
       var isSingleTag = /^[a-z0-9-]{2,24}$/.test(cleanTag);
-      var cachedKey = 'global_search_pool_v6_' + windowMonths + 'm_' + (isSingleTag ? cleanTag + '_' : '') + (obs || 'anon');
+      var cachedKey = 'global_search_pool_v7_' + windowMonths + 'm_' + (isSingleTag ? cleanTag + '_' : '') + (obs || 'anon');
 
       return loadNectarCached(cachedKey, 15 * 60 * 1000, 60 * 60 * 1000, function () {
         var windowMs = windowMonths * 30.5 * 24 * 60 * 60 * 1000;
@@ -4306,7 +4301,7 @@
         var startPermlink = '';
         var page = 0;
         var requestedLimit = 20;
-        var maxPages = windowMonths <= 6 ? 4 : 6;
+        var maxPages = windowMonths <= 6 ? 3 : 5;
 
         function addPosts(posts) {
           var reachedCutoff = false;
@@ -4321,6 +4316,10 @@
             if (!map[key]) { map[key] = true; collected.push(p); }
           }
           return reachedCutoff;
+        }
+
+        if (Array.isArray(seedPool) && seedPool.length > 0) {
+          addPosts(seedPool);
         }
 
         var tagPromise = isSingleTag
@@ -5325,8 +5324,8 @@
         html += '<div class="card-footer">';
         html += '<span class="keywords">' + escapeHtml(kwText) + '</span>';
         html += '<div class="actions-right">';
-        html += '<button type="button" class="vote-btn up' + (isLiked ? ' active' : '') + '" onclick="learnFromCard(' + i + ', 1)" title="Show more like this">&#128077; More</button>';
-        html += '<button type="button" class="vote-btn down" onclick="learnFromCard(' + i + ', -1)" title="Show less like this">&#128078; Less</button>';
+        html += '<button type="button" class="vote-btn up' + (isLiked ? ' active' : '') + '" onclick="learnFromCard(' + i + ', 1)">&#128077; More</button>';
+        html += '<button type="button" class="vote-btn down" onclick="learnFromCard(' + i + ', -1)">&#128078; Less</button>';
         html += '</div>';
         html += '</div>';
         html += '</div>';
@@ -5334,477 +5333,523 @@
 
       if (appState.results.length > items.length) {
         var remaining = appState.results.length - items.length;
-        html += '<div style="text-align:center;margin-top:16px;">';
-        html += '<button type="button" class="kc-btn" onclick="showMoreResults()" style="padding:10px 20px;font-size:14px;">Show More (' + remaining + ' more available)</button>';
+        html += '<div style="text-align:center; margin-top:16px;">';
+        html += '<button type="button" class="primary-btn" onclick="showMoreResults()">Show More (' + remaining + ' remaining)</button>';
         html += '</div>';
       }
 
       feedEl.innerHTML = html;
     }
 
-    function runFeedMode(username, idfMap, observer) {
+    function runFeedMode(username, basePool, prefetchedHistory) {
+      var obs = getConnectedUser() || username || '';
       if (!username) {
-        return fetchAllFrontendsPool(observer).then(function (pool) {
-          var list = [];
+        setStatus('Loading trending & fresh Hive posts...', false);
+        var poolPromise = (Array.isArray(basePool) && basePool.length > 0)
+          ? Promise.resolve(basePool)
+          : fetchAllFrontendsPool(obs);
+        return poolPromise.then(function (pool) {
+          var idfMap = computeCorpusIDF(pool);
+          var taste = loadTaste();
+          var ranked = [];
           for (var i = 0; i < pool.length; i++) {
             var p = pool[i];
+            var key = p.author + '/' + p.permlink;
+            if (taste.disliked[key]) continue;
             var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-            var ts = p.created ? Date.parse(p.created + 'Z') : 0;
-            var baseScore = (ts / 1e13) + (i < 20 ? 0.2 : 0);
-            list.push({
+            var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var baseScore = (pool.length - i) / Math.max(1, pool.length);
+            var finalScore = applyTasteAdjustment(baseScore, tokens);
+            ranked.push({
               post: p,
               tokens: tokens,
-              timestamp: ts,
+              matched: tokens.slice(0, 4),
               baseScore: baseScore,
-              finalScore: applyTasteAdjustment(baseScore, tokens),
-              matched: []
+              finalScore: finalScore,
+              timestamp: ts,
+              isLiked: !!taste.liked[key]
             });
           }
-          return { items: list, modeLabel: 'Trending & Recent Feed' };
+          appState.results = ranked;
+          appState.visibleCount = 25;
+          rerankAndRender();
+          setStatus('Showing ' + ranked.length + ' posts. Enter a username for a personalized feed.', false);
+          resetDiscoverButtonState();
         });
       }
 
-      return Promise.all([
-        getAccountHistory(username, 24),
-        fetchAllFrontendsPool(observer)
-      ]).then(function (res) {
-        var history = res[0] || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {}, skipKeys: {} };
-        var pool = res[1] || [];
-        var seeds = history.seeds || [];
-        var negativeSeeds = history.negativeSeeds || [];
-        var skipKeys = history.skipKeys || {};
+      setStatus('Scanning @' + username + ' history (up to 24 months)...', false);
 
+      var historyPromise = prefetchedHistory
+        ? Promise.resolve(prefetchedHistory)
+        : getAccountHistory(username, 24);
+      var poolPromise = (Array.isArray(basePool) && basePool.length > 0)
+        ? Promise.resolve(basePool)
+        : fetchAllFrontendsPool(obs);
+
+      return historyPromise.then(function (history) {
+        setStatus('Fetching seed posts & candidate pool for @' + username + '...', false);
         return Promise.all([
-          fetchSeedPosts(seeds, skipKeys),
-          fetchSeedPosts(negativeSeeds, {})
-        ]).then(function (seedGroups) {
-          var seedData = seedGroups[0] || [];
-          var negSeedData = seedGroups[1] || [];
-          var profile = buildBehaviorProfile(history, seedData, negSeedData, [], idfMap);
-          var hasProfile = profile && (profile.positive.norm > 0 || profile.negative.norm > 0 || Object.keys(profile.authorAffinity).length > 0);
-          var relatedPromise = hasProfile ? fetchRelatedAuthorPosts(profile.authorAffinity, observer) : Promise.resolve([]);
+          fetchSeedPosts(history.seeds, history.skipKeys),
+          fetchSeedPosts(history.negativeSeeds || [], {}),
+          poolPromise,
+          fetchRelatedAuthorPosts(history.authorAffinity || {}, obs)
+        ]).then(function (res) {
+          var seedData = res[0];
+          var negativeSeedData = res[1] || [];
+          var pool = res[2];
+          var relatedPosts = res[3] || [];
+          var candidatePool = mergePostPools(relatedPosts, pool);
+          var idfMap = computeCorpusIDF(candidatePool);
 
-          return relatedPromise.then(function (relatedPosts) {
-            var candidatePool = mergePostPools(relatedPosts, pool);
-            var list = [];
-            for (var i = 0; i < candidatePool.length; i++) {
-              var p = candidatePool[i];
-              var key = p.author + '/' + p.permlink;
-              if (skipKeys[key] || p.author === username) continue;
-              var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-              var vec = buildVectorWithIDF(tokens, null, idfMap);
-              var ts = p.created ? Date.parse(p.created + 'Z') : 0;
-              var ageHours = Math.max(0, (Date.now() - ts) / 3600000);
-              var freshnessBoost = Math.exp(-ageHours / 96) * 0.25;
-              var sim = hasProfile ? scoreAgainstBehaviorProfile(p, profile, idfMap, vec) : { score: 0, matched: [] };
-              var baseScore = sim.score + freshnessBoost;
-
-              list.push({
-                post: p,
-                tokens: tokens,
-                timestamp: ts,
-                baseScore: baseScore,
-                finalScore: applyTasteAdjustment(baseScore, tokens),
-                matched: sim.matched,
-                personalized: hasProfile
-              });
+          var behaviorProfile = buildBehaviorProfile(history, seedData, negativeSeedData, [], idfMap);
+          var interestWeights = {};
+          for (var term in (behaviorProfile.positive && behaviorProfile.positive.vec) || {}) {
+            if (Object.prototype.hasOwnProperty.call(behaviorProfile.positive.vec, term) && !STOP_WORDS[term]) {
+              interestWeights[term] = behaviorProfile.positive.vec[term];
             }
+          }
 
-            if (list.length === 0) {
-              for (var j = 0; j < pool.length; j++) {
-                var p2 = pool[j];
-                var tokens2 = tokenize((p2.title || '') + ' ' + (p2.body || ''));
-                var ts2 = p2.created ? Date.parse(p2.created + 'Z') : 0;
-                var baseScore2 = ts2 / 1e13;
-                list.push({
-                  post: p2,
-                  tokens: tokens2,
-                  timestamp: ts2,
-                  baseScore: baseScore2,
-                  finalScore: applyTasteAdjustment(baseScore2, tokens2),
-                  matched: [],
-                  personalized: false
-                });
+          var posVector = behaviorProfile.positive;
+          var negVector = behaviorProfile.negative;
+          var taste = loadTaste();
+          var ranked = [];
+          var filteredOutByVote = 0;
+
+          for (var i = 0; i < candidatePool.length; i++) {
+            var p = candidatePool[i];
+            if (!p || !p.author || !p.permlink) continue;
+            if (p.author === username) continue;
+            var key = p.author + '/' + p.permlink;
+            if (history.skipKeys[key]) {
+              filteredOutByVote++;
+              continue;
+            }
+            if (hasVoted(p, username)) {
+              filteredOutByVote++;
+              continue;
+            }
+            if (taste.disliked[key]) continue;
+
+            var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
+            var postVec = buildVectorWithIDF(tokens, interestWeights, idfMap);
+            var posSim = cosineSim(posVector, postVec);
+            var negSim = cosineSim(negVector, postVec);
+            var behaviorMatch = scoreAgainstBehaviorProfile(p, behaviorProfile, idfMap, postVec);
+            var rawSim = Math.max(0, (posSim.score * 0.75 + behaviorMatch.score * 0.25) - (negSim.score * 0.20));
+            var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var ageDays = ts ? Math.max(0, (Date.now() - ts) / 86400000) : 30;
+            var freshness = Math.exp(-ageDays / 14);
+            var baseScore = (rawSim * 0.85) + (freshness * 0.15);
+            var finalScore = applyTasteAdjustment(baseScore, tokens);
+
+            var matchedList = posSim.matched.slice(0);
+            for (var bi = 0; bi < behaviorMatch.matched.length; bi++) {
+              if (matchedList.indexOf(behaviorMatch.matched[bi]) === -1 && matchedList.length < 5) {
+                matchedList.push(behaviorMatch.matched[bi]);
               }
             }
 
-            return { items: list, modeLabel: 'Feed for @' + username };
-          });
+            ranked.push({
+              post: p,
+              tokens: tokens,
+              matched: matchedList,
+              baseScore: baseScore,
+              finalScore: finalScore,
+              timestamp: ts,
+              isLiked: !!taste.liked[key],
+              personalized: true
+            });
+          }
+
+          appState.results = ranked;
+          appState.visibleCount = 25;
+          rerankAndRender();
+          var msg = 'Found ' + ranked.length + ' unread recommendations for @' + username + '.';
+          if (filteredOutByVote > 0) {
+            msg += ' (' + filteredOutByVote + ' already-interacted posts excluded)';
+          }
+          setStatus(msg, false);
+          resetDiscoverButtonState();
         });
+      }).catch(function (err) {
+        setStatus('Feed error: ' + (err && err.message ? err.message : err), true);
+        resetDiscoverButtonState();
       });
     }
 
-    function runUserMode(username, idfMap, observer) {
-      var obs = observer || getConnectedUser() || '';
-      var authPosts = [];
-      var authMap = {};
+    function runUserMode(username, basePool) {
+      var obs = getConnectedUser() || username || '';
+      setStatus('Loading @' + username + ' authored posts & activity...', false);
 
-      function collectAuthPosts(sortName) {
-        return hiveCall('bridge.get_account_posts', { sort: sortName, account: username, limit: 20, observer: obs })
-          .then(function (posts) {
-            if (Array.isArray(posts)) {
-              for (var i = 0; i < posts.length; i++) {
-                var p = posts[i];
-                if (!p || !p.author || !p.permlink) continue;
-                if (p.parent_author) continue;
-                var key = p.author + '/' + p.permlink;
-                if (!authMap[key]) {
-                  authMap[key] = true;
-                  authPosts.push(p);
-                }
-              }
-            }
-          })
-          .catch(function () {});
-      }
+      var historyPromise = getAccountHistory(username, 24);
+      var poolPromise = (Array.isArray(basePool) && basePool.length > 0)
+        ? Promise.resolve(basePool)
+        : fetchAllFrontendsPool(obs);
 
-      return Promise.all([
-        collectAuthPosts('blog'),
-        collectAuthPosts('posts'),
-        getAccountHistory(username, 12),
-        fetchAllFrontendsPool(obs)
-      ]).then(function (res) {
-        var history = res[2] || { seeds: [], negativeSeeds: [], commentTexts: [], authorAffinity: {}, skipKeys: {} };
-        var pool = res[3] || [];
-        var seeds = history.seeds || [];
-        var negativeSeeds = history.negativeSeeds || [];
-        var skipKeys = history.skipKeys || {};
+      var userPostsPromise = hiveCall('bridge.get_account_posts', {
+        sort: 'posts',
+        account: username,
+        limit: 20,
+        observer: obs
+      }).catch(function () { return []; });
+
+      return Promise.all([userPostsPromise, historyPromise, poolPromise]).then(function (res) {
+        var authored = Array.isArray(res[0]) ? res[0] : [];
+        var history = res[1];
+        var pool = res[2];
 
         return Promise.all([
-          fetchSeedPosts(seeds, skipKeys),
-          fetchSeedPosts(negativeSeeds, {})
-        ]).then(function (seedGroups) {
-          var seedData = seedGroups[0] || [];
-          var negSeedData = seedGroups[1] || [];
-          var profile = buildBehaviorProfile(history, seedData, negSeedData, authPosts, idfMap);
-          var hasProfile = profile && (profile.positive.norm > 0 || profile.negative.norm > 0 || Object.keys(profile.authorAffinity).length > 0);
-          var relatedPromise = hasProfile ? fetchRelatedAuthorPosts(profile.authorAffinity, obs) : Promise.resolve([]);
+          fetchSeedPosts(history.seeds, history.skipKeys),
+          fetchSeedPosts(history.negativeSeeds || [], {}),
+          fetchRelatedAuthorPosts(history.authorAffinity || {}, obs)
+        ]).then(function (seedRes) {
+          var seedData = seedRes[0];
+          var negativeSeedData = seedRes[1] || [];
+          var relatedPosts = seedRes[2] || [];
+          var candidatePool = mergePostPools(relatedPosts, pool);
+          var idfMap = computeCorpusIDF(candidatePool);
 
-          return relatedPromise.then(function (relatedPosts) {
-            var list = [];
+          var behaviorProfile = buildBehaviorProfile(history, seedData, negativeSeedData, authored, idfMap);
+          var interestWeights = {};
+          for (var term in (behaviorProfile.positive && behaviorProfile.positive.vec) || {}) {
+            if (Object.prototype.hasOwnProperty.call(behaviorProfile.positive.vec, term) && !STOP_WORDS[term]) {
+              interestWeights[term] = behaviorProfile.positive.vec[term];
+            }
+          }
 
-            for (var a = 0; a < authPosts.length; a++) {
-              var ap = authPosts[a];
-              var aTokens = tokenize((ap.title || '') + ' ' + (ap.body || ''));
-              var aTs = ap.created ? Date.parse(ap.created + 'Z') : 0;
-              var aBase = 10.0 + (aTs / 1e14);
-              list.push({
-                post: ap,
-                tokens: aTokens,
-                timestamp: aTs,
-                baseScore: aBase,
-                finalScore: applyTasteAdjustment(aBase, aTokens),
-                matched: ['Author: @' + username],
-                personalized: true
-              });
+          var posVector = behaviorProfile.positive;
+          var negVector = behaviorProfile.negative;
+          var taste = loadTaste();
+          var combined = [];
+          var seen = {};
+
+          for (var i = 0; i < authored.length; i++) {
+            var ap = authored[i];
+            if (!ap || !ap.author || !ap.permlink || ap.parent_author) continue;
+            var aKey = ap.author + '/' + ap.permlink;
+            if (seen[aKey] || taste.disliked[aKey]) continue;
+            seen[aKey] = true;
+            var aTokens = tokenize((ap.title || '') + ' ' + (ap.body || ''));
+            var aTs = ap.created ? (Date.parse(String(ap.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var aBase = 2.0 + (authored.length - i) * 0.01;
+            combined.push({
+              post: ap,
+              tokens: aTokens,
+              matched: ['Authored by @' + username].concat(aTokens.slice(0, 3)),
+              baseScore: aBase,
+              finalScore: applyTasteAdjustment(aBase, aTokens),
+              timestamp: aTs,
+              isLiked: !!taste.liked[aKey],
+              personalized: true
+            });
+          }
+
+          for (var j = 0; j < candidatePool.length; j++) {
+            var cp = candidatePool[j];
+            if (!cp || !cp.author || !cp.permlink || cp.parent_author) continue;
+            var cKey = cp.author + '/' + cp.permlink;
+            if (seen[cKey] || taste.disliked[cKey]) continue;
+            seen[cKey] = true;
+
+            var cTokens = tokenize((cp.title || '') + ' ' + (cp.body || ''));
+            var cVec = buildVectorWithIDF(cTokens, interestWeights, idfMap);
+            var cPosSim = cosineSim(posVector, cVec);
+            var cNegSim = cosineSim(negVector, cVec);
+            var cBehavior = scoreAgainstBehaviorProfile(cp, behaviorProfile, idfMap, cVec);
+            var cRaw = Math.max(0, (cPosSim.score * 0.75 + cBehavior.score * 0.25) - (cNegSim.score * 0.20));
+            var cTs = cp.created ? (Date.parse(String(cp.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var cAgeDays = cTs ? Math.max(0, (Date.now() - cTs) / 86400000) : 30;
+            var cBase = (cRaw * 0.85) + (Math.exp(-cAgeDays / 14) * 0.15);
+
+            var cMatched = cPosSim.matched.slice(0);
+            for (var cbi = 0; cbi < cBehavior.matched.length; cbi++) {
+              if (cMatched.indexOf(cBehavior.matched[cbi]) === -1 && cMatched.length < 5) {
+                cMatched.push(cBehavior.matched[cbi]);
+              }
             }
 
-            var candidatePool = mergePostPools(relatedPosts, pool);
-            for (var i = 0; i < candidatePool.length; i++) {
-              var p = candidatePool[i];
-              var key = p.author + '/' + p.permlink;
-              if (authMap[key] || skipKeys[key]) continue;
-              var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-              var vec = buildVectorWithIDF(tokens, null, idfMap);
-              var ts = p.created ? Date.parse(p.created + 'Z') : 0;
-              var ageHours = Math.max(0, (Date.now() - ts) / 3600000);
-              var freshnessBoost = Math.exp(-ageHours / 96) * 0.25;
-              var sim = hasProfile ? scoreAgainstBehaviorProfile(p, profile, idfMap, vec) : { score: 0, matched: [] };
-              var baseScore = sim.score + freshnessBoost;
+            combined.push({
+              post: cp,
+              tokens: cTokens,
+              matched: cMatched,
+              baseScore: cBase,
+              finalScore: applyTasteAdjustment(cBase, cTokens),
+              timestamp: cTs,
+              isLiked: !!taste.liked[cKey],
+              personalized: true
+            });
+          }
 
-              list.push({
-                post: p,
-                tokens: tokens,
-                timestamp: ts,
-                baseScore: baseScore,
-                finalScore: applyTasteAdjustment(baseScore, tokens),
-                matched: sim.matched,
-                personalized: hasProfile
-              });
-            }
-
-            return { items: list, modeLabel: '@' + username + ' & Recommendations' };
-          });
+          appState.results = combined;
+          appState.visibleCount = 25;
+          rerankAndRender();
+          setStatus('Showing ' + authored.length + ' authored posts by @' + username + ' plus ' + (combined.length - authored.length) + ' recommended posts.', false);
+          resetDiscoverButtonState();
         });
+      }).catch(function (err) {
+        setStatus('User lookup error: ' + (err && err.message ? err.message : err), true);
+        resetDiscoverButtonState();
       });
     }
 
-    function runSearchMode(query, idfMap, observer) {
-      var qLower = String(query || '').toLowerCase().trim();
+    function runSearchMode(query, basePool) {
+      var qLower = query.toLowerCase().trim();
       var qTokens = tokenize(query);
-      var obs = observer || getConnectedUser() || '';
-      var windowMonths = appState.sort === 'newest' ? 6 : 24;
-      var useVotes = !!appState.useVotingHistoryInSearch;
+      var isNewestSort = (appState.sort === 'newest');
+      var windowMonths = isNewestSort ? 6 : 24;
+      var windowLabel = isNewestSort ? 'past 6 months' : 'past 24 months';
+
+      setStatus('Searching Hive & 3Speak posts (' + windowLabel + ') for "' + query + '"...', false);
+
+      var connectedUser = getConnectedUser();
+      var behaviorProfilePromise = connectedUser
+        ? fetchUserBehaviorProfile(connectedUser, {}, [], windowMonths, !!appState.useVotingHistoryInSearch).catch(function () { return null; })
+        : Promise.resolve(null);
 
       return Promise.all([
-        fetchSearchPool(windowMonths, query),
-        obs ? fetchUserBehaviorProfile(obs, idfMap, [], windowMonths, useVotes) : Promise.resolve(null),
-        obs ? getAccountHistory(obs, windowMonths, { includeVotes: useVotes }).catch(function () { return null; }) : Promise.resolve(null)
+        fetchSearchPool(windowMonths, query, basePool),
+        behaviorProfilePromise
       ]).then(function (res) {
         var pool = res[0] || [];
-        var userProfile = res[1];
-        var userHistory = res[2];
+        var behaviorProfile = res[1] || null;
+        var idfMap = computeCorpusIDF(pool);
         var queryVec = buildExpandedSearchQueryVector(query, idfMap);
-        var list = [];
-
-        var engagedKeys = {};
-        var engagedAuthors = {};
-        if (userHistory) {
-          for (var sk in (userHistory.skipKeys || {})) {
-            if (Object.prototype.hasOwnProperty.call(userHistory.skipKeys, sk)) {
-              engagedKeys[sk] = true;
-            }
-          }
-          for (var s = 0; s < (userHistory.seeds || []).length; s++) {
-            var seedItem = userHistory.seeds[s];
-            if (seedItem && seedItem.author && seedItem.permlink) {
-              engagedKeys[seedItem.author + '/' + seedItem.permlink] = true;
-            }
-          }
-          for (var ak in (userHistory.authorAffinity || {})) {
-            if (Object.prototype.hasOwnProperty.call(userHistory.authorAffinity, ak)) {
-              engagedAuthors[ak] = userHistory.authorAffinity[ak];
-            }
-          }
-        }
+        var taste = loadTaste();
+        var scored = [];
 
         for (var i = 0; i < pool.length; i++) {
           var p = pool[i];
-          var titleLower = (p.title || '').toLowerCase();
-          var bodyLower = (p.body || '').toLowerCase();
-          var authorLower = (p.author || '').toLowerCase();
-          var metaStr = typeof p.json_metadata === 'string' ? p.json_metadata.toLowerCase() : JSON.stringify(p.json_metadata || {}).toLowerCase();
-          var tokens = tokenize((p.title || '') + ' ' + (p.body || '') + ' ' + metaStr);
+          var key = p.author + '/' + p.permlink;
+          if (taste.disliked[key]) continue;
+
+          var titleStr = String(p.title || '');
+          var bodyStr = String(p.body || '');
+          var titleLower = titleStr.toLowerCase();
+          var bodyLower = bodyStr.toLowerCase();
+          var tagsText = '';
+          try {
+            var meta = typeof p.json_metadata === 'string' ? JSON.parse(p.json_metadata) : p.json_metadata;
+            if (meta && Array.isArray(meta.tags)) tagsText = meta.tags.join(' ').toLowerCase();
+          } catch (e) {}
+
+          var exactPhrase = (titleLower.indexOf(qLower) !== -1 || bodyLower.indexOf(qLower) !== -1 || tagsText.indexOf(qLower) !== -1);
+          var titleExactPhrase = (titleLower.indexOf(qLower) !== -1);
+
+          var tokens = tokenize(titleStr + ' ' + bodyStr + ' ' + tagsText);
           var postVec = buildVectorWithIDF(tokens, null, idfMap);
           var sim = cosineSim(queryVec, postVec);
 
-          var exactPhrase = qLower.length >= 2 && (titleLower.indexOf(qLower) !== -1 || bodyLower.indexOf(qLower) !== -1 || metaStr.indexOf(qLower) !== -1);
-          var titleExactPhrase = qLower.length >= 2 && titleLower.indexOf(qLower) !== -1;
           var tokenHits = 0;
-          var titleTokenHits = 0;
-          var matchedTerms = [];
-
+          var matchedTerms = sim.matched.slice(0);
           for (var t = 0; t < qTokens.length; t++) {
             var qt = qTokens[t];
-            var inTitle = titleLower.indexOf(qt) !== -1;
-            var inBody = bodyLower.indexOf(qt) !== -1;
-            var inMeta = metaStr.indexOf(qt) !== -1;
-            var inAuthor = authorLower.indexOf(qt) !== -1;
-            if (inTitle || inBody || inMeta || inAuthor) {
+            if (titleLower.indexOf(qt) !== -1 || bodyLower.indexOf(qt) !== -1 || tagsText.indexOf(qt) !== -1) {
               tokenHits++;
-              if (inTitle) titleTokenHits++;
-              if (matchedTerms.indexOf(qt) === -1) matchedTerms.push(qt);
+              var found = false;
+              for (var m = 0; m < matchedTerms.length; m++) {
+                if (matchedTerms[m] === qt) { found = true; break; }
+              }
+              if (!found && matchedTerms.length < 5) matchedTerms.push(qt);
             }
           }
 
-          var isMatch = exactPhrase || (qTokens.length > 0 && tokenHits === qTokens.length) || sim.score >= 0.08;
-          if (!isMatch) continue;
-
-          for (var m = 0; m < sim.matched.length; m++) {
-            if (matchedTerms.indexOf(sim.matched[m]) === -1) {
-              matchedTerms.push(sim.matched[m]);
-            }
+          var relevance = sim.score;
+          if (tokenHits > 0 && qTokens.length > 0) {
+            relevance += (tokenHits / qTokens.length) * 0.35;
           }
+          if (exactPhrase) relevance += 0.45;
+          if (titleExactPhrase) relevance += 0.35;
+          if (p.isThreeSpeakVideo && (exactPhrase || tokenHits > 0)) relevance += 0.12;
 
-          var pKey = p.author + '/' + p.permlink;
-          var engagementBoost = 0;
-          if (obs) {
-            if (engagedKeys[pKey]) {
-              engagementBoost += 0.25;
-              if (matchedTerms.indexOf('Your activity') === -1) matchedTerms.push('Your activity');
-            }
-            var authAff = engagedAuthors[p.author] || 0;
-            if (authAff > 0) {
-              engagementBoost += Math.min(0.18, authAff * 0.03);
-              if (matchedTerms.indexOf('Followed/engaged author') === -1) matchedTerms.push('Followed/engaged author');
-            }
-            if (userProfile) {
-              var pSim = scoreAgainstBehaviorProfile(p, userProfile, idfMap, postVec);
-              if (pSim.score > 0) {
-                engagementBoost += pSim.score * 0.35;
+          var behaviorMatch = behaviorProfile ? scoreAgainstBehaviorProfile(p, behaviorProfile, idfMap, postVec) : { score: 0, matched: [] };
+          if ((exactPhrase || tokenHits > 0) && behaviorMatch.score > 0) {
+            relevance += behaviorMatch.score * 0.25;
+            for (var bIdx = 0; bIdx < behaviorMatch.matched.length; bIdx++) {
+              if (matchedTerms.indexOf(behaviorMatch.matched[bIdx]) === -1 && matchedTerms.length < 5) {
+                matchedTerms.push(behaviorMatch.matched[bIdx]);
               }
             }
           }
 
-          var ts = p.created ? Date.parse(p.created + 'Z') : 0;
-          var coverage = qTokens.length > 0 ? (tokenHits / qTokens.length) : (exactPhrase ? 1 : 0);
-          var titleCoverage = qTokens.length > 0 ? (titleTokenHits / qTokens.length) : (titleExactPhrase ? 1 : 0);
-          var baseScore = (exactPhrase ? 1.5 : 0) + (titleExactPhrase ? 0.6 : 0) + (coverage * 1.1) + (titleCoverage * 0.45) + sim.score + engagementBoost;
+          if (relevance <= 0 && !exactPhrase && tokenHits === 0) continue;
 
-          list.push({
+          var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+          var baseScore = relevance;
+          var finalScore = applyTasteAdjustment(baseScore, tokens);
+
+          scored.push({
             post: p,
             tokens: tokens,
-            timestamp: ts,
+            matched: matchedTerms,
             baseScore: baseScore,
-            finalScore: applyTasteAdjustment(baseScore, tokens),
-            matched: matchedTerms.slice(0, 5),
-            personalized: !!(obs && engagementBoost > 0)
+            finalScore: finalScore,
+            timestamp: ts,
+            isLiked: !!taste.liked[key],
+            personalized: !!behaviorProfile
           });
         }
 
-        var modeDesc = '"' + query + '"' + (appState.sort === 'newest' ? ' (last 6 months)' : '');
-        if (obs && !useVotes) {
-          modeDesc += ' [no voting history]';
-        }
-        return { items: list, modeLabel: modeDesc };
+        appState.results = scored;
+        appState.visibleCount = 25;
+        rerankAndRender();
+        var historyNote = connectedUser
+          ? (appState.useVotingHistoryInSearch ? ' (boosted with @' + connectedUser + ' voting history, reblogs & comments)' : ' (boosted with @' + connectedUser + ' reblogs & comments; voting history off)')
+          : '';
+        setStatus('Found ' + scored.length + ' posts in the ' + windowLabel + ' matching "' + query + '"' + historyNote + '.', false);
+        resetDiscoverButtonState();
+      }).catch(function (err) {
+        setStatus('Search error: ' + (err && err.message ? err.message : err), true);
+        resetDiscoverButtonState();
       });
     }
 
-    function runNewUsersMode(keyword, idfMap, observer) {
+    function runNewUsersMode(keyword, basePool) {
       var kwLower = String(keyword || '').toLowerCase().trim();
-      var kwTokens = tokenize(keyword);
-      var oneYearMs = 365 * 24 * 60 * 60 * 1000;
-      var now = Date.now();
-      var queryVec = kwTokens.length > 0 ? buildVectorWithIDF(kwTokens, null, idfMap) : null;
+      var kwTokens = tokenize(keyword || '');
+      var obs = getConnectedUser() || '';
 
-      return fetchAllFrontendsPool(observer).then(function (pool) {
+      setStatus('Scanning recent Hive posts for accounts joined within the last 12 months...', false);
+
+      var poolPromise = (Array.isArray(basePool) && basePool.length > 0)
+        ? Promise.resolve(basePool)
+        : fetchAllFrontendsPool(obs);
+
+      return poolPromise.then(function (pool) {
         var authors = [];
         for (var i = 0; i < pool.length; i++) {
           if (pool[i] && pool[i].author) authors.push(pool[i].author);
         }
 
         return fetchAccountsCreation(authors).then(function (createdMap) {
-          var list = [];
+          var oneYearMs = 365 * 24 * 60 * 60 * 1000;
+          var cutoff = Date.now() - oneYearMs;
+          var taste = loadTaste();
+          var matchedPosts = [];
 
-          for (var i = 0; i < pool.length; i++) {
-            var p = pool[i];
-            var accCreatedStr = createdMap[p.author];
-            if (!accCreatedStr) continue;
-            var accCreatedTs = Date.parse(accCreatedStr + 'Z');
-            if (isNaN(accCreatedTs)) continue;
-            if ((now - accCreatedTs) > oneYearMs) continue;
+          for (var j = 0; j < pool.length; j++) {
+            var p = pool[j];
+            var createdStr = createdMap[p.author];
+            if (!createdStr) continue;
+            var accTs = Date.parse(createdStr + 'Z');
+            if (isNaN(accTs) || accTs < cutoff) continue;
+
+            var key = p.author + '/' + p.permlink;
+            if (taste.disliked[key]) continue;
 
             var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-            var postVec = buildVectorWithIDF(tokens, null, idfMap);
-            var matchedTerms = ['New account'];
-            var matchBoost = 0;
+            var rel = 0.5;
+            var matchedTerms = ['New user'];
 
             if (kwLower) {
-              var titleLower = (p.title || '').toLowerCase();
-              var bodyLower = (p.body || '').toLowerCase();
-              var exact = titleLower.indexOf(kwLower) !== -1 || bodyLower.indexOf(kwLower) !== -1;
+              var tLower = (p.title || '').toLowerCase();
+              var bLower = (p.body || '').toLowerCase();
               var hits = 0;
-              for (var t = 0; t < kwTokens.length; t++) {
-                if (titleLower.indexOf(kwTokens[t]) !== -1 || bodyLower.indexOf(kwTokens[t]) !== -1) {
+              if (tLower.indexOf(kwLower) !== -1 || bLower.indexOf(kwLower) !== -1) {
+                rel += 0.6;
+                matchedTerms.push(kwLower);
+              }
+              for (var k = 0; k < kwTokens.length; k++) {
+                if (tLower.indexOf(kwTokens[k]) !== -1 || bLower.indexOf(kwTokens[k]) !== -1) {
                   hits++;
-                  matchedTerms.push(kwTokens[t]);
+                  if (matchedTerms.indexOf(kwTokens[k]) === -1 && matchedTerms.length < 5) {
+                    matchedTerms.push(kwTokens[k]);
+                  }
                 }
               }
-              var sim = queryVec ? cosineSim(queryVec, postVec) : { score: 0, matched: [] };
-              if (!exact && hits === 0 && sim.score < 0.08) continue;
-              matchBoost = (exact ? 1.0 : 0) + (hits * 0.4) + sim.score;
+              if (hits === 0 && tLower.indexOf(kwLower) === -1 && bLower.indexOf(kwLower) === -1) {
+                continue;
+              }
+              rel += hits * 0.2;
             }
 
-            var ts = p.created ? Date.parse(p.created + 'Z') : 0;
-            var baseScore = 1.0 + matchBoost + (ts / 1e14);
+            var ts = p.created ? (Date.parse(String(p.created).replace(/Z$/, '') + 'Z') || 0) : 0;
+            var finalScore = applyTasteAdjustment(rel, tokens);
 
-            list.push({
+            matchedPosts.push({
               post: p,
               tokens: tokens,
+              matched: matchedTerms,
+              baseScore: rel,
+              finalScore: finalScore,
               timestamp: ts,
-              baseScore: baseScore,
-              finalScore: applyTasteAdjustment(baseScore, tokens),
-              matched: matchedTerms.slice(0, 5)
+              isLiked: !!taste.liked[key]
             });
           }
 
-          return {
-            items: list,
-            modeLabel: kwLower ? 'New Users matching "' + keyword + '"' : 'New Users (< 12 months)'
-          };
+          appState.results = matchedPosts;
+          appState.visibleCount = 25;
+          rerankAndRender();
+          var label = kwLower ? ' matching "' + keyword + '"' : '';
+          setStatus('Found ' + matchedPosts.length + ' posts from users who joined within 12 months' + label + '.', false);
+          resetDiscoverButtonState();
         });
+      }).catch(function (err) {
+        setStatus('New users scan error: ' + (err && err.message ? err.message : err), true);
+        resetDiscoverButtonState();
       });
     }
 
     function startApp() {
       var btn = document.getElementById('runBtn');
-      if (appState.isRunning) {
-        if (btn && !btn.disabled) {
-          appState.isRunning = false;
-        } else {
-          return;
-        }
-      }
-
-      appState.isRunning = true;
-      appState.visibleCount = 25;
-
       var input = document.getElementById('queryInput');
       var rawVal = input ? input.value : '';
 
+      if (appState.isRunning) return;
+      appState.isRunning = true;
       if (btn) btn.disabled = true;
-      document.getElementById('feed').innerHTML = '';
 
-      if (discoverWatchdogTimer) clearTimeout(discoverWatchdogTimer);
+      if (discoverWatchdogTimer) {
+        clearTimeout(discoverWatchdogTimer);
+      }
       discoverWatchdogTimer = setTimeout(function () {
         if (appState.isRunning) {
           resetDiscoverButtonState();
           setStatus('Discovery timed out and reset the Discover button. Try again.', true);
         }
-      }, 20000);
+      }, 35000);
 
-      Promise.resolve()
-        .then(function () {
-          return resolveQueryMode(rawVal);
-        })
-        .then(function (resolved) {
-          var modeType = resolved.type;
-          var modeVal = resolved.value;
+      setStatus('Resolving query...', false);
 
-          if (modeType === 'feed') {
-            setStatus(modeVal ? 'Scanning @' + modeVal + ' history (up to 24 months) and building personalized feed...' : 'Loading recent & trending posts across Hive...', false);
-          } else if (modeType === 'user') {
-            setStatus('Loading posts and recommendations for @' + modeVal + '...', false);
-          } else if (modeType === 'search') {
-            setStatus('Searching Hive posts and 3Speak videos for "' + modeVal + '"...', false);
-          } else if (modeType === 'newusers') {
-            setStatus('Discovering posts from Hive accounts less than 12 months old...', false);
+      resolveQueryMode(rawVal).then(function (resolved) {
+        var obs = getConnectedUser() || (resolved.type === 'feed' || resolved.type === 'user' ? resolved.value : '');
+        var isSearchNewest = (resolved.type === 'search' && appState.sort === 'newest');
+        var poolPromise = isSearchNewest
+          ? Promise.resolve([])
+          : fetchAllFrontendsPool(obs).catch(function () { return []; });
+        var feedHistoryPromise = (resolved.type === 'feed' && resolved.value)
+          ? getAccountHistory(resolved.value, 24).catch(function () { return null; })
+          : Promise.resolve(null);
+
+        return Promise.all([poolPromise, feedHistoryPromise]).then(function (bootRes) {
+          var basePool = bootRes[0];
+          var prefetchedFeedHistory = bootRes[1];
+
+          if (resolved.type === 'feed') {
+            return runFeedMode(resolved.value, basePool, prefetchedFeedHistory);
+          } else if (resolved.type === 'user') {
+            return runUserMode(resolved.value, basePool);
+          } else if (resolved.type === 'search') {
+            return runSearchMode(resolved.value, basePool);
+          } else if (resolved.type === 'newusers') {
+            return runNewUsersMode(resolved.value, basePool);
           }
-
-          return fetchAllFrontendsPool(getConnectedUser()).then(function (pool) {
-            var safePool = Array.isArray(pool) ? pool : [];
-            var idfMap = computeCorpusIDF(safePool);
-            var obs = getConnectedUser();
-
-            if (modeType === 'feed') {
-              return runFeedMode(modeVal, idfMap, obs);
-            }
-            if (modeType === 'user') {
-              return runUserMode(modeVal, idfMap, obs);
-            }
-            if (modeType === 'search') {
-              return runSearchMode(modeVal, idfMap, obs);
-            }
-            return runNewUsersMode(modeVal, idfMap, obs);
-          });
-        })
-        .then(function (outcome) {
-          var safeOutcome = outcome || { items: [], modeLabel: 'Feed' };
-          appState.results = safeOutcome.items || [];
-          rerankAndRender();
-
-          if (appState.results.length === 0) {
-            setStatus('No matching posts found for ' + safeOutcome.modeLabel + '.', false);
-          } else {
-            setStatus('Showing ' + safeOutcome.modeLabel + ' (' + appState.results.length + ' posts ranked).', false);
-          }
-        })
-        .catch(function (err) {
-          setStatus((err && err.message) ? err.message : 'Error loading recommendations.', true);
-        })
-        .then(
-          function () { resetDiscoverButtonState(); },
-          function () { resetDiscoverButtonState(); }
-        );
+        });
+      }).catch(function (err) {
+        setStatus(err && err.message ? err.message : 'Invalid input.', true);
+        resetDiscoverButtonState();
+      });
     }
 
-    (function () {
-      var savedTheme = 'dark';
-      try { savedTheme = localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) {}
-      document.documentElement.setAttribute('data-theme', savedTheme);
-      updateThemeButton(savedTheme);
+    document.addEventListener('DOMContentLoaded', function () {
+      var initialTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+      updateThemeButton(initialTheme);
       updateSearchVotingHistoryUI();
       updatePhishingShieldUI();
+      updateTasteBanner();
+      updateKeychainUI();
+      setMode('feed');
+      syncSliders(100);
 
       var input = document.getElementById('queryInput');
       if (input) {
@@ -5815,13 +5860,14 @@
         });
       }
 
-      updateTasteBanner();
-      updateKeychainUI();
-      if (appState.phishingShieldEnabled) {
-        loadOnChainPhishingFlags();
+      var connected = getConnectedUser();
+      if (connected) {
+        setStatus('Connected as @' + connected + '. Loading your personalized feed...', false);
+        startApp();
+      } else {
+        setStatus('Ready. Enter a Hive username, click Connect Hive Keychain, or press Discover.', false);
       }
-      setMode('feed');
-    })();
+    });
   </script>
 </body>
 </html>
