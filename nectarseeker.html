@@ -1205,7 +1205,9 @@
       </div>
       <div id="profileModalActions" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;"></div>
       <div class="profile-tabs" id="profileActivityTabs">
-        <button type="button" class="profile-tab-btn active" data-tab="comments" onclick="setProfileActivityTab('comments')">Comments</button>
+        <button type="button" class="profile-tab-btn active" data-tab="all_content" onclick="setProfileActivityTab('all_content')">Comments, Replies &amp; Posts</button>
+        <button type="button" class="profile-tab-btn" data-tab="posts" onclick="setProfileActivityTab('posts')">Posts</button>
+        <button type="button" class="profile-tab-btn" data-tab="comments" onclick="setProfileActivityTab('comments')">Comments</button>
         <button type="button" class="profile-tab-btn" data-tab="replies" onclick="setProfileActivityTab('replies')">Replies</button>
         <button type="button" class="profile-tab-btn" data-tab="reblogs" onclick="setProfileActivityTab('reblogs')">Reblogs</button>
         <button type="button" class="profile-tab-btn" data-tab="wallet" onclick="setProfileActivityTab('wallet')">Wallet Transactions</button>
@@ -1356,6 +1358,7 @@
     var THEME_KEY = 'nectarseeker_theme';
     var SEARCH_VOTING_HISTORY_KEY = 'nectarseeker_search_voting_history';
     var PHISHING_SHIELD_KEY = 'nectarseeker_phishing_shield_enabled';
+    var MUTED_USERS_KEY = 'nectarseeker_muted_users_v1';
 
     var PHISHING_HP_THRESHOLD = 150000;
     var PHISHING_CUSTOM_JSON_ID = 'nectarseeker_phishing_report';
@@ -1406,6 +1409,37 @@
       return true;
     }
 
+    function loadMutedUsers() {
+      try {
+        var raw = localStorage.getItem(MUTED_USERS_KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            var cleanMap = {};
+            for (var k in parsed) {
+              if (Object.prototype.hasOwnProperty.call(parsed, k) && parsed[k]) {
+                cleanMap[stripLeadingAt(k)] = true;
+              }
+            }
+            return cleanMap;
+          }
+        }
+      } catch (e) {}
+      return {};
+    }
+
+    function saveMutedUsers(mutedMap) {
+      try {
+        localStorage.setItem(MUTED_USERS_KEY, JSON.stringify(mutedMap || {}));
+      } catch (e) {}
+    }
+
+    function isUserMuted(username) {
+      var u = stripLeadingAt(username);
+      if (!u) return false;
+      return !!(appState.mutedUsers && appState.mutedUsers[u]);
+    }
+
     var appState = {
       mode: 'feed',
       sort: 'relevant',
@@ -1420,10 +1454,11 @@
       keCache: {},
       useVotingHistoryInSearch: loadSearchVotingHistoryPref(),
       phishingShieldEnabled: loadPhishingShieldPref(),
+      mutedUsers: loadMutedUsers(),
       pendingPhishingUrl: '',
       reportContext: null,
       profileUser: '',
-      profileTab: 'comments',
+      profileTab: 'all_content',
       profileActivityData: null,
       walletTab: 'transfer',
       walletBalances: { hp: 0, hive: 0, hbd: 0, savingsHbd: 0 }
@@ -1811,7 +1846,7 @@
       return links;
     }
 
-    function openReportPhishingModal(commentKey) {
+    function openReportPhishingModal(commentKey, targetUsername) {
       var idx = appState.currentReaderIndex;
       var item = (idx !== null && idx !== undefined) ? appState.results[idx] : null;
       var modal = document.getElementById('reportPhishingModal');
@@ -1823,9 +1858,23 @@
 
       if (!modal || !urlInput || !reasonInput) return;
 
+      var cleanUser = stripLeadingAt(targetUsername || '');
       var commentObj = commentKey && commentsByKey[commentKey] ? commentsByKey[commentKey] : null;
       var defaultUrl = '';
       var links = [];
+
+      if (cleanUser) {
+        appState.reportContext = {
+          kind: 'user',
+          targetUser: cleanUser
+        };
+        defaultUrl = 'https://peakd.com/@' + encodeURIComponent(cleanUser);
+        if (detectedGroup) detectedGroup.style.display = 'none';
+        urlInput.value = defaultUrl;
+        reasonInput.value = 'Reported @' + cleanUser + ' for phishing / scam activity';
+        modal.style.display = 'flex';
+        return;
+      }
 
       if (commentObj) {
         appState.reportContext = {
@@ -1926,6 +1975,9 @@
         reason: reason || 'Suspected phishing / scam link',
         reporter: connectedUser
       };
+      if (ctx && ctx.kind === 'user' && ctx.targetUser) {
+        payloadObj.reported_user = ctx.targetUser;
+      }
       if (ctx && ctx.kind === 'comment' && ctx.author && ctx.permlink) {
         payloadObj.source_comment = ctx.author + '/' + ctx.permlink;
       }
@@ -1938,7 +1990,9 @@
         PHISHING_CUSTOM_JSON_ID,
         'Posting',
         JSON.stringify(payloadObj),
-        'Report phishing/scam: ' + host,
+        ctx && ctx.kind === 'user' && ctx.targetUser
+          ? 'Report @' + ctx.targetUser + ' for phishing/scam'
+          : 'Report phishing/scam: ' + host,
         function (res) {
           if (res && res.success) {
             closeReportPhishingModal();
@@ -1947,11 +2001,71 @@
             }
             phishingFlagsByHost[host].reporters[connectedUser] = true;
             phishingFlagsByHost[host].reason = payloadObj.reason;
-            setStatus('Phishing/scam report broadcast on-chain for ' + host + '!', false);
+            setStatus(
+              ctx && ctx.kind === 'user' && ctx.targetUser
+                ? 'Phishing/scam report broadcast on-chain against @' + ctx.targetUser + '!'
+                : 'Phishing/scam report broadcast on-chain for ' + host + '!',
+              false
+            );
           } else {
             setStatus('Phishing/scam report cancelled or failed.', true);
           }
         }
+      );
+    }
+
+    function toggleMuteUser(username) {
+      var target = stripLeadingAt(username);
+      if (!target) return;
+
+      var currentlyMuted = isUserMuted(target);
+      var nextMuted = !currentlyMuted;
+
+      if (!appState.mutedUsers || typeof appState.mutedUsers !== 'object') {
+        appState.mutedUsers = {};
+      }
+      if (nextMuted) {
+        appState.mutedUsers[target] = true;
+      } else {
+        delete appState.mutedUsers[target];
+      }
+      saveMutedUsers(appState.mutedUsers);
+
+      var connectedUser = getConnectedUser();
+      if (connectedUser && window.hive_keychain) {
+        var followJson = JSON.stringify([
+          'follow',
+          {
+            follower: connectedUser,
+            following: target,
+            what: nextMuted ? ['ignore'] : []
+          }
+        ]);
+        window.hive_keychain.requestCustomJson(
+          connectedUser,
+          'follow',
+          'Posting',
+          followJson,
+          (nextMuted ? 'Mute @' : 'Unmute @') + target,
+          function () {}
+        );
+      }
+
+      refreshProfileActions(target);
+      if (appState.results.length > 0) {
+        rerankAndRender();
+      }
+      if (appState.currentReaderIndex !== null && appState.currentReaderIndex !== undefined) {
+        var curItem = appState.results[appState.currentReaderIndex];
+        if (curItem && curItem.post) {
+          loadPostComments(curItem.post.author, curItem.post.permlink);
+        }
+      }
+      setStatus(
+        nextMuted
+          ? 'Muted/blocked @' + target + '. Their posts and comments are now hidden.'
+          : 'Unmuted @' + target + '.',
+        false
       );
     }
 
@@ -2258,32 +2372,54 @@
       return String(Math.round(out * 10) / 10);
     }
 
+    function refreshProfileActions(author) {
+      var actionsEl = document.getElementById('profileModalActions');
+      if (!actionsEl) return;
+      var connectedUser = getConnectedUser();
+      var isSelf = connectedUser && connectedUser === author;
+      var muted = isUserMuted(author);
+
+      var html =
+        '<button type="button" class="kc-btn" style="background:rgba(244,63,94,0.14); border-color:var(--hive-red); color:#ffffff;" onclick="setProfileActivityTab(\'all_content\')">📝 Comments, Replies &amp; Posts</button>' +
+        '<a class="kc-btn" style="text-decoration:none; display:inline-flex; align-items:center;" href="https://peakd.com/@' + encodeURIComponent(author) + '" target="_blank" rel="noopener noreferrer">🔗 Visit Profile (PeakD)</a>' +
+        '<button type="button" class="kc-btn" onclick="openUserInApp(\'' + escapeHtml(author) + '\')">🔍 View in NectarSeeker</button>' +
+        '<button type="button" class="phishing-danger-btn" onclick="openReportPhishingModal(\'\', \'' + escapeHtml(author) + '\')">🚨 Report User (Phishing/Scam)</button>';
+
+      if (!isSelf) {
+        html += '<button type="button" class="kc-btn" style="' +
+          (muted ? 'border-color:var(--accent-green); color:var(--accent-green);' : 'border-color:var(--accent-warn); color:var(--accent-warn);') +
+          '" onclick="toggleMuteUser(\'' + escapeHtml(author) + '\')">' +
+          (muted ? '🔊 Unmute / Unblock' : '🔇 Mute / Block') +
+          '</button>';
+      } else {
+        html += '<button type="button" class="kc-btn" onclick="closeUserProfileModal(); openWalletModal();">💼 Open Wallet</button>';
+      }
+
+      actionsEl.innerHTML = html;
+    }
+
     function openUserProfile(username) {
       var author = stripLeadingAt(username);
       if (!author) return;
       var modal = document.getElementById('userProfileModal');
       var titleEl = document.getElementById('profileModalTitle');
       var contentEl = document.getElementById('profileModalContent');
-      var actionsEl = document.getElementById('profileModalActions');
       var connectedUser = getConnectedUser();
       var isSelf = connectedUser && connectedUser === author;
 
       appState.profileUser = author;
-      appState.profileTab = 'comments';
+      appState.profileTab = 'all_content';
       appState.profileActivityData = null;
       var tabBtns = document.querySelectorAll('#profileActivityTabs .profile-tab-btn');
       for (var t = 0; t < tabBtns.length; t++) {
-        tabBtns[t].classList.toggle('active', tabBtns[t].getAttribute('data-tab') === 'comments');
+        tabBtns[t].classList.toggle('active', tabBtns[t].getAttribute('data-tab') === 'all_content');
       }
 
-      if (titleEl) titleEl.textContent = '@' + author + (isSelf ? ' (My Profile)' : ' Profile');
-      if (contentEl) contentEl.innerHTML = 'Loading profile data...';
-      if (actionsEl) {
-        actionsEl.innerHTML =
-          '<a class="kc-btn" style="text-decoration:none; display:inline-flex; align-items:center;" href="https://peakd.com/@' + encodeURIComponent(author) + '" target="_blank" rel="noopener noreferrer">🔗 Visit Profile (PeakD)</a>' +
-          '<button type="button" class="kc-btn" onclick="openUserInApp(\'' + escapeHtml(author) + '\')">🔍 View in NectarSeeker</button>' +
-          (isSelf ? '<button type="button" class="kc-btn" onclick="closeUserProfileModal(); openWalletModal();">💼 Open Wallet</button>' : '');
+      if (titleEl) {
+        titleEl.textContent = '@' + author + (isSelf ? ' (My Profile)' : ' Profile') + (isUserMuted(author) ? ' [Muted]' : '');
       }
+      if (contentEl) contentEl.innerHTML = 'Loading profile data...';
+      refreshProfileActions(author);
       if (modal) modal.style.display = 'flex';
 
       Promise.all([
@@ -2339,7 +2475,7 @@
     }
 
     function setProfileActivityTab(tabName) {
-      appState.profileTab = tabName || 'comments';
+      appState.profileTab = tabName || 'all_content';
       var btns = document.querySelectorAll('#profileActivityTabs .profile-tab-btn');
       for (var i = 0; i < btns.length; i++) {
         btns[i].classList.toggle('active', btns[i].getAttribute('data-tab') === appState.profileTab);
@@ -2349,16 +2485,19 @@
 
     function loadUserProfileActivity(username) {
       var bodyEl = document.getElementById('profileActivityBody');
-      if (bodyEl) bodyEl.innerHTML = 'Loading activity &amp; wallet transactions...';
+      if (bodyEl) bodyEl.innerHTML = 'Loading posts, comments, replies &amp; wallet transactions...';
 
       Promise.all([
         hiveCall('condenser_api.get_account_history', [username, -1, 200]).catch(function() { return []; }),
-        hiveCall('bridge.get_account_posts', { sort: 'comments', account: username, limit: 25 }).catch(function() { return []; })
+        hiveCall('bridge.get_account_posts', { sort: 'comments', account: username, limit: 25 }).catch(function() { return []; }),
+        hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 25 }).catch(function() { return []; })
       ]).then(function(res) {
         if (appState.profileUser !== username) return;
         var historyEntries = Array.isArray(res[0]) ? res[0] : [];
         var bridgeComments = Array.isArray(res[1]) ? res[1] : [];
+        var bridgePosts = Array.isArray(res[2]) ? res[2] : [];
 
+        var posts = [];
         var comments = [];
         var replies = [];
         var reblogs = [];
@@ -2366,10 +2505,24 @@
         var seenReblog = {};
         var seenWallet = {};
 
+        for (var pIdx = 0; pIdx < bridgePosts.length; pIdx++) {
+          var bp = bridgePosts[pIdx];
+          if (!bp || bp.author !== username || bp.parent_author) continue;
+          posts.push({
+            kind: 'post',
+            author: bp.author,
+            permlink: bp.permlink,
+            title: String(bp.title || '(Untitled)').trim(),
+            body: String(bp.body || '').replace(/\s+/g, ' ').trim(),
+            timestamp: bp.created || ''
+          });
+        }
+
         for (var i = 0; i < bridgeComments.length; i++) {
           var bc = bridgeComments[i];
           if (!bc || bc.author !== username) continue;
           var entryObj = {
+            kind: bc.depth && Number(bc.depth) > 1 ? 'reply' : 'comment',
             author: bc.author,
             permlink: bc.permlink,
             parent_author: bc.parent_author || '',
@@ -2400,6 +2553,7 @@
             var snippet = String(opData.body || '').replace(/\s+/g, ' ').trim();
             if (snippet) {
               var cItem = {
+                kind: 'reply',
                 author: opData.author,
                 permlink: opData.permlink || '',
                 parent_author: opData.parent_author,
@@ -2447,7 +2601,17 @@
           }
         }
 
+        var combinedContent = [];
+        for (var pi = 0; pi < posts.length; pi++) combinedContent.push(posts[pi]);
+        for (var ci = 0; ci < comments.length; ci++) combinedContent.push(comments[ci]);
+        for (var ri = 0; ri < replies.length; ri++) combinedContent.push(replies[ri]);
+        combinedContent.sort(function (a, b) {
+          return (Date.parse((b.timestamp || '') + 'Z') || 0) - (Date.parse((a.timestamp || '') + 'Z') || 0);
+        });
+
         appState.profileActivityData = {
+          all_content: combinedContent.slice(0, 45),
+          posts: posts.slice(0, 25),
           comments: comments.slice(0, 25),
           replies: replies.slice(0, 25),
           reblogs: reblogs.slice(0, 25),
@@ -2497,17 +2661,46 @@
         bodyEl.innerHTML = 'Loading activity...';
         return;
       }
-      var tab = appState.profileTab || 'comments';
+      var tab = appState.profileTab || 'all_content';
       var list = data[tab] || [];
       if (!list.length) {
-        bodyEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No ' + escapeHtml(tab) + ' found.</div>';
+        bodyEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No items found for this view.</div>';
         return;
       }
 
       var html = '';
       for (var i = 0; i < list.length; i++) {
         var row = list[i];
-        if (tab === 'comments' || tab === 'replies') {
+        if (tab === 'all_content') {
+          var ageA = formatAge(row.timestamp);
+          var linkUrlA = 'https://peakd.com/@' + encodeURIComponent(row.author) + '/' + encodeURIComponent(row.permlink);
+          var kindBadge = row.kind === 'post'
+            ? '<span class="dapp-tag">Post</span>'
+            : (row.kind === 'comment'
+              ? '<span class="dapp-tag">Comment</span>'
+              : '<span class="dapp-tag">Reply</span>');
+          var headerText = row.kind === 'post'
+            ? '<strong>' + escapeHtml(row.title || '(Untitled Post)') + '</strong>'
+            : 'Replying to <strong>@' + escapeHtml(row.parent_author || 'post') + '</strong>';
+          html += '<div class="profile-activity-item">' +
+            '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--text-muted); margin-bottom:4px;">' +
+            '<span>' + kindBadge + ' ' + headerText + (ageA ? ' · ' + escapeHtml(ageA) : '') + '</span>' +
+            '<a href="' + linkUrlA + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan);">Open</a>' +
+            '</div>' +
+            '<div>' + escapeHtml((row.body || '').slice(0, 220)) + ((row.body || '').length > 220 ? '...' : '') + '</div>' +
+            '</div>';
+        } else if (tab === 'posts') {
+          var pAge = formatAge(row.timestamp);
+          var pUrl = 'https://peakd.com/@' + encodeURIComponent(row.author) + '/' + encodeURIComponent(row.permlink);
+          html += '<div class="profile-activity-item">' +
+            '<div style="font-size:12px; color:var(--text-muted); margin-bottom:4px;">' +
+            '<strong>' + escapeHtml(row.title || '(Untitled Post)') + '</strong>' +
+            (pAge ? ' · ' + escapeHtml(pAge) : '') +
+            ' · <a href="' + pUrl + '" target="_blank" rel="noopener noreferrer" style="color:var(--accent-cyan);">Open</a>' +
+            '</div>' +
+            '<div>' + escapeHtml((row.body || '').slice(0, 220)) + ((row.body || '').length > 220 ? '...' : '') + '</div>' +
+            '</div>';
+        } else if (tab === 'comments' || tab === 'replies') {
           var age = formatAge(row.timestamp);
           var linkUrl = 'https://peakd.com/@' + encodeURIComponent(row.author) + '/' + encodeURIComponent(row.permlink);
           html += '<div class="profile-activity-item">' +
@@ -3074,6 +3267,7 @@
           for (var i = 0; i < (list || []).length; i++) {
             var item = list[i];
             if (!item || !item.author || !item.permlink || item.parent_author) continue;
+            if (isUserMuted(item.author)) continue;
             if (item.created) {
               var ts = Date.parse(String(item.created).replace(/Z$/, '') + 'Z');
               if (!isNaN(ts) && ts < cutoff) continue;
@@ -3751,7 +3945,9 @@
     function fetchRelatedAuthorPosts(authorAffinity, observer) {
       var names = [];
       for (var name in (authorAffinity || {})) {
-        if (Object.prototype.hasOwnProperty.call(authorAffinity, name) && name) names.push({ name: name, weight: Number(authorAffinity[name]) || 0 });
+        if (Object.prototype.hasOwnProperty.call(authorAffinity, name) && name && !isUserMuted(name)) {
+          names.push({ name: name, weight: Number(authorAffinity[name]) || 0 });
+        }
       }
       names.sort(function (a, b) { return b.weight - a.weight; });
       names = names.slice(0, 8);
@@ -3778,7 +3974,9 @@
               var posts = groups[g] || [];
               for (var k = 0; k < posts.length; k++) {
                 var item = posts[k];
-                if (item && item.author && item.permlink && !item.parent_author) collected.push(item);
+                if (item && item.author && item.permlink && !item.parent_author && !isUserMuted(item.author)) {
+                  collected.push(item);
+                }
               }
             }
             return nextBatch();
@@ -3795,7 +3993,7 @@
         var group = arguments[a] || [];
         for (var i = 0; i < group.length; i++) {
           var post = group[i];
-          if (!post || !post.author || !post.permlink || post.parent_author) continue;
+          if (!post || !post.author || !post.permlink || post.parent_author || isUserMuted(post.author)) continue;
           var key = post.author + '/' + post.permlink;
           if (!map[key]) { map[key] = true; merged.push(post); }
         }
@@ -4274,6 +4472,7 @@
             var p = arr[i];
             if (!p || !p.author || !p.permlink) continue;
             if (p.parent_author) continue;
+            if (isUserMuted(p.author)) continue;
             var key = p.author + '/' + p.permlink;
             if (!map[key]) {
               map[key] = true;
@@ -4308,6 +4507,7 @@
           for (var i = 0; i < posts.length; i++) {
             var p = posts[i];
             if (!p || !p.author || !p.permlink || p.parent_author) continue;
+            if (isUserMuted(p.author)) continue;
             if (p.created) {
               var ts = Date.parse(String(p.created).replace(/Z$/, '') + 'Z');
               if (!isNaN(ts) && ts < cutoff) { reachedCutoff = true; continue; }
@@ -4553,6 +4753,7 @@
 
       for (var i = 0; i < appState.results.length; i++) {
         var item = appState.results[i];
+        if (!item || !item.post || isUserMuted(item.post.author)) continue;
         var key = item.post.author + '/' + item.post.permlink;
         if (taste.disliked[key]) continue;
         item.finalScore = applyTasteAdjustment(item.baseScore, item.tokens);
@@ -4646,6 +4847,7 @@
           for (var k in discussion) {
             if (Object.prototype.hasOwnProperty.call(discussion, k) && k !== rootKey) {
               var nodeItem = discussion[k];
+              if (nodeItem && isUserMuted(nodeItem.author)) continue;
               allNodes.push(nodeItem);
               if (nodeItem && nodeItem.author && nodeItem.permlink) {
                 commentsByKey[nodeItem.author + '/' + nodeItem.permlink] = nodeItem;
@@ -4725,15 +4927,18 @@
         .catch(function () {
           hiveCall('condenser_api.get_content_replies', [author, permlink])
             .then(function (replies) {
-              if (!Array.isArray(replies) || replies.length === 0) {
+              var filteredReplies = (Array.isArray(replies) ? replies : []).filter(function (r) {
+                return r && !isUserMuted(r.author);
+              });
+              if (filteredReplies.length === 0) {
                 if (headerEl) headerEl.textContent = 'Comments (0)';
                 listEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No comments yet. Be the first to reply!</div>';
                 return;
               }
-              if (headerEl) headerEl.textContent = 'Comments (' + replies.length + ')';
+              if (headerEl) headerEl.textContent = 'Comments (' + filteredReplies.length + ')';
               var html = '';
-              for (var i = 0; i < replies.length; i++) {
-                var r = replies[i];
+              for (var i = 0; i < filteredReplies.length; i++) {
+                var r = filteredReplies[i];
                 var rKey = r.author + '/' + r.permlink;
                 commentsByKey[rKey] = r;
                 var rAge = formatAge(r.created);
@@ -5012,9 +5217,10 @@
         if (titleEl) titleEl.textContent = 'Tip Hive-Engine Token to @' + item.post.author;
         if (symbolSec) symbolSec.style.display = 'block';
         var symInput = document.getElementById('tipSymbolInput');
-        if (symInput) symInput.value = '';
+        if (symInput) symInput.value = 'LEO';
         if (amountLabel) amountLabel.textContent = 'Token Amount:';
-        if (balanceEl) balanceEl.textContent = 'Enter a token symbol and click Load Balance';
+        if (balanceEl) balanceEl.textContent = 'Available Balance: Click "Load Balance"';
+        loadTokenBalanceForModal();
       }
 
       if (modal) modal.style.display = 'flex';
@@ -5025,123 +5231,116 @@
       var symInput = document.getElementById('tipSymbolInput');
       var balanceEl = document.getElementById('tipModalBalance');
       if (!connectedUser || !symInput || !balanceEl) return;
+      var symbol = symInput.value.trim().toUpperCase();
+      if (!symbol) return;
 
-      var sym = symInput.value.trim().toUpperCase();
-      if (!sym) {
-        balanceEl.textContent = 'Please enter a token symbol first.';
-        return;
-      }
+      currentTipConfig.symbol = symbol;
+      balanceEl.textContent = 'Available Balance: Loading ' + symbol + '...';
 
-      balanceEl.textContent = 'Loading ' + sym + ' balance...';
-      fetchHiveEngineBalance(connectedUser, sym, function(balStr) {
-        balanceEl.textContent = 'Available Balance: ' + balStr + ' ' + sym;
+      fetchHiveEngineBalance(connectedUser, symbol, function(bal) {
+        balanceEl.textContent = 'Available Balance: ' + bal + ' ' + symbol;
       });
     }
 
     function closeTipModal() {
       var modal = document.getElementById('tipModal');
       if (modal) modal.style.display = 'none';
-      currentTipConfig = { type: '', author: '', permlink: '', symbol: '' };
     }
 
     function confirmTip() {
-      var currency = currentTipConfig.type;
-      var author = currentTipConfig.author;
-      var permlink = currentTipConfig.permlink;
       var connectedUser = getConnectedUser();
-
       if (!connectedUser || !window.hive_keychain) {
-        closeTipModal();
+        setStatus('Hive Keychain not connected.', true);
         return;
       }
 
+      var type = currentTipConfig.type;
+      var author = currentTipConfig.author;
+      var permlink = currentTipConfig.permlink;
+
       var amountInput = document.getElementById('tipAmountInput');
       var memoInput = document.getElementById('tipMemoInput');
+      var symInput = document.getElementById('tipSymbolInput');
+
+      var rawAmt = amountInput ? amountInput.value.trim() : '';
       var memo = memoInput ? memoInput.value.trim() : '';
 
-      if (currency === 'HIVE' || currency === 'HBD') {
-        var val = amountInput ? parseFloat(amountInput.value) : NaN;
-        if (isNaN(val) || val <= 0) {
+      if (type === 'HIVE' || type === 'HBD') {
+        var amt = parseFloat(rawAmt);
+        if (!amt || isNaN(amt) || amt <= 0) {
           alert('Please enter a valid positive amount.');
           return;
         }
-        var formattedAmount = val.toFixed(3) + ' ' + currency;
-        closeTipModal();
-
+        var formattedAmt = amt.toFixed(3) + ' ' + type;
         window.hive_keychain.requestTransfer(
           connectedUser,
           author,
-          val.toFixed(3),
+          formattedAmt,
           memo,
-          currency,
-          function (res) {
+          type,
+          function(res) {
+            closeTipModal();
             if (res && res.success) {
-              setStatus('Sent ' + formattedAmount + ' tip to @' + author + '!', false);
+              setStatus('Sent ' + formattedAmt + ' tip to @' + author + '!', false);
             } else {
-              setStatus('Transfer cancelled or failed.', true);
+              setStatus('Tip cancelled or failed.', true);
             }
           }
         );
-      } else if (currency === 'HSBI') {
-        var units = amountInput ? parseInt(amountInput.value, 10) : NaN;
-        if (isNaN(units) || units < 1) {
-          alert('Please enter at least 1 HSBI unit.');
+      } else if (type === 'HSBI') {
+        var units = parseInt(rawAmt, 10);
+        if (!units || isNaN(units) || units < 1) {
+          alert('Please enter a valid number of HSBI units (1 or more).');
           return;
         }
-        var hiveCost = units.toFixed(3);
-        var sponsorRecipient = memo || author;
-        closeTipModal();
-
+        var totalHive = (units * 1).toFixed(3) + ' HIVE';
+        var recipientMemo = memo || author;
         window.hive_keychain.requestTransfer(
           connectedUser,
           'steembasicincome',
-          hiveCost,
-          sponsorRecipient,
+          totalHive,
+          recipientMemo,
           'HIVE',
-          function (res) {
+          function(res) {
+            closeTipModal();
             if (res && res.success) {
-              setStatus('Sponsored ' + units + ' HSBI unit(s) (' + hiveCost + ' HIVE) for @' + sponsorRecipient + '!', false);
+              setStatus('Sponsored ' + units + ' HSBI unit(s) for @' + recipientMemo + '!', false);
             } else {
               setStatus('HSBI sponsorship cancelled or failed.', true);
             }
           }
         );
-      } else if (currency === 'HE') {
-        var symInput = document.getElementById('tipSymbolInput');
-        var sym = symInput ? symInput.value.trim().toUpperCase() : '';
-        var qty = amountInput ? amountInput.value.trim() : '';
-
-        if (!sym) {
+      } else if (type === 'HE') {
+        var symbol = symInput ? symInput.value.trim().toUpperCase() : '';
+        if (!symbol) {
           alert('Please enter a token symbol.');
           return;
         }
-        if (!qty || isNaN(parseFloat(qty)) || parseFloat(qty) <= 0) {
+        var qty = parseFloat(rawAmt);
+        if (!qty || isNaN(qty) || qty <= 0) {
           alert('Please enter a valid token quantity.');
           return;
         }
-
-        closeTipModal();
-
-        var heJson = JSON.stringify({
+        var jsonPayload = JSON.stringify({
           contractName: 'tokens',
           contractAction: 'transfer',
           contractPayload: {
-            symbol: sym,
+            symbol: symbol,
             to: author,
-            quantity: String(parseFloat(qty)),
+            quantity: qty.toString(),
             memo: memo
           }
         });
-
         window.hive_keychain.requestCustomJson(
           connectedUser,
           'ssc-mainnet-hive',
           'Active',
-          heJson,
-          'Tip ' + qty + ' ' + sym + ' to @' + author,
-          function (res) {
+          jsonPayload,
+          'Tip ' + qty + ' ' + symbol + ' to @' + author,
+          function(res) {
+            closeTipModal();
             if (res && res.success) {
-              setStatus('Sent ' + qty + ' ' + sym + ' to @' + author + '!', false);
+              setStatus('Sent ' + qty + ' ' + symbol + ' to @' + author + '!', false);
             } else {
               setStatus('Token tip cancelled or failed.', true);
             }
@@ -5162,43 +5361,47 @@
       }
       var connectedUser = getConnectedUser();
       if (!connectedUser) {
-        setStatus('Please connect Hive Keychain first to comment.', true);
+        setStatus('Please connect Hive Keychain first to post a comment.', true);
         return;
       }
 
       var textarea = document.getElementById('commentBodyInput');
       var body = textarea ? textarea.value.trim() : '';
       if (!body) {
-        setStatus('Please enter a comment before posting.', true);
+        alert('Please enter a comment before posting.');
         return;
       }
 
-      var replyTarget = appState.activeReplyTarget;
-      var parentAuthor = replyTarget ? replyTarget.author : item.post.author;
-      var parentPermlink = replyTarget ? replyTarget.permlink : item.post.permlink;
-      var permlink = 're-' + parentAuthor.replace(/\./g, '-') + '-' + Date.now();
-      var jsonMetadata = JSON.stringify({
-        tags: [item.post.category || 'hive'],
-        app: 'nectarseeker/1.0'
+      var targetAuthor = item.post.author;
+      var targetPermlink = item.post.permlink;
+      if (appState.activeReplyTarget && appState.activeReplyTarget.author && appState.activeReplyTarget.permlink) {
+        targetAuthor = appState.activeReplyTarget.author;
+        targetPermlink = appState.activeReplyTarget.permlink;
+      }
+
+      var commentPermlink = 're-' + targetAuthor.replace(/\./g, '') + '-' + targetPermlink + '-' + Date.now();
+      var jsonMeta = JSON.stringify({
+        app: 'nectarseeker/1.0',
+        tags: [item.post.category || 'hive']
       });
 
       window.hive_keychain.requestPost(
         connectedUser,
         '',
         body,
-        parentPermlink,
-        parentAuthor,
-        jsonMetadata,
-        permlink,
+        targetPermlink,
+        targetAuthor,
+        jsonMeta,
+        commentPermlink,
         '',
         function (res) {
           if (res && res.success) {
             if (textarea) textarea.value = '';
             cancelReplyTarget();
-            setStatus('Comment posted to @' + parentAuthor + '!', false);
+            setStatus('Comment posted on @' + targetAuthor + '!', false);
             setTimeout(function () {
               loadPostComments(item.post.author, item.post.permlink);
-            }, 1500);
+            }, 2500);
           } else {
             setStatus('Comment cancelled or failed.', true);
           }
@@ -5211,118 +5414,82 @@
         setStatus('Hive Keychain extension or app browser was not detected.', true);
         return;
       }
+      var qInput = document.getElementById('queryInput');
+      var typedUser = qInput ? stripLeadingAt(qInput.value) : '';
+      var username = typedUser || getConnectedUser() || '';
 
-      var input = document.getElementById('queryInput');
-      var typedUser = input ? stripLeadingAt(input.value) : '';
-      var existingUser = getConnectedUser();
-      var username = typedUser || existingUser || '';
+      setStatus('Requesting Hive Keychain signature...', false);
 
-      var btn = document.getElementById('keychainBtn');
-      if (btn) btn.disabled = true;
-
-      var challenge = 'nectarseeker_login_' + Date.now();
-
-      function handleSignResult(res) {
-        if (btn) btn.disabled = false;
-        if (res && res.success) {
-          var verifiedUser = stripLeadingAt(res.data && res.data.username ? res.data.username : username);
-          if (!verifiedUser) {
-            setStatus('Keychain signature succeeded, but no username was returned.', true);
-            return;
+      window.hive_keychain.requestSignBuffer(
+        username,
+        'NectarSeeker Login: ' + Date.now(),
+        'Posting',
+        function (res) {
+          if (res && res.success) {
+            var signedUser = stripLeadingAt(res.username || username);
+            appState.kcUser = signedUser;
+            appState.userVotesCache = {};
+            try { localStorage.setItem(KC_USER_KEY, signedUser); } catch (e) {}
+            updateKeychainUI();
+            if (appState.results.length > 0) {
+              renderCards(appState.results.slice(0, appState.visibleCount));
+              syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
+            }
+            setStatus('Connected as @' + signedUser + ' via Hive Keychain.', false);
+          } else {
+            setStatus('Hive Keychain connection was cancelled or failed.', true);
           }
-          appState.kcUser = verifiedUser;
-          appState.userVotesCache = {};
-          try { localStorage.setItem(KC_USER_KEY, verifiedUser); } catch (e) {}
-
-          updateKeychainUI();
-          setStatus('Connected via Hive Keychain as @' + verifiedUser + '.', false);
-
-          if (appState.results.length > 0) {
-            renderCards(appState.results.slice(0, appState.visibleCount));
-            syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
-          }
-        } else {
-          var errMsg = (res && res.message) ? res.message : 'Keychain sign request was cancelled or rejected.';
-          setStatus(errMsg, true);
         }
-      }
-
-      try {
-        window.hive_keychain.requestSignBuffer(
-          username || null,
-          challenge,
-          'Posting',
-          handleSignResult
-        );
-      } catch (e) {
-        if (btn) btn.disabled = false;
-        setStatus('Unable to trigger Hive Keychain sign request: ' + (e && e.message ? e.message : e), true);
-      }
-    }
-
-    function showMoreResults() {
-      appState.visibleCount += 25;
-      renderCards(appState.results.slice(0, appState.visibleCount));
-      syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
+      );
     }
 
     function renderCards(items) {
       var feedEl = document.getElementById('feed');
       if (!feedEl) return;
 
+      var connectedUser = getConnectedUser();
+
       if (!items || items.length === 0) {
-        feedEl.innerHTML = '';
+        feedEl.innerHTML = '<div class="card"><div class="snippet">No matching posts found.</div></div>';
         return;
       }
 
-      var taste = loadTaste();
-      var connectedUser = getConnectedUser();
       var html = '';
-
       for (var i = 0; i < items.length; i++) {
-        var item = items[i];
-        var p = item.post;
-        var key = p.author + '/' + p.permlink;
-        var isLiked = !!taste.liked[key];
+        var it = items[i];
+        var p = it.post;
         var dapp = detectFrontend(p);
         var age = formatAge(p.created);
-        var cleanBody = cleanMarkdown(p.body || '');
-        var snippet = cleanBody.slice(0, 210);
-        if (cleanBody.length > 210) snippet += '...';
-        if (!snippet) snippet = '(Media or link post on Hive)';
-
-        var kwText = (item.matched && item.matched.length > 0)
-          ? 'Matched: ' + item.matched.join(', ')
-          : 'Category: ' + (p.category || 'hive');
+        var kwText = (it.matched && it.matched.length > 0) ? it.matched.join(', ') : (p.category || 'hive');
+        var rawClean = cleanMarkdown(p.body || '');
+        var snippet = rawClean.length > 220 ? rawClean.slice(0, 220) + '...' : rawClean;
+        var likedClass = it.isLiked ? ' liked' : '';
 
         var voteBadgeHtml = '';
         if (connectedUser) {
-          var vInfo = getUserVoteInfo(p, connectedUser);
-          if (vInfo && vInfo.voted) {
-            if (vInfo.percent < 0) {
-              voteBadgeHtml = '<span class="vote-status-badge downvoted">&#128078; Downvoted (' + vInfo.percent + '%)</span>';
+          var voteInfo = getUserVoteInfo(p, connectedUser);
+          if (voteInfo && voteInfo.voted) {
+            if (voteInfo.percent < 0) {
+              voteBadgeHtml = '<span class="vote-status-badge downvoted">Downvoted (' + voteInfo.percent + '%)</span>';
             } else {
-              voteBadgeHtml = '<span class="vote-status-badge voted">&#10003; Voted (' + vInfo.percent + '%)</span>';
+              voteBadgeHtml = '<span class="vote-status-badge voted">Voted (' + voteInfo.percent + '%)</span>';
             }
           } else {
-            voteBadgeHtml = '<span class="vote-status-badge unvoted">Not voted</span>';
+            voteBadgeHtml = '<span class="vote-status-badge unvoted">Not Voted</span>';
           }
         }
 
-        html += '<div class="card' + (isLiked ? ' liked' : '') + '">';
+        html += '<div class="card' + likedClass + '">';
         html += '<div class="card-top">';
-        html += '<h3><span class="rank-num">#' + (i + 1) + '</span><a href="javascript:void(0)" onclick="openPostReader(' + i + ')">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
-        html += '<div class="badge-group">';
-        if (voteBadgeHtml) html += voteBadgeHtml;
-        html += '<span class="dapp-tag">' + escapeHtml(dapp) + '</span>';
-        html += '</div>';
+        html += '<h3><span class="rank-num">#' + (i + 1) + '</span><a onclick="openPostReader(' + i + ')">' + escapeHtml(p.title || '(Untitled)') + '</a></h3>';
+        html += '<div class="badge-group">' + voteBadgeHtml + '<span class="dapp-tag">' + escapeHtml(dapp) + '</span></div>';
         html += '</div>';
         html += '<div class="meta">by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(p.author) + '\')">@' + escapeHtml(p.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + '</div>';
-        html += '<div class="snippet">' + escapeHtml(snippet) + '</div>';
+        html += '<div class="snippet">' + escapeHtml(snippet || 'No text preview available.') + '</div>';
         html += '<div class="card-footer">';
-        html += '<span class="keywords">' + escapeHtml(kwText) + '</span>';
+        html += '<span class="keywords">Keywords: ' + escapeHtml(kwText) + '</span>';
         html += '<div class="actions-right">';
-        html += '<button type="button" class="vote-btn up' + (isLiked ? ' active' : '') + '" onclick="learnFromCard(' + i + ', 1)">More</button>';
+        html += '<button type="button" class="vote-btn up" onclick="learnFromCard(' + i + ', 1)">More</button>';
         html += '<button type="button" class="vote-btn down" onclick="learnFromCard(' + i + ', -1)">Less</button>';
         html += '</div>';
         html += '</div>';
@@ -5331,519 +5498,573 @@
 
       if (appState.results.length > items.length) {
         var remaining = appState.results.length - items.length;
-        html += '<div style="text-align:center; margin-top:20px;">';
-        html += '<button type="button" class="primary-btn" onclick="showMoreResults()">Show More Results (' + remaining + ' more available)</button>';
+        html += '<div style="text-align:center; margin-top:16px;">';
+        html += '<button type="button" class="kc-btn" style="padding:10px 20px; font-size:14px;" onclick="showMoreResults()">Show More Results (' + remaining + ' more available)</button>';
         html += '</div>';
       }
 
       feedEl.innerHTML = html;
     }
 
-    function runFeedMode(username, idfMap) {
-      var obs = username || getConnectedUser();
-      if (!username) {
-        setStatus('Loading recent & trending Hive posts...', false);
-        return fetchAllFrontendsPool(obs).then(function (pool) {
-          var ranked = [];
-          for (var i = 0; i < pool.length; i++) {
-            var p = pool[i];
-            if (p.parent_author) continue;
-            var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-            var ts = Date.parse((p.created || '') + 'Z') || 0;
-            var recency = ts ? Math.max(0.1, 1 - ((Date.now() - ts) / (7 * 86400000))) : 0.2;
-            var baseScore = recency * 0.5;
-            ranked.push({
-              post: p,
-              tokens: tokens,
-              matched: [],
-              baseScore: baseScore,
-              finalScore: applyTasteAdjustment(baseScore, tokens),
-              timestamp: ts
-            });
-          }
-          return {
-            items: ranked,
-            message: 'Showing recent & trending Hive posts. Enter a Hive username or connect Hive Keychain for personalized recommendations.'
-          };
+    function showMoreResults() {
+      appState.visibleCount += 25;
+      var slice = appState.results.slice(0, appState.visibleCount);
+      renderCards(slice);
+      syncVotesForRenderedPosts(slice);
+    }
+
+    function scoreCandidates(candidates, queryVec, idfMap, isNewUsersMode, creationMap, behaviorProfile) {
+      var scored = [];
+      var now = Date.now();
+      var oneYearMs = 365 * 24 * 60 * 60 * 1000;
+
+      for (var i = 0; i < candidates.length; i++) {
+        var c = candidates[i];
+        if (!c || !c.author || !c.permlink) continue;
+        if (isUserMuted(c.author)) continue;
+
+        if (isNewUsersMode) {
+          var createdStr = creationMap[c.author];
+          if (!createdStr) continue;
+          var accCreatedTs = Date.parse(createdStr + 'Z');
+          if (isNaN(accCreatedTs) || (now - accCreatedTs) > oneYearMs) continue;
+        }
+
+        var title = c.title || '';
+        var body = c.body || '';
+        var tokens = tokenize(title + ' ' + body.slice(0, 1500));
+        var docVec = buildVectorWithIDF(tokens, null, idfMap);
+        var sim = queryVec ? cosineSim(queryVec, docVec) : { score: 0, matched: [] };
+        var behavior = behaviorProfile
+          ? scoreAgainstBehaviorProfile(c, behaviorProfile, idfMap, docVec)
+          : { score: 0, matched: [], positive: 0, negative: 0, author: 0 };
+
+        var baseScore = sim.score;
+        if (behaviorProfile) {
+          baseScore = queryVec
+            ? (sim.score * 0.72) + (behavior.score * 0.28)
+            : behavior.score;
+        }
+        var postTs = Date.parse(String(c.created || '').replace(/Z$/, '') + 'Z') || 0;
+        var ageDays = postTs ? Math.max(0, (now - postTs) / 86400000) : 30;
+        if (behaviorProfile) {
+          baseScore += Math.max(0, 1 - ageDays / 45) * 0.04;
+        }
+        var finalScore = applyTasteAdjustment(baseScore, tokens);
+        var mergedKeywords = [];
+        for (var mIdx = 0; mIdx < (sim.matched || []).length; mIdx++) {
+          if (mergedKeywords.indexOf(sim.matched[mIdx]) === -1) mergedKeywords.push(sim.matched[mIdx]);
+        }
+        for (var bIdx = 0; bIdx < (behavior.matched || []).length && mergedKeywords.length < 5; bIdx++) {
+          if (mergedKeywords.indexOf(behavior.matched[bIdx]) === -1) mergedKeywords.push(behavior.matched[bIdx]);
+        }
+
+        scored.push({
+          post: c,
+          tokens: tokens,
+          matched: mergedKeywords,
+          baseScore: baseScore,
+          finalScore: finalScore,
+          timestamp: postTs,
+          isLiked: false,
+          personalized: !!(behaviorProfile && behavior.score > 0.02)
         });
       }
 
-      setStatus('Scanning @' + username + '\'s past 24 months of activity & posts...', false);
-      return Promise.all([
-        getAccountHistory(username, 24),
-        fetchAllFrontendsPool(obs),
-        hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20, observer: obs })
-          .catch(function () { return []; })
-      ]).then(function (res) {
-        var history = res[0];
-        var pool = res[1];
-        var ownPosts = res[2] || [];
+      return scored;
+    }
 
-        for (var o = 0; o < ownPosts.length; o++) {
-          if (ownPosts[o] && ownPosts[o].permlink) {
-            history.skipKeys[username + '/' + ownPosts[o].permlink] = true;
-          }
-        }
+    function runFeedMode(username, idfMap) {
+      var targetUser = stripLeadingAt(username);
+      if (!targetUser) {
+        setStatus('Loading trending Hive posts...', false);
+        return fetchAllFrontendsPool('').then(function (pool) {
+          var poolIdf = computeCorpusIDF(pool);
+          var scored = scoreCandidates(pool, null, poolIdf, false, {}, null);
+          return { items: scored, modeLabel: 'Trending Hive Feed' };
+        });
+      }
 
-        setStatus('Fetching voted & commented posts for @' + username + '...', false);
+      setStatus('Scanning @' + targetUser + ' activity (votes, reblogs, comments & posts) across the past 24 months...', false);
+
+      return getAccountHistory(targetUser, 24).then(function (history) {
         return Promise.all([
           fetchSeedPosts(history.seeds, history.skipKeys),
           fetchSeedPosts(history.negativeSeeds, {}),
-          fetchRelatedAuthorPosts(history.authorAffinity, obs)
-        ]).then(function (groups) {
-          var seedData = groups[0];
-          var negativeSeedData = groups[1];
-          var relatedAuthorPool = groups[2];
-          var combinedPool = mergePostPools(pool, relatedAuthorPool);
-          var activeIdf = (idfMap && Object.keys(idfMap).length > 0) ? idfMap : computeCorpusIDF(combinedPool);
-          var behaviorProfile = buildBehaviorProfile(history, seedData, negativeSeedData, ownPosts, activeIdf);
+          fetchRelatedAuthorPosts(history.authorAffinity, targetUser),
+          fetchAllFrontendsPool(targetUser)
+        ]).then(function (res) {
+          var seedData = res[0];
+          var negativeSeedData = res[1];
+          var relatedPosts = res[2];
+          var pool = res[3];
+          var mergedPool = mergePostPools(pool, relatedPosts);
+          var localIdf = computeCorpusIDF(mergedPool.concat(seedData.map(function (s) { return s.post; })));
+          var behaviorProfile = buildBehaviorProfile(history, seedData, negativeSeedData, [], localIdf);
 
-          var seenCandidateKeys = {};
-          var ranked = [];
-          for (var i = 0; i < combinedPool.length; i++) {
-            var p = combinedPool[i];
-            if (p.parent_author) continue;
-            var pKey = p.author + '/' + p.permlink;
-            if (seenCandidateKeys[pKey]) continue;
-            seenCandidateKeys[pKey] = true;
-            if (history.skipKeys[pKey]) continue;
+          var seen = {};
+          var candidates = [];
 
-            var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-            var candVec = buildVectorWithIDF(tokens, null, activeIdf);
-            var profileScore = scoreAgainstBehaviorProfile(p, behaviorProfile, activeIdf, candVec);
-            var baseScore = profileScore.score;
-            var ts = Date.parse((p.created || '') + 'Z') || 0;
-            var recency = ts ? Math.max(0, 1 - ((Date.now() - ts) / (14 * 86400000))) : 0;
-            baseScore += recency * 0.05;
-
-            ranked.push({
-              post: p,
-              tokens: tokens,
-              matched: profileScore.matched,
-              baseScore: baseScore,
-              finalScore: applyTasteAdjustment(baseScore, tokens),
-              timestamp: ts,
-              personalized: baseScore > 0.05
-            });
+          for (var i = 0; i < mergedPool.length; i++) {
+            var p = mergedPool[i];
+            if (!p || !p.author || !p.permlink || isUserMuted(p.author)) continue;
+            var k = p.author + '/' + p.permlink;
+            if (!history.skipKeys[k] && !seen[k]) {
+              seen[k] = true;
+              candidates.push(p);
+            }
           }
 
-          return {
-            items: ranked,
-            message: 'Recommended posts for @' + username + ' based on your 24-month activity (' + seedData.length + ' activity seeds).'
-          };
+          if (candidates.length === 0) {
+            for (var j = 0; j < mergedPool.length; j++) {
+              var p2 = mergedPool[j];
+              if (!p2 || !p2.author || !p2.permlink || isUserMuted(p2.author)) continue;
+              var k2 = p2.author + '/' + p2.permlink;
+              if (!seen[k2]) {
+                seen[k2] = true;
+                candidates.push(p2);
+              }
+            }
+          }
+
+          var scored = scoreCandidates(candidates, null, localIdf, false, {}, behaviorProfile);
+          return { items: scored, modeLabel: 'Personalized Feed for @' + targetUser };
         });
       });
     }
 
-    function runUserMode(username, idfMap) {
-      var obs = getConnectedUser() || username;
-      setStatus('Loading @' + username + '\'s posts and 24-month activity...', false);
+    function runUserMode(username) {
+      var targetUser = stripLeadingAt(username);
+      setStatus('Loading @' + targetUser + ' authored posts, activity & recommendations...', false);
+
+      var obs = getConnectedUser() || targetUser;
+
+      var authoredPromise = hiveCall('bridge.get_account_posts', { sort: 'posts', account: targetUser, limit: 20, observer: obs })
+        .catch(function () {
+          return hiveCall('condenser_api.get_discussions_by_blog', [{ tag: targetUser, limit: 20 }]);
+        })
+        .catch(function () { return []; });
 
       return Promise.all([
-        hiveCall('bridge.get_account_posts', { sort: 'posts', account: username, limit: 20, observer: obs })
-          .catch(function () { return []; }),
-        getAccountHistory(username, 24),
+        authoredPromise,
+        getAccountHistory(targetUser, 24),
         fetchAllFrontendsPool(obs)
       ]).then(function (res) {
-        var authoredPosts = res[0] || [];
+        var authoredPosts = Array.isArray(res[0]) ? res[0] : [];
         var history = res[1];
-        var pool = res[2] || [];
+        var pool = Array.isArray(res[2]) ? res[2] : [];
 
         return Promise.all([
           fetchSeedPosts(history.seeds, history.skipKeys),
           fetchSeedPosts(history.negativeSeeds, {}),
           fetchRelatedAuthorPosts(history.authorAffinity, obs)
-        ]).then(function (groups) {
-          var seedData = groups[0];
-          var negativeSeedData = groups[1];
-          var relatedAuthorPool = groups[2];
-          var combinedPool = mergePostPools(pool, relatedAuthorPool);
-          var activeIdf = (idfMap && Object.keys(idfMap).length > 0) ? idfMap : computeCorpusIDF(combinedPool);
-          var behaviorProfile = buildBehaviorProfile(history, seedData, negativeSeedData, authoredPosts, activeIdf);
+        ]).then(function (seedGroups) {
+          var seedData = seedGroups[0];
+          var negativeSeedData = seedGroups[1];
+          var relatedPosts = seedGroups[2];
+          var mergedPool = mergePostPools(pool, relatedPosts);
+          var localIdf = computeCorpusIDF(authoredPosts.concat(mergedPool, seedData.map(function (s) { return s.post; })));
+          var behaviorProfile = buildBehaviorProfile(history, seedData, negativeSeedData, authoredPosts, localIdf);
 
-          var items = [];
-          var seen = {};
-
-          for (var i = 0; i < authoredPosts.length; i++) {
-            var ap = authoredPosts[i];
-            if (!ap || !ap.author || !ap.permlink || ap.parent_author) continue;
+          var authoredItems = [];
+          var seenAuthored = {};
+          for (var a = 0; a < authoredPosts.length; a++) {
+            var ap = authoredPosts[a];
+            if (!ap || !ap.author || !ap.permlink || ap.parent_author || isUserMuted(ap.author)) continue;
             var aKey = ap.author + '/' + ap.permlink;
-            if (seen[aKey]) continue;
-            seen[aKey] = true;
-
-            var aTokens = tokenize((ap.title || '') + ' ' + (ap.body || ''));
-            var aTs = Date.parse((ap.created || '') + 'Z') || 0;
-            var aBase = 10.0 + ((authoredPosts.length - i) * 0.01);
-
-            items.push({
+            if (seenAuthored[aKey]) continue;
+            seenAuthored[aKey] = true;
+            var aTokens = tokenize((ap.title || '') + ' ' + (ap.body || '').slice(0, 1500));
+            var aTs = Date.parse(String(ap.created || '').replace(/Z$/, '') + 'Z') || 0;
+            authoredItems.push({
               post: ap,
               tokens: aTokens,
-              matched: ['Authored by @' + username],
-              baseScore: aBase,
-              finalScore: applyTasteAdjustment(aBase, aTokens),
+              matched: ['authored by @' + targetUser],
+              baseScore: 100 - (a * 0.1),
+              finalScore: 100 - (a * 0.1),
               timestamp: aTs,
-              personalized: true
-            });
-          }
-
-          for (var j = 0; j < combinedPool.length; j++) {
-            var rp = combinedPool[j];
-            if (!rp || !rp.author || !rp.permlink || rp.parent_author) continue;
-            var rKey = rp.author + '/' + rp.permlink;
-            if (seen[rKey]) continue;
-            seen[rKey] = true;
-
-            var rTokens = tokenize((rp.title || '') + ' ' + (rp.body || ''));
-            var candVec = buildVectorWithIDF(rTokens, null, activeIdf);
-            var profileScore = scoreAgainstBehaviorProfile(rp, behaviorProfile, activeIdf, candVec);
-            var rBase = profileScore.score;
-            var rTs = Date.parse((rp.created || '') + 'Z') || 0;
-
-            items.push({
-              post: rp,
-              tokens: rTokens,
-              matched: profileScore.matched.length > 0 ? profileScore.matched : ['Related to @' + username],
-              baseScore: rBase,
-              finalScore: applyTasteAdjustment(rBase, rTokens),
-              timestamp: rTs,
-              personalized: rBase > 0.05
-            });
-          }
-
-          return {
-            items: items,
-            message: 'Showing ' + authoredPosts.length + ' post(s) by @' + username + ' plus recommendations from their activity.'
-          };
-        });
-      });
-    }
-
-    function computeTermSearchScore(post, query, qTokens, qVec, idfMap, behaviorProfile, candVec) {
-      var title = String(post.title || '');
-      var body = String(post.body || '');
-      var category = String(post.category || '');
-      var metaStr = typeof post.json_metadata === 'string'
-        ? post.json_metadata
-        : JSON.stringify(post.json_metadata || {});
-      var titleLower = title.toLowerCase();
-      var bodyLower = body.toLowerCase();
-      var catLower = category.toLowerCase();
-      var metaLower = metaStr.toLowerCase();
-      var qLower = String(query || '').trim().toLowerCase();
-
-      var score = 0;
-      var matched = [];
-      var hasMatch = false;
-
-      if (qLower.length >= 2) {
-        if (titleLower.indexOf(qLower) !== -1) {
-          score += 2.6;
-          hasMatch = true;
-          matched.push(qLower);
-        }
-        if (catLower.indexOf(qLower) !== -1) {
-          score += 1.4;
-          hasMatch = true;
-          if (matched.indexOf(qLower) === -1) matched.push(qLower);
-        }
-        if (bodyLower.indexOf(qLower) !== -1) {
-          score += 1.3;
-          hasMatch = true;
-          if (matched.indexOf(qLower) === -1) matched.push(qLower);
-        }
-        if (metaLower.indexOf(qLower) !== -1) {
-          score += 0.9;
-          hasMatch = true;
-          if (matched.indexOf(qLower) === -1) matched.push(qLower);
-        }
-      }
-
-      var tokenHits = 0;
-      for (var i = 0; i < qTokens.length; i++) {
-        var t = qTokens[i];
-        if (!t || STOP_WORDS[t]) continue;
-        var hitThisToken = false;
-        if (titleLower.indexOf(t) !== -1) {
-          score += 1.4;
-          hitThisToken = true;
-        }
-        if (catLower.indexOf(t) !== -1) {
-          score += 0.8;
-          hitThisToken = true;
-        }
-        if (bodyLower.indexOf(t) !== -1) {
-          score += 0.7;
-          hitThisToken = true;
-        }
-        if (metaLower.indexOf(t) !== -1) {
-          score += 0.5;
-          hitThisToken = true;
-        }
-        if (hitThisToken) {
-          tokenHits++;
-          hasMatch = true;
-          if (matched.indexOf(t) === -1 && matched.length < 5) {
-            matched.push(t);
-          }
-        }
-      }
-
-      if (qTokens.length > 1 && tokenHits === qTokens.length) {
-        score += 1.0;
-      }
-
-      var tokens = tokenize(title + ' ' + body);
-      var postVec = candVec || buildVectorWithIDF(tokens, null, idfMap);
-      var sim = cosineSim(qVec, postVec);
-      if (sim.score > 0) {
-        score += sim.score * 1.6;
-        hasMatch = true;
-        for (var m = 0; m < sim.matched.length && matched.length < 5; m++) {
-          if (matched.indexOf(sim.matched[m]) === -1) {
-            matched.push(sim.matched[m]);
-          }
-        }
-      }
-
-      if (!hasMatch) {
-        return { matched: false, score: 0, terms: [], personalized: false };
-      }
-
-      var personalized = false;
-      if (behaviorProfile) {
-        var bScore = scoreAgainstBehaviorProfile(post, behaviorProfile, idfMap, postVec);
-        var personalBoost = Math.min(0.85, bScore.score * 1.4);
-        if (personalBoost > 0.03) {
-          score += personalBoost;
-          personalized = true;
-          if (matched.length < 5 && matched.indexOf('activity boost') === -1) {
-            matched.push('activity boost');
-          }
-        }
-      }
-
-      return { matched: true, score: score, terms: matched, personalized: personalized };
-    }
-
-    function runSearchMode(query, idfMap) {
-      var qTokens = tokenize(query);
-      var isNewestSearch = appState.sort === 'newest';
-      var months = isNewestSearch ? 6 : 24;
-      var activeUser = getConnectedUser();
-      var includeVotes = appState.useVotingHistoryInSearch;
-
-      setStatus(
-        'Searching Hive & 3Speak for "' + query + '" across the past ' + months + ' months' +
-        (activeUser
-          ? (includeVotes ? ' (boosting with your votes, reblogs & comments)...' : ' (boosting with your reblogs & comments; votes off)...')
-          : '...'),
-        false
-      );
-
-      var historyPromise = activeUser
-        ? getAccountHistory(activeUser, months, { includeVotes: includeVotes }).catch(function () { return null; })
-        : Promise.resolve(null);
-
-      return historyPromise.then(function (history) {
-        var seedPool = [];
-        if (history && Array.isArray(history.seeds) && history.seeds.length > 0) {
-          return fetchSeedPosts(history.seeds.slice(0, 15), {}).then(function (seedObjs) {
-            for (var s = 0; s < seedObjs.length; s++) {
-              if (seedObjs[s] && seedObjs[s].post) seedPool.push(seedObjs[s].post);
-            }
-            return { history: history, seedPool: seedPool };
-          });
-        }
-        return { history: history, seedPool: seedPool };
-      }).then(function (ctx) {
-        return fetchSearchPool(months, query, ctx.seedPool).then(function (pool) {
-          var activeIdf = (idfMap && Object.keys(idfMap).length > 0) ? idfMap : computeCorpusIDF(pool);
-          var qVec = buildExpandedSearchQueryVector(query, activeIdf);
-
-          function finalizeSearch(behaviorProfile) {
-            var ranked = [];
-            for (var i = 0; i < pool.length; i++) {
-              var p = pool[i];
-              if (p.parent_author) continue;
-              var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-              var candVec = buildVectorWithIDF(tokens, null, activeIdf);
-              var res = computeTermSearchScore(p, query, qTokens, qVec, activeIdf, behaviorProfile, candVec);
-              if (!res.matched) continue;
-              var ts = Date.parse((p.created || '') + 'Z') || 0;
-              var finalScore = applyTasteAdjustment(res.score, tokens);
-
-              ranked.push({
-                post: p,
-                tokens: tokens,
-                matched: res.terms,
-                baseScore: res.score,
-                finalScore: finalScore,
-                timestamp: ts,
-                personalized: res.personalized
-              });
-            }
-
-            ranked.sort(function (a, b) {
-              if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
-              return b.timestamp - a.timestamp;
-            });
-
-            return {
-              items: ranked,
-              message: 'Found ' + ranked.length + ' result(s) for "' + query + '" (past ' + months + ' months).'
-            };
-          }
-
-          if (!activeUser || !ctx.history) {
-            return finalizeSearch(null);
-          }
-
-          return fetchUserBehaviorProfile(activeUser, activeIdf, [], months, includeVotes, ctx.history)
-            .then(function (profile) { return finalizeSearch(profile); })
-            .catch(function () { return finalizeSearch(null); });
-        });
-      });
-    }
-
-    function runNewUsersMode(filterText, idfMap) {
-      var obs = getConnectedUser();
-      var twelveMonthsMs = 365 * 24 * 60 * 60 * 1000;
-      var cutoff = Date.now() - twelveMonthsMs;
-      var qTokens = tokenize(filterText);
-      var qVec = buildExpandedSearchQueryVector(filterText, idfMap);
-
-      setStatus('Checking recent posts and account creation dates (past 12 months)...', false);
-
-      return fetchAllFrontendsPool(obs).then(function (pool) {
-        var authors = [];
-        for (var i = 0; i < pool.length; i++) {
-          if (pool[i].author) authors.push(pool[i].author);
-        }
-
-        return fetchAccountsCreation(authors).then(function (createdMap) {
-          var ranked = [];
-
-          for (var j = 0; j < pool.length; j++) {
-            var p = pool[j];
-            if (p.parent_author) continue;
-            var accCreatedStr = createdMap[p.author];
-            if (!accCreatedStr) continue;
-
-            var accCreatedTs = Date.parse(accCreatedStr + 'Z');
-            if (isNaN(accCreatedTs) || accCreatedTs < cutoff) continue;
-
-            var tokens = tokenize((p.title || '') + ' ' + (p.body || ''));
-            var postVec = buildVectorWithIDF(tokens, null, idfMap);
-            var sim = { score: 0, matched: [] };
-
-            if (qTokens.length > 0) {
-              sim = cosineSim(qVec, postVec);
-              var lowerAll = ((p.title || '') + ' ' + (p.body || '') + ' ' + (p.category || '')).toLowerCase();
-              var directHit = false;
-              for (var k = 0; k < qTokens.length; k++) {
-                if (lowerAll.indexOf(qTokens[k]) !== -1) {
-                  directHit = true;
-                  if (sim.matched.indexOf(qTokens[k]) === -1) sim.matched.push(qTokens[k]);
-                }
-              }
-              if (!directHit && sim.score <= 0) continue;
-            }
-
-            var ts = Date.parse((p.created || '') + 'Z') || 0;
-            var baseScore = sim.score + 0.5;
-            var matchedTags = sim.matched.slice(0);
-            matchedTags.unshift('new user (<12m)');
-
-            ranked.push({
-              post: p,
-              tokens: tokens,
-              matched: matchedTags.slice(0, 5),
-              baseScore: baseScore,
-              finalScore: applyTasteAdjustment(baseScore, tokens),
-              timestamp: ts,
+              isLiked: false,
+              isAuthored: true,
               personalized: false
             });
           }
 
+          var recCandidates = [];
+          for (var p = 0; p < mergedPool.length; p++) {
+            var rp = mergedPool[p];
+            if (!rp || !rp.author || !rp.permlink || rp.parent_author || isUserMuted(rp.author)) continue;
+            var rKey = rp.author + '/' + rp.permlink;
+            if (!seenAuthored[rKey]) {
+              recCandidates.push(rp);
+            }
+          }
+
+          var recItems = scoreCandidates(recCandidates, null, localIdf, false, {}, behaviorProfile);
+          recItems.sort(function (x, y) { return y.finalScore - x.finalScore; });
+
+          var combined = authoredItems.concat(recItems);
           return {
-            items: ranked,
-            message: 'Found ' + ranked.length + ' post(s) by accounts created in the last 12 months.'
+            items: combined,
+            modeLabel: '@' + targetUser + ' (' + authoredItems.length + ' posts + recommendations)'
+          };
+        });
+      });
+    }
+
+    function runSearchMode(query) {
+      var trimmedQuery = String(query || '').trim();
+      var isNewestSort = appState.sort === 'newest';
+      var searchMonths = isNewestSort ? 6 : 24;
+      var includeVotes = !!appState.useVotingHistoryInSearch;
+      var activeUser = getConnectedUser();
+
+      setStatus(
+        'Searching posts & 3Speak videos for "' + trimmedQuery + '"' +
+        (isNewestSort ? ' (past 6 months, newest first)' : ' (past 24 months, ranked by relevance)') +
+        (activeUser
+          ? (includeVotes ? ' with @' + activeUser + ' voting history, reblogs & comments' : ' with @' + activeUser + ' reblogs & comments (voting history off)')
+          : '') + '...',
+        false
+      );
+
+      var historyPromise = activeUser
+        ? getAccountHistory(activeUser, searchMonths, { includeVotes: includeVotes }).catch(function () { return null; })
+        : Promise.resolve(null);
+
+      return Promise.all([
+        fetchSearchPool(searchMonths, trimmedQuery),
+        historyPromise
+      ]).then(function (res) {
+        var pool = Array.isArray(res[0]) ? res[0] : [];
+        var userHistory = res[1];
+
+        var qTokens = tokenize(trimmedQuery);
+        var queryLower = trimmedQuery.toLowerCase();
+        var idfMap = computeCorpusIDF(pool);
+        var queryVec = buildExpandedSearchQueryVector(trimmedQuery, idfMap);
+
+        var behaviorProfilePromise = (activeUser && userHistory)
+          ? fetchUserBehaviorProfile(activeUser, idfMap, [], searchMonths, includeVotes, userHistory)
+          : Promise.resolve(null);
+
+        return behaviorProfilePromise.then(function (behaviorProfile) {
+          var filtered = [];
+          for (var i = 0; i < pool.length; i++) {
+            var p = pool[i];
+            if (!p || !p.author || !p.permlink || isUserMuted(p.author)) continue;
+            var titleStr = String(p.title || '');
+            var bodyStr = String(p.body || '');
+            var catStr = String(p.category || '');
+            var titleLower = titleStr.toLowerCase();
+            var bodyCleanLower = cleanMarkdown(bodyStr).toLowerCase();
+            var combinedLower = titleLower + ' ' + bodyCleanLower + ' ' + catStr.toLowerCase();
+
+            var phraseMatch = queryLower.length >= 2 && combinedLower.indexOf(queryLower) !== -1;
+            var tokenHits = 0;
+            var titleHits = 0;
+            for (var t = 0; t < qTokens.length; t++) {
+              var tok = qTokens[t];
+              if (combinedLower.indexOf(tok) !== -1) tokenHits++;
+              if (titleLower.indexOf(tok) !== -1) titleHits++;
+            }
+
+            if (phraseMatch || tokenHits > 0 || qTokens.length === 0) {
+              var docTokens = tokenize(titleStr + ' ' + bodyStr.slice(0, 1500));
+              var docVec = buildVectorWithIDF(docTokens, null, idfMap);
+              var sim = cosineSim(queryVec, docVec);
+              var behavior = behaviorProfile
+                ? scoreAgainstBehaviorProfile(p, behaviorProfile, idfMap, docVec)
+                : { score: 0, matched: [] };
+
+              var matchedTerms = [];
+              for (var k = 0; k < qTokens.length; k++) {
+                if (combinedLower.indexOf(qTokens[k]) !== -1 && matchedTerms.indexOf(qTokens[k]) === -1) {
+                  matchedTerms.push(qTokens[k]);
+                }
+              }
+              for (var m = 0; m < sim.matched.length && matchedTerms.length < 5; m++) {
+                if (matchedTerms.indexOf(sim.matched[m]) === -1) {
+                  matchedTerms.push(sim.matched[m]);
+                }
+              }
+              for (var b = 0; b < behavior.matched.length && matchedTerms.length < 5; b++) {
+                if (matchedTerms.indexOf(behavior.matched[b]) === -1) {
+                  matchedTerms.push(behavior.matched[b]);
+                }
+              }
+
+              var relevanceScore = sim.score + (phraseMatch ? 0.35 : 0) + (titleHits * 0.15) + (tokenHits * 0.08);
+              if (behaviorProfile) {
+                relevanceScore += behavior.score * 0.22;
+              }
+              var postTs = Date.parse(String(p.created || '').replace(/Z$/, '') + 'Z') || 0;
+
+              filtered.push({
+                post: p,
+                tokens: docTokens,
+                matched: matchedTerms.length > 0 ? matchedTerms : [trimmedQuery],
+                baseScore: relevanceScore,
+                finalScore: applyTasteAdjustment(relevanceScore, docTokens),
+                timestamp: postTs,
+                isLiked: false,
+                personalized: !!(behaviorProfile && behavior.score > 0.02)
+              });
+            }
+          }
+
+          return {
+            items: filtered,
+            modeLabel: 'Search: "' + trimmedQuery + '"'
+          };
+        });
+      });
+    }
+
+    function runNewUsersMode(keyword) {
+      var kw = String(keyword || '').trim();
+      setStatus('Finding recent posts from accounts created within the past 12 months...', false);
+
+      return fetchAllFrontendsPool('').then(function (pool) {
+        var filteredPool = pool.filter(function (p) { return p && !isUserMuted(p.author); });
+        var authors = [];
+        for (var i = 0; i < filteredPool.length; i++) {
+          if (filteredPool[i] && filteredPool[i].author) {
+            authors.push(filteredPool[i].author);
+          }
+        }
+
+        return fetchAccountsCreation(authors).then(function (creationMap) {
+          var localIdf = computeCorpusIDF(filteredPool);
+          var queryVec = kw ? buildVectorWithIDF(tokenize(kw), null, localIdf) : null;
+          var scored = scoreCandidates(filteredPool, queryVec, localIdf, true, creationMap, null);
+
+          if (kw) {
+            var kwLower = kw.toLowerCase();
+            scored = scored.filter(function (item) {
+              var hay = ((item.post.title || '') + ' ' + cleanMarkdown(item.post.body || '')).toLowerCase();
+              return hay.indexOf(kwLower) !== -1 || item.baseScore > 0;
+            });
+          }
+
+          return {
+            items: scored,
+            modeLabel: kw ? 'New Users (' + kw + ')' : 'New Users (Past 12 Months)'
           };
         });
       });
     }
 
     function startApp() {
-      var btn = document.getElementById('runBtn');
-      var input = document.getElementById('queryInput');
-      var rawInput = input ? input.value : '';
-
       if (appState.isRunning) return;
       appState.isRunning = true;
-      if (btn) btn.disabled = true;
-      if (discoverWatchdogTimer) clearTimeout(discoverWatchdogTimer);
+      if (discoverWatchdogTimer) {
+        clearTimeout(discoverWatchdogTimer);
+      }
       discoverWatchdogTimer = setTimeout(function () {
-        if (!appState.isRunning) return;
-        resetDiscoverButtonState();
-        setStatus('Search took too long and timed out. Please try again.', true);
-      }, 45000);
+        if (appState.isRunning) {
+          resetDiscoverButtonState();
+          setStatus('Search/discovery timed out. Please try again.', true);
+        }
+      }, 25000);
+
+      var btn = document.getElementById('runBtn');
+      var qInput = document.getElementById('queryInput');
+      var rawInput = qInput ? qInput.value : '';
+
+      if (btn) btn.disabled = true;
+      appState.visibleCount = 25;
 
       resolveQueryMode(rawInput)
         .then(function (resolved) {
-          var obs = getConnectedUser() || (resolved.type === 'user' || resolved.type === 'feed' ? resolved.value : '');
-          return fetchAllFrontendsPool(obs).then(function (basePool) {
-            var idfMap = computeCorpusIDF(basePool);
-            if (resolved.type === 'feed') {
-              return runFeedMode(resolved.value, idfMap);
+          var runPromise;
+          if (resolved.type === 'feed') {
+            runPromise = runFeedMode(resolved.value, {});
+          } else if (resolved.type === 'user') {
+            runPromise = runUserMode(resolved.value);
+          } else if (resolved.type === 'search') {
+            runPromise = runSearchMode(resolved.value);
+          } else if (resolved.type === 'newusers') {
+            runPromise = runNewUsersMode(resolved.value);
+          } else {
+            return Promise.reject(new Error('Invalid mode'));
+          }
+
+          return runPromise.then(function (res) {
+            var taste = loadTaste();
+            var filtered = [];
+            for (var i = 0; i < res.items.length; i++) {
+              var it = res.items[i];
+              if (!it || !it.post || isUserMuted(it.post.author)) continue;
+              var key = it.post.author + '/' + it.post.permlink;
+              if (taste.disliked[key]) continue;
+              it.isLiked = !!taste.liked[key];
+              filtered.push(it);
             }
-            if (resolved.type === 'user') {
-              return runUserMode(resolved.value, idfMap);
+
+            if (appState.mode === 'search') {
+              filtered.sort(function (a, b) {
+                if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
+                return b.timestamp - a.timestamp;
+              });
+            } else if (appState.sort === 'newest') {
+              filtered.sort(function (a, b) { return b.timestamp - a.timestamp; });
+            } else if (appState.sort === 'oldest') {
+              filtered.sort(function (a, b) { return a.timestamp - b.timestamp; });
+            } else {
+              filtered.sort(function (a, b) { return b.finalScore - a.finalScore; });
+              var hasPersonalized = false;
+              for (var hi = 0; hi < filtered.length; hi++) {
+                if (filtered[hi].personalized) { hasPersonalized = true; break; }
+              }
+              if (hasPersonalized && filtered.length > 8) {
+                var divList = [];
+                var defList = [];
+                var aCounts = {};
+                for (var di = 0; di < filtered.length; di++) {
+                  var aName = filtered[di].post.author || '';
+                  if ((aCounts[aName] || 0) < 2 && divList.length < 20) {
+                    divList.push(filtered[di]);
+                    aCounts[aName] = (aCounts[aName] || 0) + 1;
+                  } else {
+                    defList.push(filtered[di]);
+                  }
+                }
+                filtered = divList.concat(defList);
+              }
             }
-            if (resolved.type === 'search') {
-              return runSearchMode(resolved.value, idfMap);
+
+            appState.results = filtered;
+            var initialSlice = filtered.slice(0, appState.visibleCount);
+            renderCards(initialSlice);
+            if (appState.sort === 'newest' && appState.mode !== 'search') {
+              setTimeout(function () {
+                syncVotesForRenderedPosts(appState.results.slice(0, appState.visibleCount));
+              }, 0);
+            } else {
+              syncVotesForRenderedPosts(initialSlice);
             }
-            if (resolved.type === 'newusers') {
-              return runNewUsersMode(resolved.value, idfMap);
-            }
-            throw new Error('Unsupported mode');
+            setStatus('Showing ' + initialSlice.length + ' of ' + filtered.length + ' posts for ' + res.modeLabel + '.', false);
+            resetDiscoverButtonState();
           });
-        })
-        .then(function (outcome) {
-          appState.results = outcome.items || [];
-          appState.visibleCount = 25;
-          resetDiscoverButtonState();
-          rerankAndRender();
-          setStatus(outcome.message || 'Done.', false);
         })
         .catch(function (err) {
           resetDiscoverButtonState();
-          var msg = (err && err.message) ? err.message : 'Something went wrong while loading posts.';
-          setStatus(msg, true);
+          setStatus(err && err.message ? err.message : 'An error occurred.', true);
         });
     }
 
     (function init() {
       var savedTheme = 'dark';
-      try {
-        savedTheme = localStorage.getItem(THEME_KEY) || 'dark';
-      } catch (e) {}
+      try { savedTheme = localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) {}
       document.documentElement.setAttribute('data-theme', savedTheme);
       updateThemeButton(savedTheme);
       updateSearchVotingHistoryUI();
       updatePhishingShieldUI();
+      updateTasteBanner();
+      updateKeychainUI();
+      syncSliders(100);
 
-      var input = document.getElementById('queryInput');
-      if (input) {
-        input.addEventListener('keydown', function (ev) {
-          if (ev.key === 'Enter' || ev.keyCode === 13) {
+      var qInput = document.getElementById('queryInput');
+      if (qInput) {
+        qInput.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter') {
             ev.preventDefault();
             startApp();
           }
         });
       }
 
-      updateTasteBanner();
-      updateKeychainUI();
+      window.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') {
+          var reportModal = document.getElementById('reportPhishingModal');
+          if (reportModal && reportModal.style.display === 'flex') {
+            closeReportPhishingModal();
+            return;
+          }
+          var warnModal = document.getElementById('phishingWarningModal');
+          if (warnModal && warnModal.style.display === 'flex') {
+            closePhishingWarningModal();
+            return;
+          }
+          var tipModal = document.getElementById('tipModal');
+          if (tipModal && tipModal.style.display === 'flex') {
+            closeTipModal();
+            return;
+          }
+          var profileModal = document.getElementById('userProfileModal');
+          if (profileModal && profileModal.style.display === 'flex') {
+            closeUserProfileModal();
+            return;
+          }
+          var walletModal = document.getElementById('walletModal');
+          if (walletModal && walletModal.style.display === 'flex') {
+            closeWalletModal();
+            return;
+          }
+          closePostReader();
+        }
+      });
+
+      var readerModal = document.getElementById('postReaderModal');
+      if (readerModal) {
+        readerModal.addEventListener('click', function (ev) {
+          if (ev.target === readerModal) {
+            closePostReader();
+          }
+        });
+      }
+
+      var tipModal = document.getElementById('tipModal');
+      if (tipModal) {
+        tipModal.addEventListener('click', function (ev) {
+          if (ev.target === tipModal) {
+            closeTipModal();
+          }
+        });
+      }
+
+      var profileModal = document.getElementById('userProfileModal');
+      if (profileModal) {
+        profileModal.addEventListener('click', function (ev) {
+          if (ev.target === profileModal) {
+            closeUserProfileModal();
+          }
+        });
+      }
+
+      var walletModal = document.getElementById('walletModal');
+      if (walletModal) {
+        walletModal.addEventListener('click', function (ev) {
+          if (ev.target === walletModal) {
+            closeWalletModal();
+          }
+        });
+      }
+
+      var warnModal = document.getElementById('phishingWarningModal');
+      if (warnModal) {
+        warnModal.addEventListener('click', function (ev) {
+          if (ev.target === warnModal) {
+            closePhishingWarningModal();
+          }
+        });
+      }
+
+      var reportModal = document.getElementById('reportPhishingModal');
+      if (reportModal) {
+        reportModal.addEventListener('click', function (ev) {
+          if (ev.target === reportModal) {
+            closeReportPhishingModal();
+          }
+        });
+      }
+
+      var initialUser = getConnectedUser();
+      if (initialUser) {
+        setStatus('Connected as @' + initialUser + '. Click Discover to load your feed.', false);
+      } else {
+        setStatus('Ready. Enter your Hive username or select Feed mode to load your personalized recommendations.', false);
+      }
     })();
   </script>
 </body>
