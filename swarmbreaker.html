@@ -1,0 +1,2196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Swarmbreaker — Hive 2D Platformer</title>
+  <style>
+    :root {
+      --bg: #0c0f17;
+      --panel: #151b28;
+      --panel-2: #1d2537;
+      --border: #2c3852;
+      --text: #f3f6fc;
+      --muted: #9aa7c2;
+      --gold: #f6b93b;
+      --honey: #e58e26;
+      --accent: #38bdf8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --purple: #a855f7;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at top, #172033 0%, var(--bg) 65%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Top HUD */
+    header#top-hud {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(16, 21, 33, 0.94);
+      border-bottom: 1px solid var(--border);
+      z-index: 20;
+      flex-wrap: wrap;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      font-size: 1.05rem;
+      letter-spacing: 0.03em;
+      color: var(--gold);
+    }
+
+    .brand-sub {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .hud-stats {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.8rem;
+    }
+
+    .pill {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .pill.gold { border-color: rgba(246, 185, 59, 0.5); color: var(--gold); }
+    .pill.accent { border-color: rgba(56, 189, 248, 0.5); color: var(--accent); }
+    .pill.ok { border-color: rgba(34, 197, 94, 0.5); color: var(--ok); }
+    .pill.warn { border-color: rgba(245, 158, 11, 0.5); color: var(--warn); }
+
+    .hud-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    button:hover:not(:disabled) {
+      background: #27334d;
+      border-color: #465982;
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.97);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, var(--honey), var(--gold));
+      color: #111;
+      border: none;
+    }
+
+    button.accent {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: var(--accent);
+      color: #bae6fd;
+    }
+
+    button.danger {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: var(--danger);
+      color: #fecaca;
+    }
+
+    /* Guest Keychain Reminder Strip */
+    #guest-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 14px;
+      background: rgba(245, 158, 11, 0.14);
+      border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+      font-size: 0.78rem;
+      color: #fde68a;
+      flex-wrap: wrap;
+    }
+
+    #guest-banner.visible {
+      display: flex;
+    }
+
+    /* Main Workspace */
+    #main-stage-wrap {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #080b11;
+    }
+
+    canvas#game-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      max-width: 1280px;
+      max-height: 720px;
+      background: #10192b;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65);
+    }
+
+    /* Floating In-Canvas Status & Summon Timer */
+    #canvas-overlay-hud {
+      position: absolute;
+      inset: 12px;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      max-width: 1256px;
+      margin: 0 auto;
+    }
+
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .status-box {
+      background: rgba(12, 16, 26, 0.82);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      line-height: 1.35;
+      backdrop-filter: blur(4px);
+    }
+
+    .bar-track {
+      width: 160px;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #22c55e, #86efac);
+      transition: width 0.1s linear;
+    }
+
+    .bar-fill.boss {
+      background: linear-gradient(90deg, #ef4444, #f97316);
+    }
+
+    .bar-fill.summon {
+      background: linear-gradient(90deg, #38bdf8, #a855f7);
+    }
+
+    #toast {
+      position: fixed;
+      bottom: 84px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20, 27, 42, 0.96);
+      border: 1px solid var(--gold);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      z-index: 60;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    #toast.show {
+      opacity: 1;
+    }
+
+    /* Touch Controls for Mobile / Tablet */
+    #touch-controls {
+      display: none;
+      position: absolute;
+      inset: auto 12px 12px 12px;
+      justify-content: space-between;
+      align-items: flex-end;
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    @media (hover: none) and (pointer: coarse), (max-width: 820px) {
+      #touch-controls.active {
+        display: flex;
+      }
+    }
+
+    .touch-pad {
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .touch-btn {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: rgba(21, 27, 40, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Modals & Drawers */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 8, 15, 0.78);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      z-index: 40;
+      backdrop-filter: blur(3px);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: 100%;
+      max-width: 880px;
+      max-height: 88vh;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--panel-2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-header h2 {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--gold);
+    }
+
+    .modal-body {
+      padding: 14px 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn.active {
+      background: var(--gold);
+      color: #111;
+      border-color: var(--gold);
+    }
+
+    .grid-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .card.selected {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 1px rgba(246, 185, 59, 0.35);
+    }
+
+    .card-title {
+      font-weight: 700;
+      font-size: 0.88rem;
+    }
+
+    .card-meta {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .card-desc {
+      font-size: 0.78rem;
+      color: #dce4f5;
+      line-height: 1.35;
+    }
+
+    .feed-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .feed-item {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+    }
+
+    .feed-author {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    input[type="text"], textarea {
+      width: 100%;
+      background: #0e131f;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.84rem;
+      font-family: inherit;
+    }
+
+    .notice-box {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .warn-box {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: #fde68a;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <header id="top-hud">
+    <div class="brand-group">
+      <div>
+        <div class="brand-title">🐝 SWARMBREAKER</div>
+        <div class="brand-sub" id="hud-stage-label">Wing 1 · Stage 1: Mildly Infuriating</div>
+      </div>
+    </div>
+
+    <div class="hud-stats">
+      <span class="pill ok" id="hud-account">Guest Mode</span>
+      <span class="pill gold" id="hud-honey">🍯 0</span>
+      <span class="pill accent" id="hud-suit">Suit: Worker Bee</span>
+      <span class="pill warn" id="hud-elixir">⚡ ELIXIR: 0 (Summon Locked)</span>
+    </div>
+
+    <div class="hud-actions">
+      <button class="primary" onclick="openModal('stages')">Stages (38)</button>
+      <button onclick="openModal('loadout')">Suits & Loadout</button>
+      <button onclick="openModal('shop')">HIVE Shop</button>
+      <button onclick="openModal('squad')">Squad & Summon</button>
+      <button class="accent" onclick="openModal('snaps')">Hive Snaps</button>
+      <button onclick="openModal('keychain')">Keychain / Save</button>
+      <button class="danger" onclick="togglePause(true)">Pause (P)</button>
+    </div>
+  </header>
+
+  <div id="guest-banner">
+    <span>
+      <strong>New to Hive or playing as Guest?</strong> Progress saves locally in your browser, but we recommend installing
+      <strong>Hive Keychain</strong> (and creating a free account on <strong>Ecency</strong> if needed) to pay in HIVE, join @username squad rosters, and sign portable saves.
+    </span>
+    <span style="display:flex;gap:6px;flex-wrap:wrap;">
+      <a href="https://hive-keychain.com" target="_blank" rel="noopener noreferrer" style="color:#fff;text-decoration:underline;font-weight:700;">Download Keychain</a>
+      <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;text-decoration:underline;font-weight:700;">Free Ecency Sign-Up</a>
+    </span>
+  </div>
+
+  <main id="main-stage-wrap">
+    <canvas id="game-canvas" width="1280" height="720"></canvas>
+
+    <div id="canvas-overlay-hud">
+      <div class="hud-row">
+        <div class="status-box">
+          <div id="hud-hp-text">Beatrice HP: 100 / 100</div>
+          <div class="bar-track"><div class="bar-fill" id="hud-hp-bar" style="width:100%"></div></div>
+          <div id="hud-objective" style="margin-top:6px;color:var(--gold);">Objective: Rescue Princess Bee</div>
+        </div>
+
+        <div class="status-box" id="hud-boss-box" style="display:none;">
+          <div id="hud-boss-name" style="color:#fca5a5;font-weight:700;">Dungeon Boss</div>
+          <div class="bar-track"><div class="bar-fill boss" id="hud-boss-bar" style="width:100%"></div></div>
+        </div>
+
+        <div class="status-box" id="hud-summon-box" style="display:none;">
+          <div id="hud-summon-text" style="color:#d8b4fe;font-weight:700;">@nectarbytes Active: 20.0s</div>
+          <div class="bar-track"><div class="bar-fill summon" id="hud-summon-bar" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <div class="hud-row">
+        <div class="status-box" id="hud-abilities">
+          Controls: A/D or ←/→ Move · W/Space/↑ Jump · J/Z Shoot · K/X Cooldown 1 · L/C Cooldown 2 · 1-2 Consumables · R Summon @nectarbytes · P Pause
+        </div>
+      </div>
+    </div>
+
+    <div id="touch-controls" class="active">
+      <div class="touch-pad">
+        <div class="touch-btn" id="btn-left">◀</div>
+        <div class="touch-btn" id="btn-right">▶</div>
+      </div>
+      <div class="touch-pad">
+        <div class="touch-btn" id="btn-jump">JUMP</div>
+        <div class="touch-btn" id="btn-fire">FIRE</div>
+        <div class="touch-btn" id="btn-cd1">CD1</div>
+        <div class="touch-btn" id="btn-summon">SUM</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<!-- Universal Modal -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Modal</h2>
+      <button onclick="closeModal()">✕ Close</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const GAME_NAME = "Swarmbreaker";
+  const PAYMENT_RECIPIENT = "nectarbytes";
+  const EXCLUDED_COMMUNITY = "hive-167922"; // LeoFinance excluded by design
+  const HIVE_RPCS = [
+    "https://api.hive.blog",
+    "https://api.deathwing.me",
+    "https://rpc.ausbit.dev"
+  ];
+  const ENGINE_RPCS = [
+    "https://api.hive-engine.com/rpc",
+    "https://engine.beeswap.trade/api"
+  ];
+
+  // Clean 38-stage roster across 4 wings (LeoFinance hive-167922 excluded; newer/active communities early)
+  const STAGES = [
+    // Wing 1: Early Showcase & Gentle Onboarding (Stages 1-10)
+    { id: 1, wing: 1, name: "Mildly Infuriating", communityId: "hive-174602", climax: "princess", theme: "#334155", note: "Laugh off minor hive annoyances and rescue the Princess Bee." },
+    { id: 2, wing: 1, name: "Snapie", communityId: "hive-178315", climax: "princess", theme: "#0f766e", note: "Snappy micro-platforms and brisk early pest waves." },
+    { id: 3, wing: 1, name: "Snaps", communityId: "snaps", climax: "princess", theme: "#0369a1", note: "Rapid-fire thread hops across the Snaps canopy." },
+    { id: 4, wing: 1, name: "Weekend Experiences", communityId: "hive-168869", climax: "princess", theme: "#b45309", note: "Saturday/Sunday trail run with welcoming ledges." },
+    { id: 5, wing: 1, name: "Reflections", communityId: "hive-126152", climax: "boss", bossName: "Mirror Wasp Warden", theme: "#4338ca", note: "First Dungeon Boss guarding a Loot Chest!" },
+    { id: 6, wing: 1, name: "Worldmappin", communityId: "hive-163772", climax: "princess", theme: "#15803d", note: "Chart scenic overlooks and rescue the Trail Princess." },
+    { id: 7, wing: 1, name: "Actifit", communityId: "hive-193552", climax: "princess", theme: "#0e7490", note: "Keep your step rhythm going across active comb bridges." },
+    { id: 8, wing: 1, name: "Foodies Bee Hive", communityId: "hive-120586", climax: "princess", theme: "#c2410c", note: "Sweet nectar ledges and spiced pest patrols." },
+    { id: 9, wing: 1, name: "Gardening / Homesteading", communityId: "hive-140635", climax: "princess", theme: "#3f6212", note: "Cultivated garden rows and homesteading hazards." },
+    { id: 10, wing: 1, name: "The Pub", communityId: "pub", climax: "boss", bossName: "Barrel-Thumper Hornet", theme: "#78350f", note: "Wing 1 Dungeon Boss guarding a Loot Chest!" },
+
+    // Wing 2: Precision, Obstacles & Creative Themes (Stages 11-19)
+    { id: 11, wing: 2, name: "OCD", communityId: "hive-174578", climax: "princess", theme: "#1d4ed8", note: "Exact alignment and crisp platforming rhythm." },
+    { id: 12, wing: 2, name: "Hive Gaming", communityId: "hive-140217", climax: "princess", theme: "#6d28d9", note: "Arcade jumps, moving blocks, and classic pest patterns." },
+    { id: 13, wing: 2, name: "Sketchbook", communityId: "hive-174301", climax: "princess", theme: "#374151", note: "Drafted platforms and pencil-sharp hazards." },
+    { id: 14, wing: 2, name: "Freewriters", communityId: "hive-161155", climax: "boss", bossName: "Ink-Blot Beetle King", theme: "#1e293b", note: "Dungeon Boss guarding a Loot Chest in the Ink Stacks." },
+    { id: 15, wing: 2, name: "Amazing Nature", communityId: "hive-127788", climax: "princess", theme: "#166534", note: "Wild forest gusts and canopy leaps." },
+    { id: 16, wing: 2, name: "Music", communityId: "hive-193816", climax: "princess", theme: "#7e22ce", note: "Harmonic bounce pads and rhythmic wasp waves." },
+    { id: 17, wing: 2, name: "Natural Medicine", communityId: "hive-120078", climax: "princess", theme: "#047857", note: "Herbal terraces and restorative comb alcoves." },
+    { id: 18, wing: 2, name: "Hive DIY", communityId: "hive-130560", climax: "princess", theme: "#9a3412", note: "Workshop gears, lifts, and crafty contraptions." },
+    { id: 19, wing: 2, name: "The Ink Well", communityId: "hive-170798", climax: "boss", bossName: "Chapter-Breaker Mantis", theme: "#312e81", note: "Wing 2 Dungeon Boss guarding a Loot Chest!" },
+
+    // Wing 3: Faster Pests & Reflex Challenges (Stages 20-28)
+    { id: 20, wing: 3, name: "Shadow Hunters", communityId: "hive-179017", climax: "princess", theme: "#18181b", note: "Dimly lit shadow alleys and ambush flyers." },
+    { id: 21, wing: 3, name: "Hive Pets", communityId: "hive-196708", climax: "princess", theme: "#854d0e", note: "Brisk companion runs past clingy mites." },
+    { id: 22, wing: 3, name: "Hive Learners", communityId: "hive-153850", climax: "princess", theme: "#0369a1", note: "Study hall gauntlets testing timing and focus." },
+    { id: 23, wing: 3, name: "HiveDevs", communityId: "hive-139531", climax: "boss", bossName: "Kernel-Crash Spider", theme: "#0f172a", note: "Dungeon Boss guarding a Loot Chest in the Core Grid." },
+    { id: 24, wing: 3, name: "Proof of Brain", communityId: "hive-150329", climax: "princess", theme: "#581c87", note: "Mind-bending gaps and fast aerial targets." },
+    { id: 25, wing: 3, name: "Neoxian", communityId: "neoxian", climax: "princess", theme: "#991b1b", note: "City walls and high-pressure swarm lanes." },
+    { id: 26, wing: 3, name: "Liketu", communityId: "liketu", climax: "princess", theme: "#be185d", note: "Fast-paced snapshot ledges and darting wasps." },
+    { id: 27, wing: 3, name: "GEMS", communityId: "hive-148441", climax: "princess", theme: "#0284c7", note: "Crystal caverns packed with aggressive pests." },
+    { id: 28, wing: 3, name: "Silver Gold Stackers", communityId: "hive-136819", climax: "boss", bossName: "Bullion-Vault Bear", theme: "#713f12", note: "Wing 3 Dungeon Boss guarding a Loot Chest!" },
+
+    // Wing 4: High-Stakes Gauntlets & Finale (Stages 29-38)
+    { id: 29, wing: 4, name: "Splinterlands", communityId: "hive-13323", climax: "princess", theme: "#4c1d95", note: "Battle-scarred arenas and heavy pest squads." },
+    { id: 30, wing: 4, name: "Photography Lovers", communityId: "hive-194913", climax: "princess", theme: "#1e3a8a", note: "High-contrast ledges and rapid swoops." },
+    { id: 31, wing: 4, name: "HIVE CN 中文社区", communityId: "hive-cn", climax: "princess", theme: "#b91c1c", note: "Lantern bridges and sweeping aerial hazards." },
+    { id: 32, wing: 4, name: "Scrobble.life", communityId: "scrobble", climax: "princess", theme: "#3730a3", note: "High-tempo sequences and relentless flyers." },
+    { id: 33, wing: 4, name: "Black And White", communityId: "bw", climax: "princess", theme: "#27272a", note: "Stark monochrome hazards demanding sharp jumps." },
+    { id: 34, wing: 4, name: "Hive Food", communityId: "hive-food", climax: "princess", theme: "#9a3412", note: "Banquet hall gauntlet with dense pest waves." },
+    { id: 35, wing: 4, name: "Ladies of Hive", communityId: "hive-124452", climax: "princess", theme: "#9d174d", note: "Royal terraces leading toward the inner sanctum." },
+    { id: 36, wing: 4, name: "ASEAN HIVE COMMUNITY", communityId: "asean", climax: "princess", theme: "#065f46", note: "Monsoon gusts and tough end-game platforming." },
+    { id: 37, wing: 4, name: "Hive Sanctuary Bonus", communityId: "bonus-37", climax: "boss", bossName: "Swarm Overlord", theme: "#450a0a", note: "Bonus pre-finale Boss guarding a Loot Chest!" },
+    { id: 38, wing: 4, name: "Town Square — Queen's Sanctum", communityId: "hive-195328", climax: "queen", bossName: "Mega Hornet Warlord", theme: "#7c2d12", note: "Final Boss guarding Queen Nectaria!" }
+  ].filter(s => s.communityId !== EXCLUDED_COMMUNITY);
+
+  const SUITS = [
+    {
+      id: "worker",
+      name: "Worker Bee Standard",
+      unlock: "starter",
+      speed: 255,
+      jump: 540,
+      maxHp: 100,
+      knockbackResist: 0.1,
+      attackType: "single",
+      color: "#f6b93b",
+      desc: "Balanced movement, reliable hop physics, and a steady single-stinger shot."
+    },
+    {
+      id: "scout",
+      name: "Scout / Wing-Sprinter",
+      unlock: "loot_drop",
+      speed: 335,
+      jump: 575,
+      maxHp: 105,
+      knockbackResist: 0.15,
+      attackType: "rapid",
+      color: "#38bdf8",
+      desc: "Boss loot drop: Fast horizontal speed, nimble air control, and rapid low-recoil stingers."
+    },
+    {
+      id: "pollen",
+      name: "Pollen / Scatter Suit",
+      unlock: "loot_drop",
+      speed: 265,
+      jump: 545,
+      maxHp: 110,
+      knockbackResist: 0.2,
+      attackType: "spread",
+      color: "#a3e635",
+      desc: "Boss loot drop: Wide 3-way pollen fan shot that clears clustered mites and pests."
+    },
+    {
+      id: "nectar",
+      name: "Nectar / Arc-Shot Suit",
+      unlock: "loot_drop",
+      speed: 260,
+      jump: 555,
+      maxHp: 110,
+      knockbackResist: 0.2,
+      attackType: "arc",
+      color: "#f472b6",
+      desc: "Boss loot drop: Long-range arcing nectar shots that reach elevated ledges safely."
+    },
+    {
+      id: "comb_guard",
+      name: "Comb-Guard / Heavy Juggernaut",
+      unlock: "shop",
+      priceHive: "6.500",
+      speed: 225,
+      jump: 515,
+      maxHp: 150,
+      knockbackResist: 0.75,
+      attackType: "heavy",
+      color: "#fb923c",
+      desc: "HIVE Shop exclusive: Reinforced plating, high knockback resistance, and staggering heavy blasts."
+    },
+    {
+      id: "royal_guard",
+      name: "Royal / Queen's Guard Suit",
+      unlock: "shop",
+      priceHive: "10.000",
+      speed: 315,
+      jump: 585,
+      maxHp: 140,
+      knockbackResist: 0.55,
+      attackType: "pierce",
+      color: "#c084fc",
+      desc: "HIVE Shop exclusive: High agility paired with high-velocity piercing royal stingers."
+    }
+  ];
+
+  const COOLDOWN_POWERUPS = [
+    { id: "nectar_dash", cat: "Mobility", name: "Nectar Dash", cd: 3.0, priceHive: "1.600", desc: "Quick horizontal burst with brief invulnerability frames." },
+    { id: "wing_glide", cat: "Mobility", name: "Wing-Flutter Glide", cd: 2.5, priceHive: "1.500", desc: "Slows descent during a mid-air glide burst." },
+    { id: "spring_hop", cat: "Mobility", name: "Spring-Pollen Hop", cd: 3.5, priceHive: "1.750", desc: "Extra vertical bounce to reach high platforms." },
+    { id: "comb_anchor", cat: "Mobility", name: "Comb-Step Anchor", cd: 5.0, priceHive: "1.900", desc: "Spawns a temporary honey foothold beneath Beatrice." },
+    { id: "stinger_volley", cat: "Offense", name: "Royal Stinger Volley", cd: 4.0, priceHive: "2.000", desc: "Fires a 5-stinger burst to shred pest groups." },
+    { id: "propolis_snare", cat: "Offense", name: "Propolis Snare Shot", cd: 4.5, priceHive: "1.850", desc: "Sticky resin glob that slows enemies on impact." },
+    { id: "pollen_bomb", cat: "Offense", name: "Pollen Bomb", cd: 5.5, priceHive: "2.250", desc: "Arcing splash-damage bomb for grouped pests." },
+    { id: "drone_swarm", cat: "Offense", name: "Drone Swarm", cd: 9.0, priceHive: "3.200", desc: "Summons helper drones that zap nearby enemies." }
+  ];
+
+  const CONSUMABLES = [
+    { id: "honey_shield", name: "Honeycomb Shield", priceHive: "0.100", desc: "Blocks incoming damage and adds +25 temp shield." },
+    { id: "royal_vial", name: "Royal Jelly Vial", priceHive: "0.080", desc: "Restores +45 HP immediately." },
+    { id: "mite_pulse", name: "Mite-Shake Pulse", priceHive: "0.075", desc: "Shockwave that knocks back & damages nearby pests." },
+    { id: "magnet_charm", name: "Magnetic Comb Charm", priceHive: "0.090", desc: "Pulls nearby honey pickups toward Beatrice." },
+    { id: "checkpoint_beacon", name: "Checkpoint Beacon", priceHive: "0.120", desc: "Sets a stage respawn anchor at Beatrice's position." }
+  ];
+
+  const STARTER_BUNDLES = [
+    {
+      id: "bundle_rookie",
+      name: "Wing 1 Rookie Kit",
+      priceHive: "1.250",
+      cdGrant: "nectar_dash",
+      consumables: { honey_shield: 2, royal_vial: 1 },
+      desc: "Nectar Dash (buy-once cooldown) + 2x Honeycomb Shield + 1x Royal Jelly Vial."
+    },
+    {
+      id: "bundle_pest",
+      name: "Pest-Control Starter Pack",
+      priceHive: "1.350",
+      cdGrant: "propolis_snare",
+      consumables: { mite_pulse: 2, magnet_charm: 1 },
+      desc: "Propolis Snare Shot (buy-once cooldown) + 2x Mite-Shake Pulse + 1x Magnetic Comb Charm."
+    },
+    {
+      id: "bundle_dungeon",
+      name: "Dungeon Explorer Bundle",
+      priceHive: "1.500",
+      cdGrant: "wing_glide",
+      consumables: { checkpoint_beacon: 1, honey_shield: 1, royal_vial: 1 },
+      desc: "Wing-Flutter Glide (buy-once cooldown) + 1x Checkpoint Beacon + 1x Shield + 1x Vial."
+    },
+    {
+      id: "bundle_launch",
+      name: "Full Toolkit Taster (Launch Deal)",
+      priceHive: "1.750",
+      cdGrant: "spring_hop",
+      consumables: { honey_shield: 2, royal_vial: 2, checkpoint_beacon: 1 },
+      desc: "Spring-Pollen Hop + 2x Honeycomb Shield + 2x Royal Jelly Vial + 1x Checkpoint Beacon."
+    }
+  ];
+
+  const STORAGE_KEY = "swarmbreaker_save_v1";
+
+  function defaultState() {
+    return {
+      username: null, // null = Guest mode
+      isGuest: true,
+      honey: 25,
+      currentStageId: 1,
+      completedStages: [],
+      queenRescued: false,
+      unlockedSuits: ["worker"],
+      equippedSuit: "worker",
+      ownedCooldowns: ["nectar_dash"],
+      equippedCooldowns: ["nectar_dash", null],
+      consumableStock: {
+        honey_shield: 1,
+        royal_vial: 1,
+        mite_pulse: 1,
+        magnet_charm: 0,
+        checkpoint_beacon: 0
+      },
+      knownSquadmates: ["alicebee", "honeyscout", "combwarden"],
+      selectedSquad: ["alicebee", "honeyscout"],
+      stakedElixir: 0,
+      lastElixirCheck: 0,
+      redeemedOrders: [],
+      snapsFeed: [
+        { author: "nectarbytes", text: "Welcome to Swarmbreaker! Stake 100+ ELIXIR to summon @nectarbytes for 20s per stage.", time: "Hive" },
+        { author: "queen_nectaria", text: "Princess Bees await rescue across 38 community stages—watch out for Dungeon Bosses!", time: "Hive" }
+      ]
+    };
+  }
+
+  let state = loadState();
+  let paused = false;
+  let activeModalTab = null;
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return defaultState();
+      return { ...defaultState(), ...JSON.parse(raw) };
+    } catch {
+      return defaultState();
+    }
+  }
+
+  function saveState(toastMsg = null) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+      console.warn("localStorage save failed:", e);
+    }
+    updateHud();
+    if (toastMsg) showToast(toastMsg);
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => el.classList.remove("show"), 2600);
+  }
+
+  // Canvas & Game World
+  const canvas = document.getElementById("game-canvas");
+  const ctx = canvas.getContext("2d");
+
+  const world = {
+    stage: STAGES[0],
+    player: {
+      x: 90,
+      y: 440,
+      w: 32,
+      h: 32,
+      vx: 0,
+      vy: 0,
+      facing: 1,
+      onGround: false,
+      hp: 100,
+      maxHp: 100,
+      shield: 0,
+      invuln: 0,
+      fireCd: 0,
+      cdTimers: [0, 0],
+      checkpoint: { x: 90, y: 440 },
+      stageSummonUsed: false
+    },
+    summon: {
+      active: false,
+      timer: 0,
+      maxTimer: 20,
+      x: 150,
+      y: 420,
+      attackTimer: 0,
+      modeIndex: 0
+    },
+    platforms: [],
+    tempPlatforms: [],
+    enemies: [],
+    projectiles: [],
+    pickups: [],
+    particles: [],
+    goal: { x: 1150, y: 420, w: 48, h: 56, type: "princess" },
+    boss: null,
+    stageCleared: false
+  };
+
+  function buildStage(stageId) {
+    const st = STAGES.find(s => s.id === stageId) || STAGES[0];
+    state.currentStageId = st.id;
+    world.stage = st;
+    world.stageCleared = false;
+    world.particles = [];
+    world.projectiles = [];
+    world.tempPlatforms = [];
+
+    const suit = getSuit(state.equippedSuit);
+    world.player.x = 90;
+    world.player.y = 460;
+    world.player.vx = 0;
+    world.player.vy = 0;
+    world.player.facing = 1;
+    world.player.onGround = false;
+    world.player.maxHp = suit.maxHp;
+    world.player.hp = suit.maxHp;
+    world.player.shield = 0;
+    world.player.invuln = 0.6;
+    world.player.fireCd = 0;
+    world.player.cdTimers = [0, 0];
+    world.player.checkpoint = { x: 90, y: 460 };
+    world.player.stageSummonUsed = false;
+
+    world.summon.active = false;
+    world.summon.timer = 0;
+
+    // Platforms scale subtly with wing
+    const floorY = 560;
+    world.platforms = [
+      { x: 0, y: floorY, w: 1280, h: 160 },
+      { x: 240, y: 455, w: 170, h: 20 },
+      { x: 490, y: 375, w: 180, h: 20 },
+      { x: 750, y: 435, w: 170, h: 20 },
+      { x: 980, y: 350, w: 160, h: 20 }
+    ];
+
+    const diffMult = 1 + (st.wing - 1) * 0.25 + (st.id % 10) * 0.03;
+    const enemyCount = st.climax === "princess" ? 4 + Math.min(4, st.wing) : 3;
+    world.enemies = [];
+    for (let i = 0; i < enemyCount; i++) {
+      const ex = 340 + i * 195;
+      const ey = i % 2 === 0 ? floorY - 34 : 335;
+      world.enemies.push({
+        id: i + 1,
+        x: ex,
+        y: ey,
+        w: 32,
+        h: 32,
+        vx: (i % 2 === 0 ? 1 : -1) * (85 + st.wing * 14),
+        hp: Math.round(30 * diffMult),
+        maxHp: Math.round(30 * diffMult),
+        slowTimer: 0,
+        kind: i % 2 === 0 ? "wasp" : "beetle"
+      });
+    }
+
+    if (st.climax === "boss" || st.climax === "queen") {
+      const maxBossHp = Math.round((st.climax === "queen" ? 420 : 210) * diffMult);
+      world.boss = {
+        name: st.bossName,
+        x: 1030,
+        y: floorY - 76,
+        w: 72,
+        h: 76,
+        vx: -95,
+        hp: maxBossHp,
+        maxHp: maxBossHp,
+        slowTimer: 0,
+        isQueenGuard: st.climax === "queen"
+      };
+      world.goal = { x: 1170, y: floorY - 58, w: 48, h: 58, type: st.climax, locked: true };
+    } else {
+      world.boss = null;
+      world.goal = { x: 1175, y: floorY - 58, w: 48, h: 58, type: "princess", locked: false };
+    }
+
+    world.pickups = [
+      { x: 325, y: 420, r: 9, val: 6 },
+      { x: 580, y: 340, r: 9, val: 6 },
+      { x: 835, y: 400, r: 9, val: 6 }
+    ];
+
+    saveState();
+  }
+
+  function getSuit(id) {
+    return SUITS.find(s => s.id === id) || SUITS[0];
+  }
+
+  function getCooldownDef(id) {
+    return COOLDOWN_POWERUPS.find(c => c.id === id) || null;
+  }
+
+  // Input Handling
+  const keys = {};
+  window.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) {
+      e.preventDefault();
+    }
+    if (k === "p" || k === "escape") {
+      if (isModalOpen()) {
+        closeModal();
+      } else {
+        togglePause();
+      }
+      return;
+    }
+    if (paused || isModalOpen()) return;
+
+    keys[k] = true;
+    if (k === "j" || k === "z") firePrimary();
+    if (k === "k" || k === "x") triggerCooldownSlot(0);
+    if (k === "l" || k === "c") triggerCooldownSlot(1);
+    if (k === "1") useConsumable("royal_vial");
+    if (k === "2") useConsumable("honey_shield");
+    if (k === "3") useConsumable("mite_pulse");
+    if (k === "4") useConsumable("magnet_charm");
+    if (k === "5") useConsumable("checkpoint_beacon");
+    if (k === "r") summonNectarbytes();
+  });
+
+  window.addEventListener("keyup", (e) => {
+    keys[e.key.toLowerCase()] = false;
+  });
+
+  function bindTouch(id, keyName, onPressFn = null) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      if (paused || isModalOpen()) return;
+      if (keyName) keys[keyName] = true;
+      if (onPressFn) onPressFn();
+    }, { passive: false });
+    el.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      if (keyName) keys[keyName] = false;
+    }, { passive: false });
+  }
+
+  bindTouch("btn-left", "arrowleft");
+  bindTouch("btn-right", "arrowright");
+  bindTouch("btn-jump", "arrowup");
+  bindTouch("btn-fire", null, firePrimary);
+  bindTouch("btn-cd1", null, () => triggerCooldownSlot(0));
+  bindTouch("btn-summon", null, summonNectarbytes);
+
+  function togglePause(forcePause = null) {
+    if (isModalOpen()) return;
+    paused = forcePause !== null ? forcePause : !paused;
+    updateHud();
+  }
+
+  function firePrimary() {
+    const p = world.player;
+    const suit = getSuit(state.equippedSuit);
+    if (p.fireCd > 0) return;
+
+    const dir = p.facing;
+    const bx = p.x + (dir > 0 ? p.w + 4 : -12);
+    const by = p.y + p.h * 0.45;
+
+    if (suit.attackType === "single") {
+      p.fireCd = 0.24;
+      world.projectiles.push({ x: bx, y: by, vx: dir * 560, vy: 0, dmg: 16, r: 5, color: suit.color, fromPlayer: true });
+    } else if (suit.attackType === "rapid") {
+      p.fireCd = 0.12;
+      world.projectiles.push({ x: bx, y: by + (Math.random() - 0.5) * 8, vx: dir * 640, vy: 0, dmg: 11, r: 4, color: suit.color, fromPlayer: true });
+    } else if (suit.attackType === "spread") {
+      p.fireCd = 0.34;
+      [-0.22, 0, 0.22].forEach(ang => {
+        world.projectiles.push({
+          x: bx, y: by,
+          vx: Math.cos(ang) * dir * 520,
+          vy: Math.sin(ang) * 520,
+          dmg: 12, r: 5, color: suit.color, fromPlayer: true
+        });
+      });
+    } else if (suit.attackType === "arc") {
+      p.fireCd = 0.32;
+      world.projectiles.push({ x: bx, y: by - 4, vx: dir * 480, vy: -220, grav: 480, dmg: 22, r: 6, color: suit.color, fromPlayer: true });
+    } else if (suit.attackType === "heavy") {
+      p.fireCd = 0.42;
+      world.projectiles.push({ x: bx, y: by, vx: dir * 460, vy: 0, dmg: 34, knock: 160, r: 8, color: suit.color, fromPlayer: true });
+    } else if (suit.attackType === "pierce") {
+      p.fireCd = 0.22;
+      world.projectiles.push({ x: bx, y: by, vx: dir * 700, vy: 0, dmg: 26, pierce: 2, r: 6, color: suit.color, fromPlayer: true });
+    }
+  }
+
+  function triggerCooldownSlot(slotIndex) {
+    const p = world.player;
+    const itemId = state.equippedCooldowns[slotIndex];
+    if (!itemId) return;
+    if (p.cdTimers[slotIndex] > 0) {
+      showToast(`Cooldown ready in ${p.cdTimers[slotIndex].toFixed(1)}s`);
+      return;
+    }
+    const def = getCooldownDef(itemId);
+    if (!def) return;
+    p.cdTimers[slotIndex] = def.cd;
+
+    if (itemId === "nectar_dash") {
+      p.vx = p.facing * 680;
+      p.invuln = Math.max(p.invuln, 0.45);
+      showToast("Nectar Dash!");
+    } else if (itemId === "wing_glide") {
+      p.vy = Math.min(p.vy, 60);
+      p.vx = p.facing * 360;
+      showToast("Wing-Flutter Glide!");
+    } else if (itemId === "spring_hop") {
+      p.vy = -690;
+      p.onGround = false;
+      showToast("Spring-Pollen Hop!");
+    } else if (itemId === "comb_anchor") {
+      world.tempPlatforms.push({ x: p.x - 24, y: p.y + p.h + 4, w: 80, h: 14, life: 4.0 });
+      showToast("Comb-Step Anchor placed!");
+    } else if (itemId === "stinger_volley") {
+      for (let i = -2; i <= 2; i++) {
+        world.projectiles.push({
+          x: p.x + p.w / 2, y: p.y + p.h / 2,
+          vx: p.facing * 580, vy: i * 65, dmg: 18, r: 5, color: "#f6b93b", fromPlayer: true
+        });
+      }
+      showToast("Royal Stinger Volley!");
+    } else if (itemId === "propolis_snare") {
+      world.projectiles.push({
+        x: p.x + p.w / 2, y: p.y + p.h / 2,
+        vx: p.facing * 500, vy: -60, grav: 240, dmg: 15, snare: true, r: 8, color: "#84cc16", fromPlayer: true
+      });
+      showToast("Propolis Snare Shot!");
+    } else if (itemId === "pollen_bomb") {
+      world.projectiles.push({
+        x: p.x + p.w / 2, y: p.y + p.h / 2,
+        vx: p.facing * 420, vy: -240, grav: 520, dmg: 45, splash: 95, r: 9, color: "#facc15", fromPlayer: true
+      });
+      showToast("Pollen Bomb launched!");
+    } else if (itemId === "drone_swarm") {
+      for (let i = 0; i < 2; i++) {
+        world.projectiles.push({
+          x: p.x + (i === 0 ? -24 : p.w + 24),
+          y: p.y - 24,
+          vx: p.facing * 450,
+          vy: (i === 0 ? -1 : 1) * 90,
+          dmg: 28, r: 7, color: "#38bdf8", fromPlayer: true
+        });
+      }
+      showToast("Drone Swarm deployed!");
+    }
+  }
+
+  function useConsumable(id) {
+    const count = state.consumableStock[id] || 0;
+    if (count <= 0) {
+      showToast("None in stock — visit HIVE Shop!");
+      return;
+    }
+    const p = world.player;
+    if (id === "royal_vial") {
+      p.hp = Math.min(p.maxHp, p.hp + 45);
+      state.consumableStock[id]--;
+      saveState("Used Royal Jelly Vial (+45 HP)");
+    } else if (id === "honey_shield") {
+      p.shield += 25;
+      p.invuln = Math.max(p.invuln, 0.8);
+      state.consumableStock[id]--;
+      saveState("Honeycomb Shield active (+25 Shield)");
+    } else if (id === "mite_pulse") {
+      state.consumableStock[id]--;
+      damageAllNearby(p.x + p.w / 2, p.y + p.h / 2, 160, 35, 220);
+      saveState("Mite-Shake Pulse!");
+    } else if (id === "magnet_charm") {
+      state.consumableStock[id]--;
+      world.pickups.forEach(pk => { pk.x = p.x; pk.y = p.y; });
+      saveState("Magnetic Comb Charm pulled nearby honey!");
+    } else if (id === "checkpoint_beacon") {
+      state.consumableStock[id]--;
+      p.checkpoint = { x: p.x, y: p.y };
+      saveState("Checkpoint Beacon set!");
+    }
+  }
+
+  function damageAllNearby(cx, cy, radius, dmg, knock) {
+    world.enemies.forEach(en => {
+      const dx = en.x + en.w / 2 - cx;
+      const dy = en.y + en.h / 2 - cy;
+      if (Math.hypot(dx, dy) <= radius) {
+        en.hp -= dmg;
+        en.vx = (dx >= 0 ? 1 : -1) * knock;
+      }
+    });
+    if (world.boss) {
+      const b = world.boss;
+      if (Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) <= radius + 40) {
+        b.hp -= dmg;
+      }
+    }
+  }
+
+  // @nectarbytes Summon Hero (20s once per stage for >= 100 staked ELIXIR)
+  async function summonNectarbytes() {
+    if (world.player.stageSummonUsed) {
+      showToast("@nectarbytes can only be summoned once per stage.");
+      return;
+    }
+    if (state.isGuest || !state.username) {
+      showToast("Connect Hive Keychain first to verify staked ELIXIR.");
+      openModal("keychain");
+      return;
+    }
+    if (Number(state.stakedElixir || 0) < 100) {
+      showToast(`Need 100+ staked ELIXIR (current: ${state.stakedElixir || 0}).`);
+      openModal("squad");
+      return;
+    }
+
+    world.player.stageSummonUsed = true;
+    world.summon.active = true;
+    world.summon.timer = 20.0;
+    world.summon.maxTimer = 20.0;
+    world.summon.x = world.player.x + 56;
+    world.summon.y = world.player.y;
+    world.summon.attackTimer = 0.2;
+    showToast("@nectarbytes summoned for 20 seconds!");
+    updateHud();
+  }
+
+  async function refreshElixirStake() {
+    if (!state.username) {
+      showToast("Log in with Hive Keychain first.");
+      return;
+    }
+    for (const rpc of ENGINE_RPCS) {
+      try {
+        const res = await fetch(`${rpc}/contracts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "find",
+            params: {
+              contract: "tokens",
+              table: "balances",
+              query: { account: state.username, symbol: "ELIXIR" }
+            }
+          })
+        });
+        const data = await res.json();
+        const row = data?.result?.[0];
+        const stake = row ? parseFloat(row.stake || "0") : 0;
+        state.stakedElixir = Number.isFinite(stake) ? stake : 0;
+        state.lastElixirCheck = Date.now();
+        saveState(`ELIXIR stake updated: ${state.stakedElixir}`);
+        return;
+      } catch (e) {
+        console.warn("Engine RPC failed:", rpc, e);
+      }
+    }
+    showToast("Could not reach Hive-Engine RPC right now.");
+  }
+
+  // Boss Loot Chest Roll (No duplicate suits; rolls consumable if suit already owned)
+  function awardBossLootChest() {
+    const dropSuits = SUITS.filter(s => s.unlock === "loot_drop");
+    const pickedSuit = dropSuits[Math.floor(Math.random() * dropSuits.length)];
+    state.honey += 20;
+
+    if (!state.unlockedSuits.includes(pickedSuit.id)) {
+      state.unlockedSuits.push(pickedSuit.id);
+      saveState(`Loot Chest dropped NEW SUIT: ${pickedSuit.name} + 20 Honey!`);
+    } else {
+      const fallback = CONSUMABLES[Math.floor(Math.random() * CONSUMABLES.length)];
+      state.consumableStock[fallback.id] = (state.consumableStock[fallback.id] || 0) + 1;
+      saveState(`Already owned ${pickedSuit.name} — Loot Chest dropped +1 ${fallback.name} + 20 Honey!`);
+    }
+  }
+
+  function completeStage() {
+    if (world.stageCleared) return;
+    world.stageCleared = true;
+    const st = world.stage;
+    if (!state.completedStages.includes(st.id)) {
+      state.completedStages.push(st.id);
+    }
+    state.honey += 15;
+
+    if (st.climax === "boss" || st.climax === "queen") {
+      awardBossLootChest();
+    }
+    if (st.climax === "queen") {
+      state.queenRescued = true;
+      showToast("👑 Queen Nectaria rescued! Swarmbreaker campaign complete!");
+    } else {
+      showToast(`Stage ${st.id} (${st.name}) cleared! +15 Honey`);
+    }
+
+    const nextStage = STAGES.find(s => s.id === st.id + 1);
+    if (nextStage) {
+      setTimeout(() => {
+        if (!paused && !isModalOpen()) buildStage(nextStage.id);
+      }, 1200);
+    } else {
+      saveState();
+    }
+  }
+
+  // Simulation Loop
+  let lastTime = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+
+    if (!paused && !isModalOpen()) {
+      update(dt);
+    }
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  function update(dt) {
+    const p = world.player;
+    const suit = getSuit(state.equippedSuit);
+
+    p.invuln = Math.max(0, p.invuln - dt);
+    p.fireCd = Math.max(0, p.fireCd - dt);
+    p.cdTimers[0] = Math.max(0, p.cdTimers[0] - dt);
+    p.cdTimers[1] = Math.max(0, p.cdTimers[1] - dt);
+
+    const moveLeft = keys["a"] || keys["arrowleft"];
+    const moveRight = keys["d"] || keys["arrowright"];
+    const jumpPressed = keys["w"] || keys["arrowup"] || keys[" "];
+
+    if (moveLeft && !moveRight) {
+      p.vx = -suit.speed;
+      p.facing = -1;
+    } else if (moveRight && !moveLeft) {
+      p.vx = suit.speed;
+      p.facing = 1;
+    } else {
+      p.vx *= Math.pow(0.001, dt);
+      if (Math.abs(p.vx) < 4) p.vx = 0;
+    }
+
+    if (jumpPressed && p.onGround) {
+      p.vy = -suit.jump;
+      p.onGround = false;
+    }
+
+    // Gravity (with light glide if holding jump while falling with wing_glide cooldown owned)
+    let grav = 1380;
+    if (p.vy > 0 && jumpPressed && state.equippedCooldowns.includes("wing_glide")) {
+      grav = 420;
+    }
+    p.vy += grav * dt;
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.x = Math.max(10, Math.min(canvas.width - p.w - 10, p.x));
+
+    // Temp platforms decay
+    world.tempPlatforms.forEach(tp => { tp.life -= dt; });
+    world.tempPlatforms = world.tempPlatforms.filter(tp => tp.life > 0);
+
+    // Platform collisions
+    p.onGround = false;
+    const allPlats = [...world.platforms, ...world.tempPlatforms];
+    for (const pl of allPlats) {
+      if (
+        p.vy >= 0 &&
+        p.x + p.w > pl.x &&
+        p.x < pl.x + pl.w &&
+        p.y + p.h >= pl.y &&
+        p.y + p.h - p.vy * dt <= pl.y + 12
+      ) {
+        p.y = pl.y - p.h;
+        p.vy = 0;
+        p.onGround = true;
+      }
+    }
+
+    if (p.y > canvas.height + 60) {
+      respawnAtCheckpoint("Fell into the abyss — respawned at checkpoint!");
+    }
+
+    // @nectarbytes Summon AI
+    if (world.summon.active) {
+      world.summon.timer -= dt;
+      if (world.summon.timer <= 0) {
+        world.summon.active = false;
+        showToast("@nectarbytes summon ended.");
+      } else {
+        const targetX = p.x + p.facing * 64;
+        const targetY = p.y - 10;
+        world.summon.x += (targetX - world.summon.x) * Math.min(1, dt * 8);
+        world.summon.y += (targetY - world.summon.y) * Math.min(1, dt * 8);
+        world.summon.attackTimer -= dt;
+        if (world.summon.attackTimer <= 0) {
+          world.summon.modeIndex = (world.summon.modeIndex + 1) % 3;
+          if (world.boss && world.summon.modeIndex === 2) {
+            // Combined beam rifle blast against big bosses
+            world.summon.attackTimer = 0.85;
+            world.projectiles.push({
+              x: world.summon.x + 16, y: world.summon.y + 12,
+              vx: p.facing * 780, vy: 0, dmg: 44, pierce: 3, r: 11, color: "#a855f7", fromPlayer: true
+            });
+          } else if (world.summon.modeIndex === 1) {
+            // Top-spin twin stinger laser swords
+            world.summon.attackTimer = 0.65;
+            damageAllNearby(world.summon.x, world.summon.y, 125, 28, 140);
+          } else {
+            // Twin energy pistols barrage
+            world.summon.attackTimer = 0.45;
+            [-14, 14].forEach(offY => {
+              world.projectiles.push({
+                x: world.summon.x + 16, y: world.summon.y + offY,
+                vx: p.facing * 660, vy: 0, dmg: 16, r: 5, color: "#38bdf8", fromPlayer: true
+              });
+            });
+          }
+        }
+      }
+    }
+
+    // Enemies
+    for (const en of world.enemies) {
+      if (en.slowTimer > 0) en.slowTimer -= dt;
+      const spdMult = en.slowTimer > 0 ? 0.35 : 1;
+      en.x += en.vx * spdMult * dt;
+      if (en.x < 180 || en.x > 1140) en.vx *= -1;
+
+      if (rectsOverlap(p.x, p.y, p.w, p.h, en.x, en.y, en.w, en.h)) {
+        hurtPlayer(14, (p.x < en.x ? -1 : 1) * 220 * (1 - suit.knockbackResist));
+      }
+    }
+    world.enemies = world.enemies.filter(en => {
+      if (en.hp <= 0) {
+        state.honey += 4;
+        return false;
+      }
+      return true;
+    });
+
+    // Boss
+    if (world.boss) {
+      const b = world.boss;
+      if (b.slowTimer > 0) b.slowTimer -= dt;
+      const spdMult = b.slowTimer > 0 ? 0.35 : 1;
+      b.x += b.vx * spdMult * dt;
+      if (b.x < 780 || b.x > 1120) b.vx *= -1;
+
+      if (rectsOverlap(p.x, p.y, p.w, p.h, b.x, b.y, b.w, b.h)) {
+        hurtPlayer(20, (p.x < b.x ? -1 : 1) * 260 * (1 - suit.knockbackResist));
+      }
+
+      if (b.hp <= 0) {
+        state.honey += 30;
+        world.boss = null;
+        world.goal.locked = false;
+        showToast("Boss defeated! Reach the royal goal to claim your reward!");
+      }
+    }
+
+    // Projectiles
+    for (const pr of world.projectiles) {
+      if (pr.grav) pr.vy += pr.grav * dt;
+      pr.x += pr.vx * dt;
+      pr.y += pr.vy * dt;
+
+      if (pr.fromPlayer) {
+        for (const en of world.enemies) {
+          if (Math.hypot(pr.x - (en.x + en.w / 2), pr.y - (en.y + en.h / 2)) < pr.r + 18) {
+            en.hp -= pr.dmg;
+            if (pr.snare) en.slowTimer = 3.0;
+            if (pr.knock) en.vx = (pr.vx >= 0 ? 1 : -1) * pr.knock;
+            if (pr.splash) damageAllNearby(pr.x, pr.y, pr.splash, pr.dmg * 0.7, 120);
+            if (!pr.pierce || --pr.pierce <= 0) pr.dead = true;
+            break;
+          }
+        }
+        if (world.boss && !pr.dead) {
+          const b = world.boss;
+          if (pr.x + pr.r > b.x && pr.x - pr.r < b.x + b.w && pr.y + pr.r > b.y && pr.y - pr.r < b.y + b.h) {
+            b.hp -= pr.dmg;
+            if (pr.snare) b.slowTimer = 2.5;
+            if (!pr.pierce || --pr.pierce <= 0) pr.dead = true;
+          }
+        }
+      }
+
+      if (pr.x < -30 || pr.x > canvas.width + 30 || pr.y > canvas.height + 30) pr.dead = true;
+    }
+    world.projectiles = world.projectiles.filter(pr => !pr.dead);
+
+    // Pickups
+    for (const pk of world.pickups) {
+      if (!pk.taken && Math.hypot(p.x + p.w / 2 - pk.x, p.y + p.h / 2 - pk.y) < pk.r + 22) {
+        pk.taken = true;
+        state.honey += pk.val;
+        updateHud();
+      }
+    }
+
+    // Goal check
+    if (!world.goal.locked && rectsOverlap(p.x, p.y, p.w, p.h, world.goal.x, world.goal.y, world.goal.w, world.goal.h)) {
+      completeStage();
+    }
+
+    updateHud();
+  }
+
+  function hurtPlayer(dmg, knockVx) {
+    const p = world.player;
+    if (p.invuln > 0) return;
+    p.invuln = 0.85;
+    p.vx = knockVx;
+    p.vy = -220;
+
+    let rem = dmg;
+    if (p.shield > 0) {
+      const absorbed = Math.min(p.shield, rem);
+      p.shield -= absorbed;
+      rem -= absorbed;
+    }
+    p.hp -= rem;
+    if (p.hp <= 0) {
+      respawnAtCheckpoint("Beatrice was overwhelmed — respawned at checkpoint!");
+    }
+  }
+
+  function respawnAtCheckpoint(msg) {
+    const p = world.player;
+    p.x = p.checkpoint.x;
+    p.y = p.checkpoint.y;
+    p.vx = 0;
+    p.vy = 0;
+    p.hp = p.maxHp;
+    p.shield = 0;
+    p.invuln = 1.0;
+    showToast(msg);
+  }
+
+  function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  function render() {
+    const st = world.stage;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Sky / Biome Backdrop
+    const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, st.theme);
+    grad.addColorStop(1, "#090d16");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Subtle hexagonal comb pattern in background
+    ctx.strokeStyle = "rgba(246, 185, 59, 0.08)";
+    ctx.lineWidth = 1;
+    for (let x = 40; x < canvas.width; x += 90) {
+      for (let y = 90; y < 500; y += 90) {
+        ctx.strokeRect(x, y, 44, 44);
+      }
+    }
+
+    // Platforms
+    for (const pl of world.platforms) {
+      ctx.fillStyle = "#293548";
+      ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+      ctx.fillStyle = "#f6b93b";
+      ctx.fillRect(pl.x, pl.y, pl.w, 4);
+    }
+    for (const tp of world.tempPlatforms) {
+      ctx.fillStyle = "rgba(250, 204, 21, 0.75)";
+      ctx.fillRect(tp.x, tp.y, tp.w, tp.h);
+    }
+
+    // Honey pickups
+    for (const pk of world.pickups) {
+      if (pk.taken) continue;
+      ctx.fillStyle = "#f6b93b";
+      ctx.beginPath();
+      ctx.arc(pk.x, pk.y, pk.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Goal (Princess Bee / Dungeon Chest / Queen Nectaria)
+    const g = world.goal;
+    ctx.fillStyle = g.locked ? "#64748b" : (g.type === "queen" ? "#f43f5e" : "#f6b93b");
+    ctx.fillRect(g.x, g.y, g.w, g.h);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText(g.type === "queen" ? "👑 QUEEN" : (g.type === "boss" ? "🎁 CHEST" : "👸 PRINCESS"), g.x - 8, g.y - 8);
+
+    // Enemies
+    for (const en of world.enemies) {
+      ctx.fillStyle = en.slowTimer > 0 ? "#84cc16" : (en.kind === "wasp" ? "#eab308" : "#dc2626");
+      ctx.fillRect(en.x, en.y, en.w, en.h);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(en.x + 6, en.y + 8, 5, 5);
+      ctx.fillRect(en.x + 21, en.y + 8, 5, 5);
+    }
+
+    // Boss
+    if (world.boss) {
+      const b = world.boss;
+      ctx.fillStyle = b.slowTimer > 0 ? "#65a30d" : "#b91c1c";
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = "#fca5a5";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(b.x, b.y, b.w, b.h);
+    }
+
+    // Summoned @nectarbytes
+    if (world.summon.active) {
+      const s = world.summon;
+      ctx.fillStyle = "#a855f7";
+      ctx.fillRect(s.x, s.y, 32, 32);
+      ctx.fillStyle = "#e9d5ff";
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillText("@nectarbytes", s.x - 14, s.y - 8);
+    }
+
+    // Beatrice (Player)
+    const p = world.player;
+    const suit = getSuit(state.equippedSuit);
+    ctx.save();
+    if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) {
+      ctx.globalAlpha = 0.55;
+    }
+    ctx.fillStyle = suit.color;
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(p.x + 6, p.y + 10, 20, 4);
+    ctx.fillRect(p.x + 6, p.y + 20, 20, 4);
+    if (p.shield > 0) {
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(p.x - 4, p.y - 4, p.w + 8, p.h + 8);
+    }
+    ctx.restore();
+    ctx.fillStyle = "#fef08a";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText("Beatrice", p.x - 8, p.y - 8);
+
+    // Projectiles
+    for (const pr of world.projectiles) {
+      ctx.fillStyle = pr.color;
+      ctx.beginPath();
+      ctx.arc(pr.x, pr.y, pr.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Pause Overlay
+    if (paused) {
+      ctx.fillStyle = "rgba(6, 9, 17, 0.72)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#f6b93b";
+      ctx.font = "bold 36px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("GAME PAUSED", canvas.width / 2, canvas.height / 2 - 20);
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "16px sans-serif";
+      ctx.fillText("Press P or Esc to resume — timers and summon countdown are frozen.", canvas.width / 2, canvas.height / 2 + 16);
+      ctx.textAlign = "left";
+    }
+  }
+
+  function updateHud() {
+    const st = world.stage;
+    const p = world.player;
+    const suit = getSuit(state.equippedSuit);
+
+    document.getElementById("hud-stage-label").textContent =
+      `Wing ${st.wing} · Stage ${st.id}/38: ${st.name} (${st.communityId})`;
+    document.getElementById("hud-account").textContent =
+      state.isGuest || !state.username ? "Guest Mode" : `@${state.username}`;
+    document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
+    document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
+
+    const stake = Number(state.stakedElixir || 0);
+    const elixirEl = document.getElementById("hud-elixir");
+    if (stake >= 100) {
+      elixirEl.textContent = `⚡ ELIXIR: ${stake} (@nectarbytes Ready)`;
+      elixirEl.className = "pill ok";
+    } else {
+      elixirEl.textContent = `⚡ ELIXIR: ${stake}/100 Stake`;
+      elixirEl.className = "pill warn";
+    }
+
+    document.getElementById("guest-banner").classList.toggle("visible", Boolean(state.isGuest || !state.username));
+
+    document.getElementById("hud-hp-text").textContent =
+      `Beatrice HP: ${Math.max(0, Math.ceil(p.hp))} / ${p.maxHp}${p.shield > 0 ? ` (+${p.shield} Shield)` : ""}`;
+    document.getElementById("hud-hp-bar").style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
+
+    document.getElementById("hud-objective").textContent =
+      st.climax === "queen"
+        ? "Objective: Defeat Mega Hornet Warlord & Rescue Queen Nectaria"
+        : st.climax === "boss"
+        ? `Objective: Defeat ${st.bossName} & Open Loot Chest`
+        : "Objective: Rescue the Princess Bee";
+
+    const bossBox = document.getElementById("hud-boss-box");
+    if (world.boss) {
+      bossBox.style.display = "block";
+      document.getElementById("hud-boss-name").textContent = `${world.boss.name} HP`;
+      document.getElementById("hud-boss-bar").style.width = `${Math.max(0, (world.boss.hp / world.boss.maxHp) * 100)}%`;
+    } else {
+      bossBox.style.display = "none";
+    }
+
+    const summonBox = document.getElementById("hud-summon-box");
+    if (world.summon.active) {
+      summonBox.style.display = "block";
+      document.getElementById("hud-summon-text").textContent = `@nectarbytes Active: ${world.summon.timer.toFixed(1)}s`;
+      document.getElementById("hud-summon-bar").style.width = `${(world.summon.timer / world.summon.maxTimer) * 100}%`;
+    } else {
+      summonBox.style.display = "none";
+    }
+
+    const cd0 = state.equippedCooldowns[0] ? `${getCooldownDef(state.equippedCooldowns[0]).name} (${p.cdTimers[0].toFixed(1)}s)` : "Empty";
+    const cd1 = state.equippedCooldowns[1] ? `${getCooldownDef(state.equippedCooldowns[1]).name} (${p.cdTimers[1].toFixed(1)}s)` : "Empty";
+    document.getElementById("hud-abilities").textContent =
+      `CD1 [K]: ${cd0} · CD2 [L]: ${cd1} · Vials [1]: ${state.consumableStock.royal_vial || 0} · Shields [2]: ${state.consumableStock.honey_shield || 0} · Summon [R]: ${p.stageSummonUsed ? "Used" : "Ready"}`;
+  }
+
+  // Hive Keychain & HIVE Payment Verification to @nectarbytes
+  function hasKeychain() {
+    return typeof window.hive_keychain !== "undefined";
+  }
+
+  function connectKeychain(onSuccess = null) {
+    if (!hasKeychain()) {
+      showToast("Hive Keychain extension not detected — see Keychain / Save modal.");
+      openModal("keychain");
+      return;
+    }
+    const input = document.getElementById("kc-username-input");
+    const username = (input ? input.value : state.username || "").trim().replace(/^@/, "").toLowerCase();
+    if (!username) {
+      showToast("Enter your Hive @username first.");
+      return;
+    }
+    const challenge = `${GAME_NAME}:login:${username}:${Date.now()}`;
+    window.hive_keychain.requestSignBuffer(username, challenge, "Posting", (res) => {
+      if (res && res.success) {
+        state.username = username;
+        state.isGuest = false;
+        if (!state.knownSquadmates.includes(username)) {
+          state.knownSquadmates.unshift(username);
+        }
+        saveState(`Connected as @${username} via Hive Keychain!`);
+        refreshElixirStake();
+        if (onSuccess) onSuccess();
+      } else {
+        showToast("Keychain login was cancelled or failed.");
+      }
+    });
+  }
+
+  async function purchaseWithHive(itemCode, itemLabel, amountHiveStr, onUnlockFn) {
+    if (state.isGuest || !state.username) {
+      showToast("Guest mode: Connect Keychain or create a free Ecency account to pay in HIVE.");
+      openModal("keychain");
+      return;
+    }
+    if (!hasKeychain()) {
+      showToast("Install Hive Keychain to approve HIVE payments.");
+      openModal("keychain");
+      return;
+    }
+
+    const orderId = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const memo = `swarmbreaker:buy:${itemCode}:${orderId}`;
+    const formattedAmt = Number(amountHiveStr).toFixed(3);
+
+    showToast(`Requesting ${formattedAmt} HIVE transfer to @${PAYMENT_RECIPIENT}...`);
+
+    window.hive_keychain.requestTransfer(
+      state.username,
+      PAYMENT_RECIPIENT,
+      formattedAmt,
+      memo,
+      "HIVE",
+      async (res) => {
+        if (!res || !res.success) {
+          showToast("Transfer cancelled or rejected.");
+          return;
+        }
+        showToast("Broadcast sent — verifying transfer on-chain...");
+        const verified = await verifyTransferOnChain(state.username, PAYMENT_RECIPIENT, `${formattedAmt} HIVE`, orderId);
+        if (verified) {
+          state.redeemedOrders.push(orderId);
+          onUnlockFn();
+          saveState(`Verified & unlocked ${itemLabel}!`);
+        } else {
+          showToast("Could not confirm transfer yet — try again in a few seconds.");
+        }
+      }
+    );
+  }
+
+  async function verifyTransferOnChain(fromUser, toUser, exactAmount, orderId) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      for (const rpc of HIVE_RPCS) {
+        try {
+          const res = await fetch(rpc, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "condenser_api.get_account_history",
+              params: [toUser, -1, 100]
+            })
+          });
+          const data = await res.json();
+          const history = Array.isArray(data?.result) ? data.result : [];
+          for (const [, entry] of history) {
+            const op = entry?.op;
+            if (!Array.isArray(op) || op[0] !== "transfer") continue;
+            const payload = op[1] || {};
+            if (
+              payload.from === fromUser &&
+              payload.to === toUser &&
+              payload.amount === exactAmount &&
+              typeof payload.memo === "string" &&
+              payload.memo.includes(orderId) &&
+              !state.redeemedOrders.includes(orderId)
+            ) {
+              return true;
+            }
+          }
+        } catch (e) {
+          console.warn("Hive RPC check error:", rpc, e);
+        }
+      }
+      await new Promise(r => setTimeout(r, 2500));
+    }
+    return false;
+  }
+
+  // Modals
+  function isModalOpen() {
+    return document.getElementById("modal-backdrop").classList.contains("open");
+  }
+
+  function closeModal() {
+    document.getElementById("modal-backdrop").classList.remove("open");
+  }
+
+  function openModal(tabName) {
+    activeModalTab = tabName;
+    const backdrop = document.getElementById("modal-backdrop");
+    const titleEl = document.getElementById("modal-title");
+    const bodyEl = document.getElementById("modal-body");
+    backdrop.classList.add("open");
+
+    if (tabName === "stages") {
+      titleEl.textContent = "38 Community Stages (4 Wings · LeoFinance Excluded)";
+      bodyEl.innerHTML = renderStagesModal();
+    } else if (tabName === "loadout") {
+      titleEl.textContent = "Suits, Buy-Once Cooldown Loadout & Consumables";
+      bodyEl.innerHTML = renderLoadoutModal();
+    } else if (tabName === "shop") {
+      titleEl.textContent = `HIVE Shop & Starter Bundles → @${PAYMENT_RECIPIENT}`;
+      bodyEl.innerHTML = renderShopModal();
+    } else if (tabName === "squad") {
+      titleEl.textContent = "@username Companion Squad & @nectarbytes Summon (100+ ELIXIR)";
+      bodyEl.innerHTML = renderSquadModal();
+    } else if (tabName === "snaps") {
+      titleEl.textContent = "Hive Snaps — In-Game Community Chat & Milestones";
+      bodyEl.innerHTML = renderSnapsModal();
+    } else if (tabName === "keychain") {
+      titleEl.textContent = "Hive Keychain, Guest Onboarding & Save Management";
+      bodyEl.innerHTML = renderKeychainModal();
+    }
+  }
+
+  function renderStagesModal() {
+    const cards = STAGES.map(s => {
+      const done = state.completedStages.includes(s.id);
+      const badge = s.climax === "queen" ? "👑 Final Boss + Queen" : (s.climax === "boss" ? "⚔️ Dungeon Boss" : "👸 Princess Rescue");
+      return `
+        <div class="card ${s.id === world.stage.id ? "selected" : ""}">
+          <div>
+            <div class="card-title">Stage ${s.id}: ${s.name}</div>
+            <div class="card-meta">Wing ${s.wing} · ${s.communityId} · ${badge} ${done ? "· ✅ Cleared" : ""}</div>
+            <div class="card-desc" style="margin-top:4px;">${s.note}</div>
+          </div>
+          <button class="primary" onclick="window.__sb.selectStage(${s.id})">Play Stage ${s.id}</button>
+        </div>
+      `;
+    }).join("");
+    return `<div class="grid-cards">${cards}</div>`;
+  }
+
+  function renderLoadoutModal() {
+    const suitCards = SUITS.map(su => {
+      const owned = state.unlockedSuits.includes(su.id);
+      const equipped = state.equippedSuit === su.id;
+      const unlockTag = su.unlock === "starter" ? "Starter" : (su.unlock === "loot_drop" ? "Boss Loot Drop" : `HIVE Shop (${su.priceHive} HIVE)`);
+      return `
+        <div class="card ${equipped ? "selected" : ""}">
+          <div>
+            <div class="card-title">${su.name}</div>
+            <div class="card-meta">${unlockTag} · Speed ${su.speed} · HP ${su.maxHp}</div>
+            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
+          </div>
+          ${owned
+            ? `<button class="${equipped ? "primary" : ""}" onclick="window.__sb.equipSuit('${su.id}')">${equipped ? "Equipped" : "Equip Suit"}</button>`
+            : `<button disabled>${unlockTag}</button>`}
+        </div>
+      `;
+    }).join("");
+
+    const cdCards = COOLDOWN_POWERUPS.map(cd => {
+      const owned = state.ownedCooldowns.includes(cd.id);
+      const slot0 = state.equippedCooldowns[0] === cd.id;
+      const slot1 = state.equippedCooldowns[1] === cd.id;
+      return `
+        <div class="card ${(slot0 || slot1) ? "selected" : ""}">
+          <div>
+            <div class="card-title">${cd.name} (${cd.cd}s CD)</div>
+            <div class="card-meta">${cd.cat} · ${owned ? "Owned (Buy-Once)" : `${cd.priceHive} HIVE in Shop`}</div>
+            <div class="card-desc" style="margin-top:4px;">${cd.desc}</div>
+          </div>
+          ${owned ? `
+            <div style="display:flex;gap:6px;">
+              <button onclick="window.__sb.setCdSlot(0, '${cd.id}')">${slot0 ? "Slot 1 ✓" : "Set Slot 1"}</button>
+              <button onclick="window.__sb.setCdSlot(1, '${cd.id}')">${slot1 ? "Slot 2 ✓" : "Set Slot 2"}</button>
+            </div>
+          ` : `<button onclick="openModal('shop')">Buy in HIVE Shop</button>`}
+        </div>
+      `;
+    }).join("");
+
+    const consList = CONSUMABLES.map(c =>
+      `<span class="pill"><strong>${c.name}</strong>: ${state.consumableStock[c.id] || 0}</span>`
+    ).join(" ");
+
+    return `
+      <div><strong>Equipped Suit</strong></div>
+      <div class="grid-cards">${suitCards}</div>
+      <div><strong>Buy-Once Cooldown Power-Ups (Swap Pre-Stage)</strong></div>
+      <div class="grid-cards">${cdCards}</div>
+      <div><strong>Restockable Consumables Stock</strong></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">${consList}</div>
+    `;
+  }
+
+  function renderShopModal() {
+    const bundleCards = STARTER_BUNDLES.map(b => `
+      <div class="card">
+        <div>
+          <div class="card-title">${b.name} — ${b.priceHive} HIVE</div>
+          <div class="card-desc" style="margin-top:4px;">${b.desc}</div>
+        </div>
+        <button class="primary" onclick="window.__sb.buyBundle('${b.id}')">Buy (${b.priceHive} HIVE)</button>
+      </div>
+    `).join("");
+
+    const topSuits = SUITS.filter(s => s.unlock === "shop").map(su => {
+      const owned = state.unlockedSuits.includes(su.id);
+      return `
+        <div class="card">
+          <div>
+            <div class="card-title">${su.name} — ${su.priceHive} HIVE</div>
+            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
+          </div>
+          ${owned
+            ? `<button disabled>Already Unlocked</button>`
+            : `<button class="primary" onclick="window.__sb.buyShopSuit('${su.id}')">Buy Suit (${su.priceHive} HIVE)</button>`}
+        </div>
+      `;
+    }).join("");
+
+    const cdShop = COOLDOWN_POWERUPS.filter(c => !state.ownedCooldowns.includes(c.id)).map(cd => `
+      <div class="card">
+        <div>
+          <div class="card-title">${cd.name} — ${cd.priceHive} HIVE</div>
+          <div class="card-desc" style="margin-top:4px;">${cd.desc}</div>
+        </div>
+        <button onclick="window.__sb.buyCooldown('${cd.id}')">Buy Once (${cd.priceHive} HIVE)</button>
+      </div>
+    `).join("");
+
+    const consShop = CONSUMABLES.map(c => `
+      <div class="card">
+        <div>
+          <div class="card-title">${c.name} — ${c.priceHive} HIVE</div>
+          <div class="card-meta">In Stock: ${state.consumableStock[c.id] || 0}</div>
+          <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
+        </div>
+        <button onclick="window.__sb.buyConsumable('${c.id}')">Restock +1 (${c.priceHive} HIVE)</button>
+      </div>
+    `).join("");
+
+    return `
+      <div class="notice-box">All HIVE purchases transfer to <strong>@${PAYMENT_RECIPIENT}</strong> via Hive Keychain and verify on-chain before unlocking.</div>
+      <div><strong>Starter Bundles</strong></div>
+      <div class="grid-cards">${bundleCards}</div>
+      <div><strong>Top-Tier Suits (HIVE Shop Exclusive)</strong></div>
+      <div class="grid-cards">${topSuits}</div>
+      <div><strong>Buy-Once Cooldown Power-Ups</strong></div>
+      <div class="grid-cards">${cdShop || `<div class="card-meta">All cooldown power-ups owned!</div>`}</div>
+      <div><strong>Restockable Consumables</strong></div>
+      <div class="grid-cards">${consShop}</div>
+    `;
+  }
+
+  function renderSquadModal() {
+    const stake = Number(state.stakedElixir || 0);
+    const eligible = stake >= 100 && !state.isGuest && Boolean(state.username);
+    const mates = state.knownSquadmates.map(u => {
+      const active = state.selectedSquad.includes(u);
+      return `<button class="${active ? "primary" : ""}" onclick="window.__sb.toggleSquadMate('${u}')">@${u} ${active ? "✓" : ""}</button>`;
+    }).join(" ");
+
+    return `
+      <div class="notice-box">
+        <strong>@nectarbytes Summon Hero:</strong> Stake at least <strong>100 ELIXIR</strong> to summon <strong>@nectarbytes</strong> once per stage for <strong>20 seconds</strong> (press <strong>R</strong> in-game). Wields twin energy pistols, a two-sword top-spin slash, and combines pistols into a beam rifle against big bosses.
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="pill ${eligible ? "ok" : "warn"}">Staked ELIXIR: ${stake} / 100 required</span>
+        <button onclick="window.__sb.refreshElixir()">Refresh ELIXIR Stake</button>
+        <button class="primary" ${eligible && !world.player.stageSummonUsed ? "" : "disabled"} onclick="window.__sb.summonNow()">
+          Summon @nectarbytes Now
+        </button>
+      </div>
+      <div><strong>@username Companion Squad (Logged-In / Known Bees)</strong></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${mates}</div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="new-squad-mate" placeholder="Add @username to squad roster (e.g. beatrice.hive)" />
+        <button onclick="window.__sb.addSquadMate()">Add</button>
+      </div>
+    `;
+  }
+
+  function renderSnapsModal() {
+    const items = state.snapsFeed.map(item => `
+      <div class="feed-item">
+        <span class="feed-author">@${item.author}</span> <span class="card-meta">· ${item.time}</span>
+        <div style="margin-top:4px;">${escapeHtml(item.text)}</div>
+      </div>
+    `).join("");
+
+    return `
+      <div class="notice-box">
+        <strong>Hive Snaps Feed:</strong> Share quick run updates and milestone Snaps with the Hive community. Posting via Hive Keychain broadcasts a short Snaps custom_json / post when connected.
+      </div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="snap-input" maxlength="240" placeholder="Post a Snap about your Swarmbreaker run..." />
+        <button class="primary" onclick="window.__sb.postSnap()">Post Snap</button>
+      </div>
+      <div class="feed-list">${items}</div>
+    `;
+  }
+
+  function renderKeychainModal() {
+    return `
+      <div class="warn-box">
+        <strong>New to Hive or playing as Guest?</strong><br/>
+        1. Install <a href="https://hive-keychain.com" target="_blank" rel="noopener noreferrer" style="color:#fff;text-decoration:underline;">Hive Keychain</a> in your browser.<br/>
+        2. Need a Hive account first? Create one easily via <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;text-decoration:underline;">Ecency (ecency.com/signup)</a> and back up your keys safely offline.<br/>
+        3. Your local guest progress in this browser stays intact while you set up.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <input type="text" id="kc-username-input" style="max-width:260px;" value="${state.username || ""}" placeholder="Enter Hive username (without @)" />
+        <button class="primary" onclick="window.__sb.connectKeychain()">Connect Hive Keychain</button>
+        <button onclick="window.__sb.playGuest()">Continue as Guest</button>
+        <button onclick="window.__sb.exportSave()">Download Save JSON</button>
+        <button class="danger" onclick="window.__sb.resetSave()">Reset Local Save</button>
+      </div>
+    `;
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+
+  // Expose UI callbacks
+  window.__sb = {
+    selectStage(id) {
+      buildStage(id);
+      closeModal();
+    },
+    equipSuit(id) {
+      if (!state.unlockedSuits.includes(id)) return;
+      state.equippedSuit = id;
+      const suit = getSuit(id);
+      world.player.maxHp = suit.maxHp;
+      world.player.hp = Math.min(world.player.hp, suit.maxHp);
+      saveState(`Equipped ${suit.name}`);
+      openModal("loadout");
+    },
+    setCdSlot(slot, id) {
+      state.equippedCooldowns[slot] = id;
+      saveState(`Assigned ${getCooldownDef(id).name} to Slot ${slot + 1}`);
+      openModal("loadout");
+    },
+    buyBundle(bundleId) {
+      const b = STARTER_BUNDLES.find(x => x.id === bundleId);
+      if (!b) return;
+      purchaseWithHive(b.id, b.name, b.priceHive, () => {
+        if (!state.ownedCooldowns.includes(b.cdGrant)) {
+          state.ownedCooldowns.push(b.cdGrant);
+        } else {
+          state.consumableStock.royal_vial = (state.consumableStock.royal_vial || 0) + 2;
+        }
+        for (const [k, v] of Object.entries(b.consumables)) {
+          state.consumableStock[k] = (state.consumableStock[k] || 0) + v;
+        }
+      });
+    },
+    buyShopSuit(suitId) {
+      const su = SUITS.find(x => x.id === suitId);
+      if (!su || state.unlockedSuits.includes(su.id)) return;
+      purchaseWithHive(su.id, su.name, su.priceHive, () => {
+        state.unlockedSuits.push(su.id);
+        state.equippedSuit = su.id;
+      });
+    },
+    buyCooldown(cdId) {
+      const cd = getCooldownDef(cdId);
+      if (!cd || state.ownedCooldowns.includes(cd.id)) return;
+      purchaseWithHive(cd.id, cd.name, cd.priceHive, () => {
+        state.ownedCooldowns.push(cd.id);
+      });
+    },
+    buyConsumable(consId) {
+      const c = CONSUMABLES.find(x => x.id === consId);
+      if (!c) return;
+      purchaseWithHive(c.id, c.name, c.priceHive, () => {
+        state.consumableStock[c.id] = (state.consumableStock[c.id] || 0) + 1;
+      });
+    },
+    refreshElixir() {
+      refreshElixirStake().then(() => {
+        if (activeModalTab === "squad") openModal("squad");
+      });
+    },
+    summonNow() {
+      closeModal();
+      summonNectarbytes();
+    },
+    toggleSquadMate(u) {
+      if (state.selectedSquad.includes(u)) {
+        state.selectedSquad = state.selectedSquad.filter(x => x !== u);
+      } else if (state.selectedSquad.length < 4) {
+        state.selectedSquad.push(u);
+      } else {
+        showToast("Max 4 squadmates selected.");
+      }
+      saveState();
+      openModal("squad");
+    },
+    addSquadMate() {
+      const el = document.getElementById("new-squad-mate");
+      const name = (el?.value || "").trim().replace(/^@/, "").toLowerCase();
+      if (!name) return;
+      if (!state.knownSquadmates.includes(name)) state.knownSquadmates.unshift(name);
+      if (!state.selectedSquad.includes(name) && state.selectedSquad.length < 4) {
+        state.selectedSquad.push(name);
+      }
+      saveState(`Added @${name} to squad roster`);
+      openModal("squad");
+    },
+    postSnap() {
+      const el = document.getElementById("snap-input");
+      const text = (el?.value || "").trim();
+      if (!text) return;
+      const author = state.isGuest || !state.username ? "guest_bee" : state.username;
+
+      const finishPost = () => {
+        state.snapsFeed.unshift({ author, text, time: "Just now" });
+        saveState("Snap posted!");
+        openModal("snaps");
+      };
+
+      if (!state.isGuest && state.username && hasKeychain()) {
+        window.hive_keychain.requestCustomJson(
+          state.username,
+          "swarmbreaker_snap",
+          "Posting",
+          JSON.stringify({ app: GAME_NAME, stage: world.stage.id, text }),
+          `${GAME_NAME} Snap`,
+          (res) => {
+            if (res && res.success) finishPost();
+            else showToast("Keychain Snap broadcast cancelled.");
+          }
+        );
+      } else {
+        finishPost();
+      }
+    },
+    connectKeychain() {
+      connectKeychain(() => openModal("keychain"));
+    },
+    playGuest() {
+      state.isGuest = true;
+      saveState("Continuing in Guest Mode");
+      closeModal();
+    },
+    exportSave() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "swarmbreaker-save.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Downloaded swarmbreaker-save.json");
+    },
+    resetSave() {
+      state = defaultState();
+      buildStage(1);
+      saveState("Local save reset to defaults.");
+      openModal("keychain");
+    }
+  };
+
+  // Start Game
+  buildStage(state.currentStageId || 1);
+  updateHud();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
