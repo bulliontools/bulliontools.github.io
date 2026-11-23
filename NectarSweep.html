@@ -1182,7 +1182,7 @@ function requestHiveTransferAsync(account, to, amountHiveStr, memo) {
   });
 }
 
-async function waitForSettledProceeds(account, baselineSwapHive, pct, maxExtraWaitMs = 9000) {
+async function waitForSettledProceeds(account, baselineSwapHive, pct, expectedNetHive = 0, maxExtraWaitMs = 18000) {
   let latestSwapHive = baselineSwapHive;
   try {
     const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
@@ -1194,9 +1194,13 @@ async function waitForSettledProceeds(account, baselineSwapHive, pct, maxExtraWa
   }
 
   let gainedHive = Math.max(0, Number((latestSwapHive - baselineSwapHive).toFixed(8)));
+  const targetHive = expectedNetHive > 0 ? expectedNetHive * 0.99 : 0;
   const start = Date.now();
 
-  while (gainedHive <= 0 && Date.now() - start < maxExtraWaitMs) {
+  while (Date.now() - start < maxExtraWaitMs) {
+    const reachedTarget = targetHive > 0 ? gainedHive + 1e-12 >= targetHive : gainedHive > 0;
+    if (reachedTarget) break;
+
     await new Promise((r) => setTimeout(r, 3000));
     try {
       const rec = await fetchTokenBalanceRecord(account, "SWAP.HIVE");
@@ -1204,10 +1208,14 @@ async function waitForSettledProceeds(account, baselineSwapHive, pct, maxExtraWa
       state.swapHiveBalance = latestSwapHive;
       $("swapHiveBal").textContent = fmt8(latestSwapHive);
       gainedHive = Math.max(0, Number((latestSwapHive - baselineSwapHive).toFixed(8)));
-      if (gainedHive > 0) break;
+      if (targetHive > 0 ? gainedHive + 1e-12 >= targetHive : gainedHive > 0) break;
+
       const elapsedSec = 3 + Math.round((Date.now() - start) / 1000);
+      const progressNote = targetHive > 0
+        ? `${fmt8(gainedHive)} / ${fmt8(expectedNetHive)} expected`
+        : `${fmt8(gainedHive)} settled`;
       setStatus(
-        `Waiting for side-chain sell proceeds to settle before swapping ${pct}% to ELIXIR (${elapsedSec}s elapsed)...`
+        `Waiting for side-chain sell proceeds to settle before swapping ${pct}% to ELIXIR (${progressNote}, ${elapsedSec}s elapsed)...`
       );
     } catch (_) {}
   }
@@ -1215,11 +1223,11 @@ async function waitForSettledProceeds(account, baselineSwapHive, pct, maxExtraWa
   return { latestSwapHive, gainedHive };
 }
 
-async function swapAvailableHiveForElixir(account, splitRatio = 1, baselineSwapHive = 0) {
+async function swapAvailableHiveForElixir(account, splitRatio = 1, baselineSwapHive = 0, expectedNetHive = 0) {
   const pct = Math.round(splitRatio * 100);
   setStatus(`Checking newly settled SWAP.HIVE proceeds (${pct}% swap to ELIXIR)...`);
 
-  const { gainedHive } = await waitForSettledProceeds(account, baselineSwapHive, pct);
+  const { gainedHive } = await waitForSettledProceeds(account, baselineSwapHive, pct, expectedNetHive);
   const spendHive = floorToDecimals(gainedHive * splitRatio, 8);
   if (!(spendHive > 0)) {
     return {
@@ -1415,6 +1423,7 @@ async function executeBatchSell() {
   const succeededTxs = [];
   const failedMsgs = [];
   const { share1, share2, totalFee } = calcSplitFees(totalGross);
+  const expectedNetHive = Math.max(0, totalGross - totalFee);
 
   if (totalFee >= MIN_FEE_SHARE) {
     setStatus("Checking liquid SWAP.HIVE balance for fee transfer...");
@@ -1576,7 +1585,7 @@ async function executeBatchSell() {
   if (wantElixirSwap && anySellSucceeded) {
     setStatus("Waiting 3 seconds for side-chain sell proceeds to settle before swapping gained SWAP.HIVE to ELIXIR...");
     await new Promise((r) => setTimeout(r, 3000));
-    const swapResult = await swapAvailableHiveForElixir(account, elixirSplitRatio, baselineSwapHive);
+    const swapResult = await swapAvailableHiveForElixir(account, elixirSplitRatio, baselineSwapHive, expectedNetHive);
     if (swapResult.status === "ok") {
       succeededTxs.push(swapResult.txEntry);
     } else if (swapResult.status === "error") {
