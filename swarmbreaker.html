@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Swarmbreaker — Hive 2D Platformer</title>
   <style>
     :root {
@@ -43,7 +43,8 @@
       display: flex;
       flex-direction: column;
       width: 100%;
-      height: 100%;
+      height: 100vh;
+      height: 100dvh;
     }
 
     header#top-hud {
@@ -175,10 +176,12 @@
     #main-stage-wrap {
       position: relative;
       flex: 1;
+      min-height: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
       background: #050811;
     }
 
@@ -193,7 +196,7 @@
 
     #canvas-overlay-hud {
       position: absolute;
-      inset: 10px 12px;
+      inset: 10px 12px calc(76px + env(safe-area-inset-bottom, 0px)) 12px;
       pointer-events: none;
       display: flex;
       flex-direction: column;
@@ -246,7 +249,7 @@
 
     #toast {
       position: fixed;
-      bottom: 86px;
+      bottom: calc(136px + env(safe-area-inset-bottom, 0px));
       left: 50%;
       transform: translateX(-50%);
       background: rgba(17, 24, 39, 0.96);
@@ -270,7 +273,9 @@
     #touch-controls {
       display: none;
       position: absolute;
-      inset: auto 10px 10px 10px;
+      left: 10px;
+      right: 10px;
+      bottom: calc(74px + env(safe-area-inset-bottom, 0px));
       justify-content: space-between;
       align-items: flex-end;
       pointer-events: none;
@@ -283,6 +288,50 @@
       .bar-track { width: 120px; }
     }
 
+    @media (max-width: 820px) {
+      header#top-hud {
+        padding: 5px 8px;
+        gap: 5px;
+      }
+
+      .brand-title {
+        font-size: 0.92rem;
+      }
+
+      .brand-sub {
+        font-size: 0.68rem;
+      }
+
+      .hud-stats {
+        gap: 4px;
+      }
+
+      .hud-stats .pill {
+        padding: 2px 7px;
+        font-size: 0.68rem;
+      }
+
+      .hud-actions {
+        gap: 4px;
+      }
+
+      .hud-actions button {
+        padding: 4px 7px;
+        font-size: 0.7rem;
+      }
+
+      #guest-banner {
+        padding: 4px 10px;
+        font-size: 0.69rem;
+        line-height: 1.25;
+      }
+
+      .status-box {
+        padding: 5px 8px;
+        font-size: 0.7rem;
+      }
+    }
+
     .touch-pad {
       display: flex;
       gap: 8px;
@@ -290,18 +339,18 @@
     }
 
     .touch-btn {
-      width: 52px;
-      height: 52px;
+      width: 50px;
+      height: 50px;
       border-radius: 14px;
-      background: rgba(19, 26, 41, 0.88);
-      border: 1px solid rgba(56, 189, 248, 0.5);
+      background: rgba(19, 26, 41, 0.9);
+      border: 1px solid rgba(56, 189, 248, 0.55);
       color: #fff;
-      font-size: 0.78rem;
+      font-size: 0.76rem;
       font-weight: 800;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
     }
 
     .modal-backdrop {
@@ -685,6 +734,29 @@
     return { startBgm, stopBgm, toggle, playSfx, updateAudioBtn, ensureCtx };
   })();
 
+  // Hero Artwork Sprites (save beatrice.jpg and nectarbytes.jpg in the game folder)
+  const beatriceSprite = new Image();
+  let beatriceSpriteReady = false;
+  beatriceSprite.onload = () => { beatriceSpriteReady = true; };
+  beatriceSprite.onerror = () => { beatriceSpriteReady = false; };
+  beatriceSprite.src = "beatrice.jpg";
+
+  const nectarbytesSprite = new Image();
+  let nectarbytesSpriteReady = false;
+  nectarbytesSprite.onload = () => { nectarbytesSpriteReady = true; };
+  nectarbytesSprite.onerror = () => { nectarbytesSpriteReady = false; };
+  nectarbytesSprite.src = "nectarbytes.jpg";
+
+  function drawHeroImage(img, ready, cx, cy, drawW, drawH, facing) {
+    if (!ready || !img.naturalWidth || !img.naturalHeight) return false;
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (facing < 0) ctx.scale(-1, 1);
+    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+    return true;
+  }
+
   const STAGES = [
     { id: 1, wing: 1, name: "Mildly Infuriating", communityId: "hive-174602", climax: "princess", skyTop: "#1e1b4b", skyBot: "#090d16", neon: "#f472b6", note: "Laugh off minor hive annoyances and rescue the Princess Bee." },
     { id: 2, wing: 1, name: "Snapie", communityId: "hive-178315", climax: "princess", skyTop: "#134e4a", skyBot: "#042f2e", neon: "#2dd4bf", note: "Snappy micro-platforms and brisk early pest waves." },
@@ -764,7 +836,7 @@
     { id: "bundle_launch", name: "Full Toolkit Taster (Launch Deal)", priceHive: "1.750", cdGrant: "spring_hop", consumables: { honey_shield: 2, royal_vial: 2, checkpoint_beacon: 1 }, desc: "Spring-Pollen Hop + 2x Shield + 2x Royal Jelly Vial + 1x Beacon." }
   ];
 
-  const STORAGE_KEY = "swarmbreaker_save_v4";
+  const STORAGE_KEY = "swarmbreaker_save_v5";
 
   function defaultState() {
     return {
@@ -1409,12 +1481,10 @@
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
   }
 
-  // Multi-Part Illustrated Character, Boss, Summon & Royal Sanctum Renderer
   function render() {
     const st = world.stage;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Sky + Synthwave Sun + Parallax Hive Pillars & Honeycomb Lattice
     const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grad.addColorStop(0, st.skyTop);
     grad.addColorStop(0.65, "#111827");
@@ -1450,7 +1520,6 @@
     }
     ctx.globalAlpha = 1;
 
-    // 2. Platforms with shaded comb stone & neon edge trim
     for (const pl of world.platforms) {
       const pGrad = ctx.createLinearGradient(0, pl.y, 0, pl.y + pl.h);
       pGrad.addColorStop(0, "#334155");
@@ -1469,7 +1538,6 @@
       ctx.fill();
     }
 
-    // 3. Honey Orbs
     for (const pk of world.pickups) {
       if (pk.taken) continue;
       const bob = Math.sin(world.time * 5 + pk.x) * 4;
@@ -1483,28 +1551,22 @@
       ctx.fill();
     }
 
-    // 4. Royal Finale Queen Nectaria / Princess Bee / Loot Chest
     drawGoalCharacter(world.goal);
 
-    // 5. Articulated Pests (Wasps & Beetles with wings, legs, mandibles & eyes)
     for (const en of world.enemies) {
       drawPestEnemy(en);
     }
 
-    // 6. Armored Dungeon / Final Boss (Mega Hornet Warlord)
     if (world.boss) {
       drawHornetBoss(world.boss);
     }
 
-    // 7. @nectarbytes Summon Hero (2 arms, twin pistols, two stinger laser swords, top-spin & beam)
     if (world.summon.active) {
       drawNectarbytesSummon(world.summon);
     }
 
-    // 8. Beatrice Hero (Articulated wings, armored chestplate, striped abdomen, limbs & glowing stinger)
     drawBeatriceHero(world.player, getSuit(state.equippedSuit));
 
-    // 9. Projectiles & Particles
     for (const pr of world.projectiles) {
       const pGlow = ctx.createRadialGradient(pr.x, pr.y, 1, pr.x, pr.y, pr.r * 2.2);
       pGlow.addColorStop(0, "#fff");
@@ -1548,95 +1610,90 @@
     ctx.save();
     if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) ctx.globalAlpha = 0.55;
 
-    // Back & front translucent articulated wings
-    ctx.fillStyle = "rgba(224, 242, 254, 0.52)";
-    ctx.beginPath();
-    ctx.ellipse(cx - p.facing * 6, cy - 12 + flap * 0.7, 16, 6, -0.55 * p.facing, 0, Math.PI * 2);
-    ctx.fill();
+    if (!drawHeroImage(beatriceSprite, beatriceSpriteReady, cx, cy - 4, 70, 78, p.facing)) {
+      ctx.fillStyle = "rgba(224, 242, 254, 0.52)";
+      ctx.beginPath();
+      ctx.ellipse(cx - p.facing * 6, cy - 12 + flap * 0.7, 16, 6, -0.55 * p.facing, 0, Math.PI * 2);
+      ctx.fill();
 
-    ctx.fillStyle = "rgba(240, 249, 255, 0.72)";
-    ctx.beginPath();
-    ctx.ellipse(cx - p.facing * 2, cy - 10 - flap, 18, 7, -0.3 * p.facing, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.fillStyle = "rgba(240, 249, 255, 0.72)";
+      ctx.beginPath();
+      ctx.ellipse(cx - p.facing * 2, cy - 10 - flap, 18, 7, -0.3 * p.facing, 0, Math.PI * 2);
+      ctx.fill();
 
-    // Articulated legs & stinger tail
-    ctx.strokeStyle = "#1e293b";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(cx - p.facing * 4, cy + 8);
-    ctx.lineTo(cx - p.facing * 8 + stride, cy + 20);
-    ctx.moveTo(cx + p.facing * 5, cy + 8);
-    ctx.lineTo(cx + p.facing * 8 - stride, cy + 20);
-    ctx.stroke();
+      ctx.strokeStyle = "#1e293b";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx - p.facing * 4, cy + 8);
+      ctx.lineTo(cx - p.facing * 8 + stride, cy + 20);
+      ctx.moveTo(cx + p.facing * 5, cy + 8);
+      ctx.lineTo(cx + p.facing * 8 - stride, cy + 20);
+      ctx.stroke();
 
-    // Glowing stinger tip
-    ctx.fillStyle = "#fef08a";
-    ctx.beginPath();
-    ctx.moveTo(cx - p.facing * 18, cy + 3);
-    ctx.lineTo(cx - p.facing * 29, cy + 5);
-    ctx.lineTo(cx - p.facing * 18, cy + 8);
-    ctx.closePath();
-    ctx.fill();
+      ctx.fillStyle = "#fef08a";
+      ctx.beginPath();
+      ctx.moveTo(cx - p.facing * 18, cy + 3);
+      ctx.lineTo(cx - p.facing * 29, cy + 5);
+      ctx.lineTo(cx - p.facing * 18, cy + 8);
+      ctx.closePath();
+      ctx.fill();
 
-    // Shaded golden/suit thorax & striped abdomen
-    const bodyGrad = ctx.createRadialGradient(cx - 5, cy - 7, 3, cx, cy, 24);
-    bodyGrad.addColorStop(0, "#fef9c3");
-    bodyGrad.addColorStop(0.55, suit.color);
-    bodyGrad.addColorStop(1, suit.trim);
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 2, 20, 15, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
+      const bodyGrad = ctx.createRadialGradient(cx - 5, cy - 7, 3, cx, cy, 24);
+      bodyGrad.addColorStop(0, "#fef9c3");
+      bodyGrad.addColorStop(0.55, suit.color);
+      bodyGrad.addColorStop(1, suit.trim);
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 2, 20, 15, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
 
-    // Armor stripes
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(cx - 11, cy - 10, 4, 23);
-    ctx.fillRect(cx - 2, cy - 11, 4, 25);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(cx - 11, cy - 10, 4, 23);
+      ctx.fillRect(cx - 2, cy - 11, 4, 25);
 
-    // Armored head & glowing visor eye
-    ctx.fillStyle = suit.color;
-    ctx.beginPath();
-    ctx.arc(cx + p.facing * 13, cy - 4, 11, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+      ctx.fillStyle = suit.color;
+      ctx.beginPath();
+      ctx.arc(cx + p.facing * 13, cy - 4, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
 
-    ctx.strokeStyle = suit.trim;
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(cx + p.facing * 14, cy - 14);
-    ctx.lineTo(cx + p.facing * 22, cy - 24);
-    ctx.moveTo(cx + p.facing * 10, cy - 14);
-    ctx.lineTo(cx + p.facing * 16, cy - 25);
-    ctx.stroke();
+      ctx.strokeStyle = suit.trim;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(cx + p.facing * 14, cy - 14);
+      ctx.lineTo(cx + p.facing * 22, cy - 24);
+      ctx.moveTo(cx + p.facing * 10, cy - 14);
+      ctx.lineTo(cx + p.facing * 16, cy - 25);
+      ctx.stroke();
 
-    ctx.fillStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.ellipse(cx + p.facing * 17, cy - 5, 5, 6.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(cx + p.facing * 18.5, cy - 7, 2, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.ellipse(cx + p.facing * 17, cy - 5, 5, 6.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(cx + p.facing * 18.5, cy - 7, 2, 0, Math.PI * 2);
+      ctx.fill();
 
-    // Forearm blaster
-    ctx.fillStyle = "#cbd5e1";
-    ctx.fillRect(cx + p.facing * 8, cy + 2, p.facing * 14, 6);
+      ctx.fillStyle = "#cbd5e1";
+      ctx.fillRect(cx + p.facing * 8, cy + 2, p.facing * 14, 6);
+    }
 
     if (p.shield > 0) {
       ctx.strokeStyle = "#38bdf8";
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(cx, cy, 31, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 34, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
 
     ctx.fillStyle = "#fef08a";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText("Beatrice", p.x - 8, p.y - 18);
+    ctx.fillText("Beatrice", p.x - 8, p.y - 42);
   }
 
   function drawPestEnemy(en) {
@@ -1676,14 +1733,12 @@
     const cy = b.y + b.h / 2;
     const sway = Math.sin(world.time * 6) * 4;
 
-    // Menacing aura ring
     ctx.strokeStyle = "rgba(249, 115, 22, 0.45)";
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(cx, cy + sway, 58, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Heavy armored carapace
     const grad = ctx.createRadialGradient(cx - 16, cy - 18, 12, cx, cy, 62);
     grad.addColorStop(0, b.slowTimer > 0 ? "#a3e635" : "#fb923c");
     grad.addColorStop(0.55, b.slowTimer > 0 ? "#365314" : "#9a3412");
@@ -1696,7 +1751,6 @@
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Molten armor cracks
     ctx.strokeStyle = "#fbbf24";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1707,7 +1761,6 @@
     ctx.lineTo(cx + 8, cy + 6 + sway);
     ctx.stroke();
 
-    // Warlord horns & glowing eyes
     ctx.fillStyle = "#fef08a";
     ctx.beginPath();
     ctx.moveTo(b.x + 18, b.y + sway);
@@ -1734,48 +1787,45 @@
     const cy = s.y + 22;
     const dir = world.player.facing;
 
-    // Golden & violet energy ring
     ctx.strokeStyle = "rgba(250, 204, 21, 0.72)";
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(cx, cy, 38 + Math.sin(world.time * 14) * 3, 0, Math.PI * 2);
+    ctx.arc(cx, cy, 42 + Math.sin(world.time * 14) * 3, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Two stinger laser swords in top-spin slash
     for (let i = 0; i < 2; i++) {
       const ang = s.spinAngle + i * Math.PI;
       ctx.strokeStyle = i === 0 ? "#fde047" : "#38bdf8";
       ctx.lineWidth = 4.5;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(ang) * 10, cy + Math.sin(ang) * 10);
-      ctx.lineTo(cx + Math.cos(ang) * 46, cy + Math.sin(ang) * 46);
+      ctx.lineTo(cx + Math.cos(ang) * 48, cy + Math.sin(ang) * 48);
       ctx.stroke();
     }
 
-    // Armored hero torso & helmet
-    const grad = ctx.createLinearGradient(s.x, s.y, s.x + 44, s.y + 44);
-    grad.addColorStop(0, "#f472b6");
-    grad.addColorStop(0.55, "#7e22ce");
-    grad.addColorStop(1, "#1e1b4b");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(s.x + 4, s.y + 4, 36, 36, 12);
-    ctx.fill();
-    ctx.strokeStyle = "#fde047";
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
+    if (!drawHeroImage(nectarbytesSprite, nectarbytesSpriteReady, cx, cy, 76, 84, dir)) {
+      const grad = ctx.createLinearGradient(s.x, s.y, s.x + 44, s.y + 44);
+      grad.addColorStop(0, "#f472b6");
+      grad.addColorStop(0.55, "#7e22ce");
+      grad.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(s.x + 4, s.y + 4, 36, 36, 12);
+      ctx.fill();
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
 
-    // Two arms wielding twin energy pistols
-    ctx.strokeStyle = "#fef08a";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - 2);
-    ctx.lineTo(cx + dir * 28, cy - 12);
-    ctx.moveTo(cx, cy + 6);
-    ctx.lineTo(cx + dir * 28, cy + 16);
-    ctx.stroke();
+      ctx.strokeStyle = "#fef08a";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 2);
+      ctx.lineTo(cx + dir * 28, cy - 12);
+      ctx.moveTo(cx, cy + 6);
+      ctx.lineTo(cx + dir * 28, cy + 16);
+      ctx.stroke();
+    }
 
-    // Combined beam rifle blast against big bosses
     if (s.beamTimer > 0 && world.boss) {
       ctx.strokeStyle = "rgba(244, 114, 182, 0.9)";
       ctx.lineWidth = 15;
@@ -1794,7 +1844,7 @@
 
     ctx.fillStyle = "#f5d0fe";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText("@nectarbytes", s.x - 16, s.y - 14);
+    ctx.fillText("@nectarbytes", s.x - 16, s.y - 44);
   }
 
   function drawGoalCharacter(g) {
@@ -1810,7 +1860,6 @@
     ctx.arc(cx, cy, 52, 0, Math.PI * 2);
     ctx.fill();
 
-    // Royal robe / comb silhouette
     const robeGrad = ctx.createLinearGradient(g.x, g.y + bob, g.x, g.y + g.h + bob);
     robeGrad.addColorStop(0, g.locked ? "#475569" : (g.type === "queen" ? "#f43f5e" : "#fbbf24"));
     robeGrad.addColorStop(1, g.locked ? "#1e293b" : (g.type === "queen" ? "#881337" : "#b45309"));
@@ -1822,7 +1871,6 @@
     ctx.lineWidth = 2.2;
     ctx.stroke();
 
-    // Crown
     ctx.fillStyle = "#fde047";
     ctx.beginPath();
     ctx.moveTo(g.x + 14, g.y + 10 + bob);
