@@ -540,7 +540,6 @@
     let bgmTimer = null;
     let step = 0;
 
-    // 16th-note 80s techno octave bassline & synth arpeggio (A minor / synthwave pulse)
     const bassPattern = [
       110.00, 220.00, 110.00, 220.00, 110.00, 220.00, 130.81, 261.63,
       98.00,  196.00, 98.00,  196.00, 87.31,  174.61, 98.00,  196.00
@@ -619,23 +618,18 @@
     function startBgm() {
       stopBgm();
       if (!enabled) return;
-      // ~126 BPM 16th-note techno pulse
       bgmTimer = setInterval(() => {
         if (!enabled || paused || isModalOpen()) return;
         const idx = step % bassPattern.length;
         const b = bassPattern[idx];
         const a = arpPattern[idx];
 
-        // 80s octave saw bass
         playTone(b, "sawtooth", 0.11, 0.045, null, 950);
-        // Bright 80s arp lead
         playTone(a, "sawtooth", 0.09, 0.022, null, 3400);
 
-        // 4/4 kick on beats 0, 4, 8, 12
         if (idx % 4 === 0) {
           playTone(135, "sine", 0.12, 0.085, 42, 600);
         }
-        // Offbeat hi-hat on 2, 6, 10, 14
         if (idx % 4 === 2) {
           playHat(0.055, 0.032);
         } else {
@@ -770,7 +764,7 @@
     { id: "bundle_launch", name: "Full Toolkit Taster (Launch Deal)", priceHive: "1.750", cdGrant: "spring_hop", consumables: { honey_shield: 2, royal_vial: 2, checkpoint_beacon: 1 }, desc: "Spring-Pollen Hop + 2x Shield + 2x Royal Jelly Vial + 1x Beacon." }
   ];
 
-  const STORAGE_KEY = "swarmbreaker_save_v3";
+  const STORAGE_KEY = "swarmbreaker_save_v4";
 
   function defaultState() {
     return {
@@ -831,7 +825,7 @@
     time: 0,
     stage: STAGES[0],
     player: {
-      x: 90, y: 460, w: 42, h: 42, vx: 0, vy: 0, facing: 1, onGround: false,
+      x: 90, y: 460, w: 46, h: 46, vx: 0, vy: 0, facing: 1, onGround: false,
       hp: 100, maxHp: 100, shield: 0, invuln: 0, fireCd: 0, cdTimers: [0, 0],
       checkpoint: { x: 90, y: 460 }, stageSummonUsed: false
     },
@@ -842,7 +836,7 @@
     projectiles: [],
     pickups: [],
     particles: [],
-    goal: { x: 1170, y: 496, w: 54, h: 64, type: "princess", locked: false },
+    goal: { x: 1170, y: 496, w: 58, h: 64, type: "princess", locked: false },
     boss: null,
     stageCleared: false
   };
@@ -897,8 +891,8 @@
       world.enemies.push({
         id: i + 1,
         x: 340 + i * 195,
-        y: i % 2 === 0 ? floorY - 40 : 330,
-        w: 40, h: 40,
+        y: i % 2 === 0 ? floorY - 42 : 330,
+        w: 44, h: 42,
         vx: (i % 2 === 0 ? 1 : -1) * (88 + st.wing * 14),
         hp: Math.round(30 * diffMult),
         maxHp: Math.round(30 * diffMult),
@@ -911,14 +905,14 @@
       const maxBossHp = Math.round((st.climax === "queen" ? 420 : 210) * diffMult);
       world.boss = {
         name: st.bossName,
-        x: 1020, y: floorY - 92, w: 92, h: 92,
+        x: 1010, y: floorY - 102, w: 102, h: 102,
         vx: -95, hp: maxBossHp, maxHp: maxBossHp, slowTimer: 0,
         isQueenGuard: st.climax === "queen"
       };
-      world.goal = { x: 1170, y: floorY - 64, w: 54, h: 64, type: st.climax, locked: true };
+      world.goal = { x: 1170, y: floorY - 64, w: 58, h: 64, type: st.climax, locked: true };
     } else {
       world.boss = null;
-      world.goal = { x: 1170, y: floorY - 64, w: 54, h: 64, type: "princess", locked: false };
+      world.goal = { x: 1170, y: floorY - 64, w: 58, h: 64, type: "princess", locked: false };
     }
 
     world.pickups = [
@@ -994,7 +988,7 @@
 
     AudioEngine.playSfx("shoot");
     const dir = p.facing;
-    const bx = p.x + (dir > 0 ? p.w + 4 : -10);
+    const bx = p.x + p.w / 2 + dir * 24;
     const by = p.y + p.h * 0.48;
 
     if (suit.attackType === "single") {
@@ -1141,11 +1135,11 @@
     world.summon.active = true;
     world.summon.timer = 20.0;
     world.summon.maxTimer = 20.0;
-    world.summon.x = world.player.x + world.player.facing * 68;
-    world.summon.y = world.player.y - 10;
+    world.summon.x = world.player.x + world.player.facing * 72;
+    world.summon.y = world.player.y - 12;
     world.summon.attackTimer = 0.2;
     AudioEngine.playSfx("summon");
-    spawnParticles(world.summon.x + 20, world.summon.y + 20, "#e879f9", 20);
+    spawnParticles(world.summon.x + 22, world.summon.y + 22, "#e879f9", 22);
     showToast("@nectarbytes summoned for 20 seconds!");
     updateHud();
   }
@@ -1271,7 +1265,7 @@
         world.summon.active = false;
         showToast("@nectarbytes summon ended.");
       } else {
-        const targetX = p.x + p.facing * 72;
+        const targetX = p.x + p.facing * 76;
         const targetY = p.y - 12;
         world.summon.x += (targetX - world.summon.x) * Math.min(1, dt * 8);
         world.summon.y += (targetY - world.summon.y) * Math.min(1, dt * 8);
@@ -1282,15 +1276,15 @@
           if (world.boss && world.summon.modeIndex === 2) {
             world.summon.attackTimer = 0.85;
             world.summon.beamTimer = 0.28;
-            world.projectiles.push({ x: world.summon.x + 20, y: world.summon.y + 18, vx: p.facing * 820, vy: 0, dmg: 48, pierce: 3, r: 14, color: "#e879f9", fromPlayer: true });
+            world.projectiles.push({ x: world.summon.x + 22, y: world.summon.y + 20, vx: p.facing * 820, vy: 0, dmg: 48, pierce: 3, r: 14, color: "#e879f9", fromPlayer: true });
           } else if (world.summon.modeIndex === 1) {
             world.summon.attackTimer = 0.65;
-            damageAllNearby(world.summon.x + 20, world.summon.y + 20, 135, 30, 140);
-            spawnParticles(world.summon.x + 20, world.summon.y + 20, "#38bdf8", 14);
+            damageAllNearby(world.summon.x + 22, world.summon.y + 22, 135, 30, 140);
+            spawnParticles(world.summon.x + 22, world.summon.y + 22, "#38bdf8", 14);
           } else {
             world.summon.attackTimer = 0.45;
             [-12, 12].forEach(offY => {
-              world.projectiles.push({ x: world.summon.x + 20, y: world.summon.y + 18 + offY, vx: p.facing * 680, vy: 0, dmg: 16, r: 6, color: "#38bdf8", fromPlayer: true });
+              world.projectiles.push({ x: world.summon.x + 22, y: world.summon.y + 20 + offY, vx: p.facing * 680, vy: 0, dmg: 16, r: 6, color: "#38bdf8", fromPlayer: true });
             });
           }
         }
@@ -1319,7 +1313,7 @@
       const b = world.boss;
       if (b.slowTimer > 0) b.slowTimer -= dt;
       b.x += b.vx * (b.slowTimer > 0 ? 0.35 : 1) * dt;
-      if (b.x < 780 || b.x > 1120) b.vx *= -1;
+      if (b.x < 780 || b.x > 1110) b.vx *= -1;
       if (rectsOverlap(p.x, p.y, p.w, p.h, b.x, b.y, b.w, b.h)) {
         hurtPlayer(20, (p.x < b.x ? -1 : 1) * 260 * (1 - suit.knockbackResist));
       }
@@ -1339,7 +1333,7 @@
       pr.y += pr.vy * dt;
       if (pr.fromPlayer) {
         for (const en of world.enemies) {
-          if (Math.hypot(pr.x - (en.x + en.w / 2), pr.y - (en.y + en.h / 2)) < pr.r + 22) {
+          if (Math.hypot(pr.x - (en.x + en.w / 2), pr.y - (en.y + en.h / 2)) < pr.r + 24) {
             en.hp -= pr.dmg;
             if (pr.snare) en.slowTimer = 3.0;
             if (pr.knock) en.vx = (pr.vx >= 0 ? 1 : -1) * pr.knock;
@@ -1415,12 +1409,12 @@
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
   }
 
-  // Rich Illustrated Canvas Scene Renderer
+  // Multi-Part Illustrated Character, Boss, Summon & Royal Sanctum Renderer
   function render() {
     const st = world.stage;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Sky + 80s Synthwave Sun & Horizon Grid
+    // 1. Sky + Synthwave Sun + Parallax Hive Pillars & Honeycomb Lattice
     const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grad.addColorStop(0, st.skyTop);
     grad.addColorStop(0.65, "#111827");
@@ -1429,22 +1423,21 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const sunX = 960;
-    const sunY = 230;
-    const sunGrad = ctx.createRadialGradient(sunX, sunY, 18, sunX, sunY, 145);
-    sunGrad.addColorStop(0, "#fef08a");
-    sunGrad.addColorStop(0.55, "#f59e0b");
+    const sunY = 225;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, 18, sunX, sunY, 150);
+    sunGrad.addColorStop(0, "#fef9c3");
+    sunGrad.addColorStop(0.5, "#f59e0b");
     sunGrad.addColorStop(1, "rgba(244, 114, 182, 0)");
     ctx.fillStyle = sunGrad;
     ctx.beginPath();
-    ctx.arc(sunX, sunY, 145, 0, Math.PI * 2);
+    ctx.arc(sunX, sunY, 150, 0, Math.PI * 2);
     ctx.fill();
 
-    // Distant silhouette spires & glowing honeycomb rings
-    ctx.fillStyle = "rgba(9, 13, 24, 0.65)";
+    ctx.fillStyle = "rgba(9, 13, 24, 0.7)";
     for (let i = 0; i < 8; i++) {
       const bx = i * 175 + 20;
-      const bh = 110 + ((i * 37) % 90);
-      ctx.fillRect(bx, 560 - bh, 95, bh);
+      const bh = 120 + ((i * 37) % 95);
+      ctx.fillRect(bx, 560 - bh, 98, bh);
     }
 
     ctx.strokeStyle = st.neon;
@@ -1457,7 +1450,7 @@
     }
     ctx.globalAlpha = 1;
 
-    // 2. Platforms with shaded stone/comb body and glowing trim
+    // 2. Platforms with shaded comb stone & neon edge trim
     for (const pl of world.platforms) {
       const pGrad = ctx.createLinearGradient(0, pl.y, 0, pl.y + pl.h);
       pGrad.addColorStop(0, "#334155");
@@ -1470,13 +1463,13 @@
     }
 
     for (const tp of world.tempPlatforms) {
-      ctx.fillStyle = "rgba(251, 191, 36, 0.88)";
+      ctx.fillStyle = "rgba(251, 191, 36, 0.9)";
       ctx.beginPath();
       ctx.roundRect(tp.x, tp.y, tp.w, tp.h, 6);
       ctx.fill();
     }
 
-    // 3. Honey Orbs with radial gleam
+    // 3. Honey Orbs
     for (const pk of world.pickups) {
       if (pk.taken) continue;
       const bob = Math.sin(world.time * 5 + pk.x) * 4;
@@ -1490,247 +1483,28 @@
       ctx.fill();
     }
 
-    // 4. Goal: Princess Bee / Loot Chest / Queen Nectaria
-    const g = world.goal;
-    const gBob = Math.sin(world.time * 4) * 3;
-    const crownGlow = ctx.createRadialGradient(g.x + g.w / 2, g.y + g.h / 2 + gBob, 6, g.x + g.w / 2, g.y + g.h / 2 + gBob, 48);
-    crownGlow.addColorStop(0, g.locked ? "rgba(100,116,139,0.25)" : "rgba(251,191,36,0.45)");
-    crownGlow.addColorStop(1, "rgba(251,191,36,0)");
-    ctx.fillStyle = crownGlow;
-    ctx.beginPath();
-    ctx.arc(g.x + g.w / 2, g.y + g.h / 2 + gBob, 48, 0, Math.PI * 2);
-    ctx.fill();
+    // 4. Royal Finale Queen Nectaria / Princess Bee / Loot Chest
+    drawGoalCharacter(world.goal);
 
-    ctx.fillStyle = g.locked ? "#475569" : (g.type === "queen" ? "#f43f5e" : "#fbbf24");
-    ctx.beginPath();
-    ctx.roundRect(g.x, g.y + gBob, g.w, g.h, 14);
-    ctx.fill();
-    ctx.strokeStyle = "#fef08a";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Crown / emblem on royal target
-    ctx.fillStyle = "#fde047";
-    ctx.beginPath();
-    ctx.moveTo(g.x + 12, g.y - 4 + gBob);
-    ctx.lineTo(g.x + 18, g.y - 16 + gBob);
-    ctx.lineTo(g.x + 27, g.y - 7 + gBob);
-    ctx.lineTo(g.x + 36, g.y - 16 + gBob);
-    ctx.lineTo(g.x + 42, g.y - 4 + gBob);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 12px sans-serif";
-    ctx.fillText(g.type === "queen" ? "Queen Nectaria" : (g.type === "boss" ? "Loot Chest" : "Princess Bee"), g.x - 16, g.y - 22 + gBob);
-
-    // 5. Enemies (Detailed Wasps & Armored Beetles)
+    // 5. Articulated Pests (Wasps & Beetles with wings, legs, mandibles & eyes)
     for (const en of world.enemies) {
-      const cx = en.x + en.w / 2;
-      const cy = en.y + en.h / 2;
-      const flap = Math.sin(world.time * 26 + en.id) * 6;
-
-      // Translucent wings
-      ctx.fillStyle = "rgba(224, 242, 254, 0.55)";
-      ctx.beginPath();
-      ctx.ellipse(cx - 8, en.y - 3 + flap, 11, 5, -0.4, 0, Math.PI * 2);
-      ctx.ellipse(cx + 8, en.y - 3 - flap, 11, 5, 0.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Body + stripes
-      ctx.fillStyle = en.slowTimer > 0 ? "#84cc16" : (en.kind === "wasp" ? "#facc15" : "#ef4444");
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, en.w * 0.52, en.h * 0.44, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#111827";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = "#111827";
-      ctx.fillRect(cx - 6, cy - 8, 4, 16);
-      ctx.fillRect(cx + 3, cy - 8, 4, 16);
-
-      // Glowing eyes
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(cx + (en.vx >= 0 ? 10 : -10), cy - 3, 4, 0, Math.PI * 2);
-      ctx.fill();
+      drawPestEnemy(en);
     }
 
-    // 6. Dungeon / Final Boss (Mega Hornet Warlord / Dungeon Boss)
+    // 6. Armored Dungeon / Final Boss (Mega Hornet Warlord)
     if (world.boss) {
-      const b = world.boss;
-      const cx = b.x + b.w / 2;
-      const cy = b.y + b.h / 2;
-      const bGrad = ctx.createRadialGradient(cx - 12, cy - 14, 10, cx, cy, b.w * 0.72);
-      bGrad.addColorStop(0, b.slowTimer > 0 ? "#a3e635" : "#f97316");
-      bGrad.addColorStop(0.65, b.slowTimer > 0 ? "#4d7c0f" : "#991b1b");
-      bGrad.addColorStop(1, "#270606");
-
-      ctx.fillStyle = bGrad;
-      ctx.beginPath();
-      ctx.roundRect(b.x, b.y, b.w, b.h, 22);
-      ctx.fill();
-      ctx.strokeStyle = "#fde047";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      // Horns & glowing eyes
-      ctx.fillStyle = "#fef08a";
-      ctx.beginPath();
-      ctx.moveTo(b.x + 16, b.y);
-      ctx.lineTo(b.x + 6, b.y - 20);
-      ctx.lineTo(b.x + 28, b.y);
-      ctx.moveTo(b.x + b.w - 16, b.y);
-      ctx.lineTo(b.x + b.w - 6, b.y - 20);
-      ctx.lineTo(b.x + b.w - 28, b.y);
-      ctx.fill();
-
-      ctx.fillStyle = "#fef08a";
-      ctx.beginPath();
-      ctx.arc(cx - 16, cy - 8, 7, 0, Math.PI * 2);
-      ctx.arc(cx + 16, cy - 8, 7, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = "#fef08a";
-      ctx.font = "bold 13px sans-serif";
-      ctx.fillText(b.name, b.x - 12, b.y - 26);
+      drawHornetBoss(world.boss);
     }
 
-    // 7. @nectarbytes Summon Hero (2 arms, twin pistols, two stinger laser swords, top-spin & boss beam)
+    // 7. @nectarbytes Summon Hero (2 arms, twin pistols, two stinger laser swords, top-spin & beam)
     if (world.summon.active) {
-      const s = world.summon;
-      const cx = s.x + 18;
-      const cy = s.y + 18;
-
-      // Golden & violet energy aura ring
-      ctx.strokeStyle = "rgba(232, 121, 249, 0.65)";
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 34 + Math.sin(world.time * 14) * 3, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Hero torso & visor
-      const sGrad = ctx.createLinearGradient(s.x, s.y, s.x + 36, s.y + 36);
-      sGrad.addColorStop(0, "#c084fc");
-      sGrad.addColorStop(1, "#581c87");
-      ctx.fillStyle = sGrad;
-      ctx.beginPath();
-      ctx.roundRect(s.x, s.y, 36, 36, 11);
-      ctx.fill();
-      ctx.strokeStyle = "#fef08a";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Two arms with twin energy pistols
-      ctx.strokeStyle = "#fde047";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy + 2);
-      ctx.lineTo(cx + world.player.facing * 24, cy - 8);
-      ctx.moveTo(cx, cy + 6);
-      ctx.lineTo(cx + world.player.facing * 24, cy + 14);
-      ctx.stroke();
-
-      // Two stinger laser swords in top-spin slash
-      for (let i = 0; i < 2; i++) {
-        const ang = s.spinAngle + i * Math.PI;
-        ctx.strokeStyle = i === 0 ? "#38bdf8" : "#f472b6";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(ang) * 10, cy + Math.sin(ang) * 10);
-        ctx.lineTo(cx + Math.cos(ang) * 42, cy + Math.sin(ang) * 42);
-        ctx.stroke();
-      }
-
-      // Combined beam rifle blast against big bosses
-      if (s.beamTimer > 0 && world.boss) {
-        ctx.strokeStyle = "rgba(244, 114, 182, 0.9)";
-        ctx.lineWidth = 14;
-        ctx.beginPath();
-        ctx.moveTo(cx + world.player.facing * 22, cy);
-        ctx.lineTo(world.boss.x + world.boss.w / 2, world.boss.y + world.boss.h / 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(cx + world.player.facing * 22, cy);
-        ctx.lineTo(world.boss.x + world.boss.w / 2, world.boss.y + world.boss.h / 2);
-        ctx.stroke();
-      }
-
-      ctx.fillStyle = "#f5d0fe";
-      ctx.font = "bold 12px sans-serif";
-      ctx.fillText("@nectarbytes", s.x - 16, s.y - 12);
+      drawNectarbytesSummon(world.summon);
     }
 
-    // 8. Beatrice (Illustrated Bee Hero with animated wings, shading & suit trim)
-    const p = world.player;
-    const suit = getSuit(state.equippedSuit);
-    const cx = p.x + p.w / 2;
-    const cy = p.y + p.h / 2;
+    // 8. Beatrice Hero (Articulated wings, armored chestplate, striped abdomen, limbs & glowing stinger)
+    drawBeatriceHero(world.player, getSuit(state.equippedSuit));
 
-    ctx.save();
-    if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) ctx.globalAlpha = 0.55;
-
-    const flap = Math.sin(world.time * 30) * 7;
-    ctx.fillStyle = "rgba(240, 249, 255, 0.68)";
-    ctx.beginPath();
-    ctx.ellipse(cx - 8, p.y - 2 + flap, 13, 6, -0.45, 0, Math.PI * 2);
-    ctx.ellipse(cx + 8, p.y - 2 - flap, 13, 6, 0.45, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Antennae
-    ctx.strokeStyle = suit.trim;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx + p.facing * 8, p.y + 4);
-    ctx.lineTo(cx + p.facing * 16, p.y - 8);
-    ctx.stroke();
-
-    // Shaded bee body
-    const beeGrad = ctx.createRadialGradient(cx - 6, cy - 6, 4, cx, cy, p.w * 0.65);
-    beeGrad.addColorStop(0, "#fef08a");
-    beeGrad.addColorStop(0.5, suit.color);
-    beeGrad.addColorStop(1, suit.trim);
-    ctx.fillStyle = beeGrad;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, p.w * 0.54, p.h * 0.46, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Stripes
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(cx - 8, cy - 8, 4, 16);
-    ctx.fillRect(cx + 2, cy - 8, 4, 16);
-
-    // Expressive eye
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(cx + p.facing * 12, cy - 3, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#0f172a";
-    ctx.beginPath();
-    ctx.arc(cx + p.facing * 13.5, cy - 3, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (p.shield > 0) {
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(cx, cy, 29, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.fillStyle = "#fef08a";
-    ctx.font = "bold 12px sans-serif";
-    ctx.fillText("Beatrice", p.x - 10, p.y - 14);
-
-    // 9. Projectiles & Glowing Particles
+    // 9. Projectiles & Particles
     for (const pr of world.projectiles) {
       const pGlow = ctx.createRadialGradient(pr.x, pr.y, 1, pr.x, pr.y, pr.r * 2.2);
       pGlow.addColorStop(0, "#fff");
@@ -1763,6 +1537,305 @@
       ctx.fillText("Press P or Esc to resume — 80s synth, timers, and summon countdown are frozen.", canvas.width / 2, canvas.height / 2 + 18);
       ctx.textAlign = "left";
     }
+  }
+
+  function drawBeatriceHero(p, suit) {
+    const cx = p.x + p.w / 2;
+    const cy = p.y + p.h / 2;
+    const flap = Math.sin(world.time * 32) * 8;
+    const stride = p.onGround ? Math.sin(world.time * 16) * 6 : 4;
+
+    ctx.save();
+    if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) ctx.globalAlpha = 0.55;
+
+    // Back & front translucent articulated wings
+    ctx.fillStyle = "rgba(224, 242, 254, 0.52)";
+    ctx.beginPath();
+    ctx.ellipse(cx - p.facing * 6, cy - 12 + flap * 0.7, 16, 6, -0.55 * p.facing, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(240, 249, 255, 0.72)";
+    ctx.beginPath();
+    ctx.ellipse(cx - p.facing * 2, cy - 10 - flap, 18, 7, -0.3 * p.facing, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Articulated legs & stinger tail
+    ctx.strokeStyle = "#1e293b";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx - p.facing * 4, cy + 8);
+    ctx.lineTo(cx - p.facing * 8 + stride, cy + 20);
+    ctx.moveTo(cx + p.facing * 5, cy + 8);
+    ctx.lineTo(cx + p.facing * 8 - stride, cy + 20);
+    ctx.stroke();
+
+    // Glowing stinger tip
+    ctx.fillStyle = "#fef08a";
+    ctx.beginPath();
+    ctx.moveTo(cx - p.facing * 18, cy + 3);
+    ctx.lineTo(cx - p.facing * 29, cy + 5);
+    ctx.lineTo(cx - p.facing * 18, cy + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Shaded golden/suit thorax & striped abdomen
+    const bodyGrad = ctx.createRadialGradient(cx - 5, cy - 7, 3, cx, cy, 24);
+    bodyGrad.addColorStop(0, "#fef9c3");
+    bodyGrad.addColorStop(0.55, suit.color);
+    bodyGrad.addColorStop(1, suit.trim);
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 2, 20, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // Armor stripes
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(cx - 11, cy - 10, 4, 23);
+    ctx.fillRect(cx - 2, cy - 11, 4, 25);
+
+    // Armored head & glowing visor eye
+    ctx.fillStyle = suit.color;
+    ctx.beginPath();
+    ctx.arc(cx + p.facing * 13, cy - 4, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = suit.trim;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(cx + p.facing * 14, cy - 14);
+    ctx.lineTo(cx + p.facing * 22, cy - 24);
+    ctx.moveTo(cx + p.facing * 10, cy - 14);
+    ctx.lineTo(cx + p.facing * 16, cy - 25);
+    ctx.stroke();
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.beginPath();
+    ctx.ellipse(cx + p.facing * 17, cy - 5, 5, 6.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(cx + p.facing * 18.5, cy - 7, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Forearm blaster
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillRect(cx + p.facing * 8, cy + 2, p.facing * 14, 6);
+
+    if (p.shield > 0) {
+      ctx.strokeStyle = "#38bdf8";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 31, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.fillStyle = "#fef08a";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText("Beatrice", p.x - 8, p.y - 18);
+  }
+
+  function drawPestEnemy(en) {
+    const cx = en.x + en.w / 2;
+    const cy = en.y + en.h / 2;
+    const dir = en.vx >= 0 ? 1 : -1;
+    const flap = Math.sin(world.time * 28 + en.id) * 7;
+
+    ctx.fillStyle = "rgba(224, 242, 254, 0.58)";
+    ctx.beginPath();
+    ctx.ellipse(cx - dir * 4, cy - 12 + flap, 13, 5, -0.4 * dir, 0, Math.PI * 2);
+    ctx.fill();
+
+    const grad = ctx.createRadialGradient(cx - 4, cy - 4, 2, cx, cy, 22);
+    grad.addColorStop(0, en.slowTimer > 0 ? "#bef264" : (en.kind === "wasp" ? "#fde047" : "#f87171"));
+    grad.addColorStop(1, en.slowTimer > 0 ? "#3f6212" : (en.kind === "wasp" ? "#b45309" : "#7f1d1d"));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, en.w * 0.52, en.h * 0.44, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#090d16";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#090d16";
+    ctx.fillRect(cx - 6, cy - 8, 4, 16);
+    ctx.fillRect(cx + 3, cy - 8, 4, 16);
+
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.arc(cx + dir * 12, cy - 3, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawHornetBoss(b) {
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const sway = Math.sin(world.time * 6) * 4;
+
+    // Menacing aura ring
+    ctx.strokeStyle = "rgba(249, 115, 22, 0.45)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy + sway, 58, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Heavy armored carapace
+    const grad = ctx.createRadialGradient(cx - 16, cy - 18, 12, cx, cy, 62);
+    grad.addColorStop(0, b.slowTimer > 0 ? "#a3e635" : "#fb923c");
+    grad.addColorStop(0.55, b.slowTimer > 0 ? "#365314" : "#9a3412");
+    grad.addColorStop(1, "#1c0a05");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(b.x, b.y + sway, b.w, b.h, 24);
+    ctx.fill();
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Molten armor cracks
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 24, cy - 10 + sway);
+    ctx.lineTo(cx - 6, cy + 4 + sway);
+    ctx.lineTo(cx - 18, cy + 18 + sway);
+    ctx.moveTo(cx + 24, cy - 8 + sway);
+    ctx.lineTo(cx + 8, cy + 6 + sway);
+    ctx.stroke();
+
+    // Warlord horns & glowing eyes
+    ctx.fillStyle = "#fef08a";
+    ctx.beginPath();
+    ctx.moveTo(b.x + 18, b.y + sway);
+    ctx.lineTo(b.x + 4, b.y - 24 + sway);
+    ctx.lineTo(b.x + 32, b.y + sway);
+    ctx.moveTo(b.x + b.w - 18, b.y + sway);
+    ctx.lineTo(b.x + b.w - 4, b.y - 24 + sway);
+    ctx.lineTo(b.x + b.w - 32, b.y + sway);
+    ctx.fill();
+
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.arc(cx - 18, cy - 10 + sway, 8, 0, Math.PI * 2);
+    ctx.arc(cx + 18, cy - 10 + sway, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#fef08a";
+    ctx.font = "bold 13px sans-serif";
+    ctx.fillText(b.name, b.x - 14, b.y - 30 + sway);
+  }
+
+  function drawNectarbytesSummon(s) {
+    const cx = s.x + 22;
+    const cy = s.y + 22;
+    const dir = world.player.facing;
+
+    // Golden & violet energy ring
+    ctx.strokeStyle = "rgba(250, 204, 21, 0.72)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 38 + Math.sin(world.time * 14) * 3, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Two stinger laser swords in top-spin slash
+    for (let i = 0; i < 2; i++) {
+      const ang = s.spinAngle + i * Math.PI;
+      ctx.strokeStyle = i === 0 ? "#fde047" : "#38bdf8";
+      ctx.lineWidth = 4.5;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * 10, cy + Math.sin(ang) * 10);
+      ctx.lineTo(cx + Math.cos(ang) * 46, cy + Math.sin(ang) * 46);
+      ctx.stroke();
+    }
+
+    // Armored hero torso & helmet
+    const grad = ctx.createLinearGradient(s.x, s.y, s.x + 44, s.y + 44);
+    grad.addColorStop(0, "#f472b6");
+    grad.addColorStop(0.55, "#7e22ce");
+    grad.addColorStop(1, "#1e1b4b");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(s.x + 4, s.y + 4, 36, 36, 12);
+    ctx.fill();
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // Two arms wielding twin energy pistols
+    ctx.strokeStyle = "#fef08a";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 2);
+    ctx.lineTo(cx + dir * 28, cy - 12);
+    ctx.moveTo(cx, cy + 6);
+    ctx.lineTo(cx + dir * 28, cy + 16);
+    ctx.stroke();
+
+    // Combined beam rifle blast against big bosses
+    if (s.beamTimer > 0 && world.boss) {
+      ctx.strokeStyle = "rgba(244, 114, 182, 0.9)";
+      ctx.lineWidth = 15;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * 26, cy);
+      ctx.lineTo(world.boss.x + world.boss.w / 2, world.boss.y + world.boss.h / 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(cx + dir * 26, cy);
+      ctx.lineTo(world.boss.x + world.boss.w / 2, world.boss.y + world.boss.h / 2);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "#f5d0fe";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText("@nectarbytes", s.x - 16, s.y - 14);
+  }
+
+  function drawGoalCharacter(g) {
+    const bob = Math.sin(world.time * 4) * 3;
+    const cx = g.x + g.w / 2;
+    const cy = g.y + g.h / 2 + bob;
+
+    const glow = ctx.createRadialGradient(cx, cy, 8, cx, cy, 52);
+    glow.addColorStop(0, g.locked ? "rgba(100,116,139,0.22)" : "rgba(251,191,36,0.5)");
+    glow.addColorStop(1, "rgba(251,191,36,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 52, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Royal robe / comb silhouette
+    const robeGrad = ctx.createLinearGradient(g.x, g.y + bob, g.x, g.y + g.h + bob);
+    robeGrad.addColorStop(0, g.locked ? "#475569" : (g.type === "queen" ? "#f43f5e" : "#fbbf24"));
+    robeGrad.addColorStop(1, g.locked ? "#1e293b" : (g.type === "queen" ? "#881337" : "#b45309"));
+    ctx.fillStyle = robeGrad;
+    ctx.beginPath();
+    ctx.roundRect(g.x + 6, g.y + 10 + bob, g.w - 12, g.h - 10, 16);
+    ctx.fill();
+    ctx.strokeStyle = "#fef08a";
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // Crown
+    ctx.fillStyle = "#fde047";
+    ctx.beginPath();
+    ctx.moveTo(g.x + 14, g.y + 10 + bob);
+    ctx.lineTo(g.x + 20, g.y - 5 + bob);
+    ctx.lineTo(cx, g.y + 5 + bob);
+    ctx.lineTo(g.x + g.w - 20, g.y - 5 + bob);
+    ctx.lineTo(g.x + g.w - 14, g.y + 10 + bob);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText(g.type === "queen" ? "Queen Nectaria" : (g.type === "boss" ? "Loot Chest" : "Princess Bee"), g.x - 16, g.y - 12 + bob);
   }
 
   function drawHex(cx, cy, r) {
