@@ -353,6 +353,7 @@
       align-items: center;
       justify-content: center;
       box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+      touch-action: none;
     }
 
     .modal-backdrop {
@@ -971,6 +972,19 @@
   let activeModalTab = null;
   let hudSyncAccum = 0;
 
+  const keys = {};
+
+  function clearAllInputs() {
+    for (const k of Object.keys(keys)) {
+      keys[k] = false;
+    }
+  }
+
+  window.addEventListener("blur", clearAllInputs);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) clearAllInputs();
+  });
+
   function loadState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -1018,11 +1032,13 @@
   }
 
   function closeModal() {
+    clearAllInputs();
     document.getElementById("modal-backdrop").classList.remove("open");
     activeModalTab = null;
   }
 
   function openModal(tabName) {
+    clearAllInputs();
     activeModalTab = tabName;
     const backdrop = document.getElementById("modal-backdrop");
     const titleEl = document.getElementById("modal-title");
@@ -1293,12 +1309,12 @@
   function getSuit(id) { return SUITS.find(s => s.id === id) || SUITS[0]; }
   function getCooldownDef(id) { return COOLDOWN_POWERUPS.find(c => c.id === id) || null; }
 
-  const keys = {};
   window.addEventListener("keydown", (e) => {
     AudioEngine.ensureCtx();
     const k = e.key.toLowerCase();
     if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
     if (k === "p" || k === "escape") {
+      clearAllInputs();
       if (isModalOpen() && activeModalTab !== "gameover") closeModal();
       else if (!isModalOpen()) togglePause();
       return;
@@ -1321,17 +1337,26 @@
   function bindTouch(id, keyName, onPressFn = null) {
     const el = document.getElementById(id);
     if (!el) return;
+    el.style.touchAction = "none";
+
+    const releaseKey = (e) => {
+      if (e) e.preventDefault();
+      if (keyName) keys[keyName] = false;
+    };
+
     el.addEventListener("touchstart", (e) => {
       e.preventDefault();
       AudioEngine.ensureCtx();
-      if (paused || isModalOpen()) return;
+      if (paused || isModalOpen()) {
+        clearAllInputs();
+        return;
+      }
       if (keyName) keys[keyName] = true;
       if (onPressFn) onPressFn();
     }, { passive: false });
-    el.addEventListener("touchend", (e) => {
-      e.preventDefault();
-      if (keyName) keys[keyName] = false;
-    }, { passive: false });
+
+    el.addEventListener("touchend", releaseKey, { passive: false });
+    el.addEventListener("touchcancel", releaseKey, { passive: false });
   }
 
   bindTouch("btn-left", "arrowleft");
@@ -1342,6 +1367,7 @@
   bindTouch("btn-summon", null, summonNectarbytes);
 
   function togglePause(forcePause = null) {
+    clearAllInputs();
     if (isModalOpen()) return;
     paused = forcePause !== null ? forcePause : !paused;
     updateHud();
@@ -1987,6 +2013,7 @@
 
   function loseLifeAndRespawn(msg) {
     const p = world.player;
+    clearAllInputs();
     state.lives = Math.max(0, state.lives - 1);
     AudioEngine.playSfx("hit");
 
