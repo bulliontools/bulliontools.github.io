@@ -735,7 +735,7 @@
     return { startBgm, stopBgm, toggle, playSfx, updateAudioBtn, ensureCtx };
   })();
 
-  // Hero Artwork Sprites with automatic dark-background keying
+  // Hero Artwork Sprites with automatic dark-background keying and safe file:// fallback
   function createKeyedSprite(src, tolLow = 28, tolHigh = 62, onDone) {
     const rawImg = new Image();
     const stateObj = { canvas: null, ready: false };
@@ -1394,7 +1394,6 @@
     if (p.onGround && speedRatio > 0.05) {
       const prevPhase = p.walkPhase;
       p.walkPhase += dt * (7 + speedRatio * 11);
-      // Subtle footstep dust on half-cycles while running
       if (Math.floor(prevPhase / Math.PI) !== Math.floor(p.walkPhase / Math.PI) && Math.random() < 0.55) {
         spawnParticles(p.x + p.w / 2, p.y + p.h - 2, suit.color, 3, 60);
       }
@@ -1736,7 +1735,6 @@
       drawHornetBoss(world.boss);
     }
 
-    // Dash motion afterimages
     for (const ai of world.afterimages) {
       ctx.save();
       ctx.globalAlpha = Math.max(0, (ai.life / ai.maxLife) * 0.45);
@@ -1794,7 +1792,9 @@
     const cx = p.x + p.w / 2;
     const cy = p.y + p.h / 2;
     const moveFactor = Math.min(1, Math.abs(p.vx) / 140);
-    const groundBob = p.onGround ? -Math.abs(Math.cos(p.walkPhase)) * 3.5 * moveFactor : Math.sin(p.wingPhase * 0.5) * 2.2;
+    const groundBob = p.onGround
+      ? -Math.abs(Math.cos(p.walkPhase)) * 3.5 * moveFactor
+      : Math.sin(p.wingPhase * 0.5) * 2.2;
 
     const stride = Math.sin(p.walkPhase);
     const strideAlt = Math.sin(p.walkPhase + Math.PI);
@@ -1807,113 +1807,112 @@
     ctx.scale(p.facing * p.scaleX, p.scaleY);
     ctx.rotate(p.tilt);
 
-    // 1. Back wing
+    // 1. Animated Back Wing (behind character)
     ctx.save();
-    ctx.translate(-4, -10);
+    ctx.translate(-8, -10);
     ctx.rotate(-0.45 + wingBack);
-    ctx.fillStyle = "rgba(186, 230, 253, 0.45)";
+    ctx.fillStyle = "rgba(186, 230, 253, 0.5)";
     ctx.beginPath();
-    ctx.ellipse(-12, -4, 15, 5.5, -0.35, 0, Math.PI * 2);
+    ctx.ellipse(-12, -4, 16, 6, -0.35, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // 2. Back leg (hip -> knee -> foot)
-    const backHipAngle = lerpAngle(-stride * 0.85, 0.55, p.airBlend);
-    const backKneeBend = Math.max(0, -Math.cos(p.walkPhase)) * 0.65 + p.airBlend * 0.45;
-    drawLimbSegment(-4, 8, 10, 5.5, backHipAngle, "#1e293b");
-    const bkX = -4 - Math.sin(backHipAngle) * 9;
-    const bkY = 8 + Math.cos(backHipAngle) * 9;
-    drawLimbSegment(bkX, bkY, 9, 4.5, backHipAngle + backKneeBend, "#334155");
-
-    // 3. Back arm (counter-swings with legs)
-    const backArmAngle = stride * 0.7 - p.fireRecoil * 0.25;
-    drawLimbSegment(-2, -2, 11, 5, backArmAngle, suit.trim);
-
-    // 4. Torso & stinger
-    ctx.fillStyle = "#fef08a";
-    ctx.beginPath();
-    ctx.moveTo(-17, 2);
-    ctx.lineTo(-27, 5);
-    ctx.lineTo(-17, 8);
-    ctx.closePath();
-    ctx.fill();
-
-    const bodyGrad = ctx.createRadialGradient(-4, -6, 3, 0, 2, 22);
-    bodyGrad.addColorStop(0, "#fef9c3");
-    bodyGrad.addColorStop(0.55, suit.color);
-    bodyGrad.addColorStop(1, suit.trim);
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.ellipse(0, 2, 18, 14, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
-
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(-10, -9, 3.5, 21);
-    ctx.fillRect(-1, -10, 3.5, 23);
-
-    // Optional portrait accent blended subtly over visor/head area
     if (beatriceSprite.ready && beatriceSprite.canvas) {
+      // Animated feet peeking beneath sprite during run/jump
+      const backHipAngle = lerpAngle(-stride * 0.75, 0.45, p.airBlend);
+      const frontHipAngle = lerpAngle(-strideAlt * 0.75, 0.25, p.airBlend);
+      drawLimbSegment(-5, 16, 10, 5, backHipAngle, "#1e293b");
+      drawLimbSegment(5, 16, 10, 5.5, frontHipAngle, "#0f172a");
+
+      // Draw actual Beatrice artwork at full visibility with recoil shift
+      const recoilX = -p.fireRecoil * 4;
+      ctx.drawImage(beatriceSprite.canvas, -36 + recoilX, -46, 72, 82);
+
+      // Animated blaster muzzle flash
+      if (p.fireRecoil > 0.15) {
+        ctx.fillStyle = suit.color;
+        ctx.beginPath();
+        ctx.arc(26 + recoilX, -2, 6 * p.fireRecoil, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      const backHipAngle = lerpAngle(-stride * 0.85, 0.55, p.airBlend);
+      const backKneeBend = Math.max(0, -Math.cos(p.walkPhase)) * 0.65 + p.airBlend * 0.45;
+      drawLimbSegment(-4, 8, 10, 5.5, backHipAngle, "#1e293b");
+      drawLimbSegment(-4 - Math.sin(backHipAngle) * 9, 8 + Math.cos(backHipAngle) * 9, 9, 4.5, backHipAngle + backKneeBend, "#334155");
+      drawLimbSegment(-2, -2, 11, 5, stride * 0.7 - p.fireRecoil * 0.25, suit.trim);
+
+      ctx.fillStyle = "#fef08a";
+      ctx.beginPath();
+      ctx.moveTo(-17, 2);
+      ctx.lineTo(-27, 5);
+      ctx.lineTo(-17, 8);
+      ctx.closePath();
+      ctx.fill();
+
+      const bodyGrad = ctx.createRadialGradient(-4, -6, 3, 0, 2, 22);
+      bodyGrad.addColorStop(0, "#fef9c3");
+      bodyGrad.addColorStop(0.55, suit.color);
+      bodyGrad.addColorStop(1, suit.trim);
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 18, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(-10, -9, 3.5, 21);
+      ctx.fillRect(-1, -10, 3.5, 23);
+
+      const antWave = Math.sin(p.wingPhase * 0.5) * 0.18;
+      ctx.strokeStyle = suit.trim;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(12, -13);
+      ctx.quadraticCurveTo(18, -24, 22 + antWave * 14, -26);
+      ctx.moveTo(9, -13);
+      ctx.quadraticCurveTo(13, -24, 16 - antWave * 12, -27);
+      ctx.stroke();
+
+      ctx.fillStyle = suit.color;
+      ctx.beginPath();
+      ctx.arc(12, -4, 10.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.ellipse(16, -5, 4.5, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const frontHipAngle = lerpAngle(-strideAlt * 0.85, 0.35, p.airBlend);
+      const frontKneeBend = Math.max(0, -Math.cos(p.walkPhase + Math.PI)) * 0.65 + p.airBlend * 0.35;
+      drawLimbSegment(5, 8, 10, 6, frontHipAngle, "#0f172a");
+      drawLimbSegment(5 - Math.sin(frontHipAngle) * 9, 8 + Math.cos(frontHipAngle) * 9, 9, 5, frontHipAngle + frontKneeBend, "#1e293b");
+
+      const frontArmAngle = strideAlt * 0.65 - p.fireRecoil * 0.55;
       ctx.save();
-      ctx.globalAlpha = 0.22;
-      ctx.drawImage(beatriceSprite.canvas, 0, -24, 28, 32);
+      ctx.translate(4, -1 - p.fireRecoil * 3);
+      ctx.rotate(frontArmAngle);
+      ctx.fillStyle = suit.color;
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(-2.5, 0, 5.5, 11, 2.5);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillRect(-1, 8, 14 - p.fireRecoil * 4, 5.5);
       ctx.restore();
     }
 
-    // 5. Head & animated antennae
-    const antWave = Math.sin(p.wingPhase * 0.5) * 0.18;
-    ctx.strokeStyle = suit.trim;
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(12, -13);
-    ctx.quadraticCurveTo(18, -24, 22 + antWave * 14, -26);
-    ctx.moveTo(9, -13);
-    ctx.quadraticCurveTo(13, -24, 16 - antWave * 12, -27);
-    ctx.stroke();
-
-    ctx.fillStyle = suit.color;
-    ctx.beginPath();
-    ctx.arc(12, -4, 10.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "#38bdf8";
-    ctx.beginPath();
-    ctx.ellipse(16, -5, 4.5, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 6. Front leg (hip -> knee -> foot)
-    const frontHipAngle = lerpAngle(-strideAlt * 0.85, 0.35, p.airBlend);
-    const frontKneeBend = Math.max(0, -Math.cos(p.walkPhase + Math.PI)) * 0.65 + p.airBlend * 0.35;
-    drawLimbSegment(5, 8, 10, 6, frontHipAngle, "#0f172a");
-    const fkX = 5 - Math.sin(frontHipAngle) * 9;
-    const fkY = 8 + Math.cos(frontHipAngle) * 9;
-    drawLimbSegment(fkX, fkY, 9, 5, frontHipAngle + frontKneeBend, "#1e293b");
-
-    // 7. Front arm + blaster
-    const frontArmAngle = strideAlt * 0.65 - p.fireRecoil * 0.55;
+    // 2. Animated Front Wing (in front of shoulder)
     ctx.save();
-    ctx.translate(4, -1 - p.fireRecoil * 3);
-    ctx.rotate(frontArmAngle);
-    ctx.fillStyle = suit.color;
-    ctx.strokeStyle = "#0f172a";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(-2.5, 0, 5.5, 11, 2.5);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "#e2e8f0";
-    ctx.fillRect(-1, 8, 14 - p.fireRecoil * 4, 5.5);
-    ctx.restore();
-
-    // 8. Front wing
-    ctx.save();
-    ctx.translate(-1, -10);
+    ctx.translate(-5, -10);
     ctx.rotate(-0.2 + wingMain);
-    ctx.fillStyle = "rgba(240, 249, 255, 0.72)";
+    ctx.fillStyle = "rgba(240, 249, 255, 0.65)";
     ctx.beginPath();
     ctx.ellipse(-11, -5, 17, 6.5, -0.25, 0, Math.PI * 2);
     ctx.fill();
@@ -1923,14 +1922,14 @@
       ctx.strokeStyle = "#38bdf8";
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(0, 0, 33, 0, Math.PI * 2);
+      ctx.arc(0, -4, 38, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
 
     ctx.fillStyle = "#fef08a";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText("Beatrice", p.x - 8, p.y - 36 + groundBob);
+    ctx.fillText("Beatrice", p.x - 8, p.y - 44 + groundBob);
   }
 
   function drawPestEnemy(en) {
@@ -1944,17 +1943,14 @@
     ctx.translate(cx, cy);
     ctx.scale(dir, 1);
 
-    // Animated legs
     drawLimbSegment(-5, 6, 8, 3.5, -legSwing, "#1e293b");
     drawLimbSegment(5, 6, 8, 3.5, legSwing, "#0f172a");
 
-    // Wing
     ctx.fillStyle = "rgba(224, 242, 254, 0.58)";
     ctx.beginPath();
     ctx.ellipse(-4, -12 + flap * 0.4, 13, 5, -0.4, 0, Math.PI * 2);
     ctx.fill();
 
-    // Body
     const grad = ctx.createRadialGradient(-4, -4, 2, 0, 0, 22);
     grad.addColorStop(0, en.slowTimer > 0 ? "#bef264" : (en.kind === "wasp" ? "#fde047" : "#f87171"));
     grad.addColorStop(1, en.slowTimer > 0 ? "#3f6212" : (en.kind === "wasp" ? "#b45309" : "#7f1d1d"));
@@ -1990,7 +1986,6 @@
     ctx.arc(cx, cy + sway, 58, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Articulated boss limbs
     drawLimbSegment(b.x + 18, b.y + b.h - 6 + sway, 16, 9, legSwing, "#451a03");
     drawLimbSegment(b.x + b.w - 18, b.y + b.h - 6 + sway, 16, 9, -legSwing, "#451a03");
     drawLimbSegment(b.x + 6, cy + 4 + sway, 22, 10, 0.5 + armSwing, "#9a3412");
@@ -2056,22 +2051,18 @@
     ctx.strokeStyle = "rgba(250, 204, 21, 0.72)";
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(0, 0, 42 + Math.sin(world.time * 14) * 3, 0, Math.PI * 2);
+    ctx.arc(0, 0, 44 + Math.sin(world.time * 14) * 3, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Wings
+    // Animated Back Wing
     ctx.save();
-    ctx.translate(-4, -12);
+    ctx.translate(-6, -12);
     ctx.rotate(-0.35 + wingFlap);
-    ctx.fillStyle = "rgba(232, 121, 249, 0.45)";
+    ctx.fillStyle = "rgba(232, 121, 249, 0.5)";
     ctx.beginPath();
-    ctx.ellipse(-14, -4, 16, 6, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(-14, -4, 17, 6.5, -0.3, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
-
-    // Animated legs
-    drawLimbSegment(-6, 12, 11, 5, -legKick, "#3b0764");
-    drawLimbSegment(6, 12, 11, 5, legKick, "#581c87");
 
     // Two-sword top-spin blades
     for (let i = 0; i < 2; i++) {
@@ -2080,33 +2071,53 @@
       ctx.lineWidth = 4.5;
       ctx.beginPath();
       ctx.moveTo(Math.cos(ang) * 10, Math.sin(ang) * 10);
-      ctx.lineTo(Math.cos(ang) * 48, Math.sin(ang) * 48);
+      ctx.lineTo(Math.cos(ang) * 50, Math.sin(ang) * 50);
       ctx.stroke();
     }
 
-    // Core body
-    const grad = ctx.createLinearGradient(-18, -18, 18, 18);
-    grad.addColorStop(0, "#f472b6");
-    grad.addColorStop(0.55, "#7e22ce");
-    grad.addColorStop(1, "#1e1b4b");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(-18, -18, 36, 36, 12);
-    ctx.fill();
-    ctx.strokeStyle = "#fde047";
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
+    const recoilShift = s.pistolRecoil * 5;
 
-    // Twin energy pistols with recoil
-    const recoilShift = s.pistolRecoil * 6;
-    ctx.strokeStyle = "#fef08a";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(4 - recoilShift, -3);
-    ctx.lineTo(28 - recoilShift, -12);
-    ctx.moveTo(4 - recoilShift, 6);
-    ctx.lineTo(28 - recoilShift, 15);
-    ctx.stroke();
+    if (nectarbytesSprite.ready && nectarbytesSprite.canvas) {
+      // Animated legs peeking below sprite
+      drawLimbSegment(-6, 18, 10, 5, -legKick, "#3b0764");
+      drawLimbSegment(6, 18, 10, 5, legKick, "#581c87");
+
+      // Draw actual @nectarbytes artwork at full visibility
+      ctx.drawImage(nectarbytesSprite.canvas, -38 - recoilShift, -46, 76, 86);
+    } else {
+      drawLimbSegment(-6, 12, 11, 5, -legKick, "#3b0764");
+      drawLimbSegment(6, 12, 11, 5, legKick, "#581c87");
+
+      const grad = ctx.createLinearGradient(-18, -18, 18, 18);
+      grad.addColorStop(0, "#f472b6");
+      grad.addColorStop(0.55, "#7e22ce");
+      grad.addColorStop(1, "#1e1b4b");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(-18, -18, 36, 36, 12);
+      ctx.fill();
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
+      ctx.strokeStyle = "#fef08a";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(4 - recoilShift, -3);
+      ctx.lineTo(28 - recoilShift, -12);
+      ctx.moveTo(4 - recoilShift, 6);
+      ctx.lineTo(28 - recoilShift, 15);
+      ctx.stroke();
+    }
+
+    // Twin energy pistol muzzle flashes
+    if (s.pistolRecoil > 0.15) {
+      ctx.fillStyle = "#38bdf8";
+      ctx.beginPath();
+      ctx.arc(30 - recoilShift, -8, 6 * s.pistolRecoil, 0, Math.PI * 2);
+      ctx.arc(30 - recoilShift, 10, 6 * s.pistolRecoil, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.restore();
 
@@ -2128,7 +2139,7 @@
 
     ctx.fillStyle = "#f5d0fe";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText("@nectarbytes", s.x - 16, s.y - 44 + floatY);
+    ctx.fillText("@nectarbytes", s.x - 16, s.y - 48 + floatY);
   }
 
   function drawGoalCharacter(g) {
