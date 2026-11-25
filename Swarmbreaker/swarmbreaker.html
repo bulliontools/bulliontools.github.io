@@ -752,7 +752,7 @@
   })();
 
   // Hero, Enemy & Boss Artwork Sprites with dark-background keying + safe fallback
-  function createKeyedSprite(srcList, tolLow = 26, tolHigh = 60, onDone) {
+  function createKeyedSprite(srcList, tolLow = 28, tolHigh = 64, onDone) {
     const sources = Array.isArray(srcList) ? srcList : [srcList];
     const stateObj = { canvas: null, ready: false };
     let idx = 0;
@@ -825,30 +825,30 @@
     return stateObj;
   }
 
-  const beatriceSprite = createKeyedSprite(["beatrice.jpg", "beatrice_2.jpg"], 26, 58);
+  const beatriceSprite = createKeyedSprite(["beatrice.jpg", "beatrice_2.jpg"], 30, 64);
   const suitSprites = {
     worker: beatriceSprite,
-    scout: createKeyedSprite(["beatrice_scout.jpg", "beatrice.jpg"], 26, 58),
-    pollen: createKeyedSprite(["beatrice_pollen.jpg", "beatrice.jpg"], 26, 58),
-    nectar: createKeyedSprite(["beatrice_nectar.jpg", "beatrice.jpg"], 26, 58),
-    comb_guard: createKeyedSprite(["beatrice_comb_guard.jpg", "beatrice.jpg"], 26, 58),
-    royal_guard: createKeyedSprite(["beatrice_royal_guard.jpg", "beatrice.jpg"], 26, 58)
+    scout: createKeyedSprite(["beatrice_scout.jpg", "beatrice.jpg"], 30, 64),
+    pollen: createKeyedSprite(["beatrice_pollen.jpg", "beatrice.jpg"], 30, 64),
+    nectar: createKeyedSprite(["beatrice_nectar.jpg", "beatrice.jpg"], 30, 64),
+    comb_guard: createKeyedSprite(["beatrice_comb_guard.jpg", "beatrice.jpg"], 30, 64),
+    royal_guard: createKeyedSprite(["beatrice_royal_guard.jpg", "beatrice.jpg"], 30, 64)
   };
-  const nectarbytesSprite = createKeyedSprite("nectarbytes.jpg", 26, 58);
-  const waspSprite = createKeyedSprite("wasp_enemy.jpg", 26, 58);
-  const beetleSprite = createKeyedSprite("beetle_enemy.jpg", 26, 58);
-  const miteSprite = createKeyedSprite("mite_enemy.jpg", 26, 58);
-  const mothSprite = createKeyedSprite("moth_enemy.jpg", 26, 58);
-  const spiderSprite = createKeyedSprite("spider_enemy.jpg", 26, 58);
+  const nectarbytesSprite = createKeyedSprite("nectarbytes.jpg", 30, 64);
+  const waspSprite = createKeyedSprite("wasp_enemy.jpg", 30, 64);
+  const beetleSprite = createKeyedSprite("beetle_enemy.jpg", 30, 64);
+  const miteSprite = createKeyedSprite("mite_enemy.jpg", 30, 64);
+  const mothSprite = createKeyedSprite("moth_enemy.jpg", 30, 64);
+  const spiderSprite = createKeyedSprite("spider_enemy.jpg", 30, 64);
 
   const bossSprites = {
-    hornet: createKeyedSprite(["hornet_boss_2.jpg", "hornet_boss.jpg"], 26, 58),
-    mantis: createKeyedSprite(["mantis_boss_2.jpg", "mantis_boss.jpg"], 26, 58),
-    beetle: createKeyedSprite(["beetle_boss.jpg", "hornet_boss_2.jpg"], 26, 58),
-    spider: createKeyedSprite(["spider_boss.jpg", "mantis_boss_2.jpg"], 26, 58),
-    moth: createKeyedSprite(["moth_boss.jpg", "hornet_boss_2.jpg"], 26, 58),
-    wyrm: createKeyedSprite(["wyrm_boss.jpg", "hornet_boss_2.jpg"], 26, 58),
-    queen_warden: createKeyedSprite(["queen_warden_boss.jpg", "hornet_boss_2.jpg", "mantis_boss_2.jpg"], 26, 58)
+    hornet: createKeyedSprite(["hornet_boss_2.jpg", "hornet_boss.jpg"], 34, 72),
+    mantis: createKeyedSprite(["mantis_boss_2.jpg", "mantis_boss.jpg"], 34, 72),
+    beetle: createKeyedSprite(["beetle_boss.jpg", "hornet_boss_2.jpg"], 34, 72),
+    spider: createKeyedSprite(["spider_boss.jpg", "mantis_boss_2.jpg"], 34, 72),
+    moth: createKeyedSprite(["moth_boss.jpg", "hornet_boss_2.jpg"], 34, 72),
+    wyrm: createKeyedSprite(["wyrm_boss.jpg", "hornet_boss_2.jpg"], 34, 72),
+    queen_warden: createKeyedSprite(["queen_warden_boss.jpg", "hornet_boss_2.jpg", "mantis_boss_2.jpg"], 34, 72)
   };
 
   const PEST_KINDS = ["wasp", "beetle", "mite", "moth", "spider"];
@@ -1106,6 +1106,14 @@
   const FLOOR_Y = 560;
   const PIT_Y = canvas.height + 55;
 
+  const ambientMotes = Array.from({ length: 28 }, (_, i) => ({
+    x: (i * 97) % 1280,
+    y: 70 + ((i * 53) % 440),
+    r: 1.4 + (i % 3) * 0.9,
+    speedX: -10 - (i % 4) * 5,
+    phase: i * 0.7
+  }));
+
   const world = {
     time: 0,
     camX: 0,
@@ -1158,8 +1166,6 @@
     });
   }
 
-  // Verified jump reach is ~115px vertically and ~280px horizontally;
-  // each elevated tier rises <= 74px above the previous step and cliff pits stay <= 115px wide.
   function generateStageLayout(st) {
     const layoutVariant = st.id % 4;
     const worldWidth = 2560;
@@ -1307,7 +1313,13 @@
       const isMega = st.climax === "queen";
       const bossSize = isMega ? 124 : 104;
       const maxBossHp = Math.round((isMega ? 540 : 220 + st.wing * 25) * diffMult);
-      const baseSpeed = isMega ? -135 : (st.bossKind === "beetle" || st.bossKind === "wyrm" ? -92 : -118);
+      const baseSpeed = isMega
+        ? -135
+        : st.bossKind === "beetle" || st.bossKind === "wyrm"
+          ? -92
+          : st.bossKind === "spider"
+            ? -134
+            : -118;
       world.boss = {
         name: st.bossName,
         kind: st.bossKind,
@@ -1575,7 +1587,7 @@
     });
     if (world.boss) {
       const b = world.boss;
-      if (Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) <= radius + 45) {
+      if (Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) <= radius + 58) {
         b.hp -= dmg;
       }
     }
@@ -1743,6 +1755,12 @@
     world.time += dt;
     const p = world.player;
     const suit = getSuit(state.equippedSuit);
+
+    for (const mote of ambientMotes) {
+      mote.x += mote.speedX * dt;
+      mote.y += Math.sin(world.time * 1.8 + mote.phase) * 10 * dt;
+      if (mote.x < -12) mote.x = canvas.width + 12;
+    }
 
     p.invuln = Math.max(0, p.invuln - dt);
     p.fireCd = Math.max(0, p.fireCd - dt);
@@ -1955,8 +1973,12 @@
       const b = world.boss;
       if (b.slowTimer > 0) b.slowTimer -= dt;
       const bMul = b.slowTimer > 0 ? 0.35 : 1;
+      const cadenceMul = b.kind === "spider" ? 1.25 : (b.kind === "beetle" || b.kind === "wyrm" ? 0.85 : 1.0);
+      const hoverAmp = (b.kind === "moth" || b.kind === "hornet") ? Math.sin(world.time * 4.5) * 8 : 0;
+
       b.x += b.vx * bMul * dt;
-      b.limbPhase += dt * (b.isQueenGuard ? 9.5 : 7.5) * bMul;
+      b.y = FLOOR_Y - b.h + hoverAmp;
+      b.limbPhase += dt * (b.isQueenGuard ? 9.5 : 7.5) * bMul * cadenceMul;
       b.wingPhase += dt * (b.isQueenGuard ? 26 : 20) * bMul;
       const minBossX = world.worldWidth - 540;
       const maxBossX = world.worldWidth - 220;
@@ -2015,7 +2037,8 @@
         }
       }
 
-      if (rectsOverlap(p.x, p.y, p.w, p.h, b.x, b.y, b.w, b.h)) {
+      const hitPad = b.isQueenGuard ? 14 : 10;
+      if (rectsOverlap(p.x, p.y, p.w, p.h, b.x - hitPad, b.y - hitPad, b.w + hitPad * 2, b.h + hitPad * 2)) {
         hurtPlayer(b.isQueenGuard ? 24 : 20, (p.x < b.x ? -1 : 1) * 260 * (1 - suit.knockbackResist));
       }
       if (b.hp <= 0) {
@@ -2045,7 +2068,8 @@
         }
         if (world.boss && !pr.dead) {
           const b = world.boss;
-          if (pr.x + pr.r > b.x && pr.x - pr.r < b.x + b.w && pr.y + pr.r > b.y && pr.y - pr.r < b.y + b.h) {
+          const pad = b.isQueenGuard ? 16 : 12;
+          if (pr.x + pr.r > b.x - pad && pr.x - pr.r < b.x + b.w + pad && pr.y + pr.r > b.y - pad && pr.y - pr.r < b.y + b.h + pad) {
             b.hp -= pr.dmg;
             if (pr.snare) b.slowTimer = 2.5;
             if (!pr.pierce || --pr.pierce <= 0) pr.dead = true;
@@ -2143,37 +2167,61 @@
 
     const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grad.addColorStop(0, st.skyTop);
-    grad.addColorStop(0.65, "#111827");
+    grad.addColorStop(0.62, "#111827");
     grad.addColorStop(1, st.skyBot);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const sunX = 960 - world.camX * 0.12;
-    const sunY = 215;
-    const sunGrad = ctx.createRadialGradient(sunX, sunY, 18, sunX, sunY, 150);
+    const sunY = 210;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, 16, sunX, sunY, 165);
     sunGrad.addColorStop(0, "#fef9c3");
-    sunGrad.addColorStop(0.5, "#f59e0b");
+    sunGrad.addColorStop(0.45, st.neon);
     sunGrad.addColorStop(1, "rgba(244, 114, 182, 0)");
     ctx.fillStyle = sunGrad;
     ctx.beginPath();
-    ctx.arc(sunX, sunY, 150, 0, Math.PI * 2);
+    ctx.arc(sunX, sunY, 165, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "rgba(9, 13, 24, 0.7)";
-    for (let i = 0; i < 16; i++) {
-      const bx = i * 175 + 20 - world.camX * 0.25;
-      const bh = 120 + ((i * 37) % 95);
-      ctx.fillRect(bx, FLOOR_Y - bh, 98, bh);
+    // Distant silhouette skyline + subtle lit windows
+    for (let i = 0; i < 18; i++) {
+      const bx = i * 165 + 18 - world.camX * 0.24;
+      const bh = 115 + ((i * 41) % 105);
+      const by = FLOOR_Y - bh;
+      ctx.fillStyle = "rgba(8, 12, 22, 0.76)";
+      ctx.fillRect(bx, by, 102, bh);
+      ctx.strokeStyle = st.neon;
+      ctx.globalAlpha = 0.12;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, 102, bh);
+      ctx.fillStyle = st.neon;
+      ctx.globalAlpha = 0.14;
+      for (let wy = by + 16; wy < FLOOR_Y - 18; wy += 20) {
+        if ((i + wy) % 2 === 0) ctx.fillRect(bx + 18, wy, 8, 6);
+        if ((i * 3 + wy) % 3 === 0) ctx.fillRect(bx + 68, wy, 8, 6);
+      }
+      ctx.globalAlpha = 1;
     }
 
+    // Subtle parallax hive grid
     ctx.strokeStyle = st.neon;
-    ctx.globalAlpha = 0.14;
+    ctx.globalAlpha = 0.13;
     ctx.lineWidth = 1.5;
     const hexOffset = -(world.camX * 0.4) % 120;
     for (let x = 70 + hexOffset; x < canvas.width + 120; x += 120) {
       for (let y = 95; y < 470; y += 100) {
         drawHex(x + ((Math.floor(y / 100)) % 2) * 60, y, 28);
       }
+    }
+    ctx.globalAlpha = 1;
+
+    // Drifting ambient spores/sparks
+    for (const mote of ambientMotes) {
+      ctx.fillStyle = st.neon;
+      ctx.globalAlpha = 0.24;
+      ctx.beginPath();
+      ctx.arc(mote.x, mote.y, mote.r, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
 
@@ -2193,14 +2241,16 @@
       pGrad.addColorStop(0, pl.kind === "ground" ? "#334155" : "#475569");
       pGrad.addColorStop(1, "#090d16");
       ctx.fillStyle = pGrad;
-      ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+      ctx.beginPath();
+      ctx.roundRect(pl.x, pl.y, pl.w, pl.h, pl.kind === "ledge" ? 6 : 0);
+      ctx.fill();
 
       ctx.fillStyle = st.neon;
-      ctx.fillRect(pl.x, pl.y, pl.w, 5);
+      ctx.fillRect(pl.x, pl.y, pl.w, 4.5);
     }
 
     for (const tp of world.tempPlatforms) {
-      ctx.fillStyle = "rgba(251, 191, 36, 0.9)";
+      ctx.fillStyle = "rgba(251, 191, 36, 0.92)";
       ctx.beginPath();
       ctx.roundRect(tp.x, tp.y, tp.w, tp.h, 6);
       ctx.fill();
@@ -2209,7 +2259,7 @@
     for (const pk of world.pickups) {
       if (pk.taken) continue;
       const bob = Math.sin(world.time * 5 + pk.x) * 4;
-      const gOrb = ctx.createRadialGradient(pk.x - 3, pk.y - 3 + bob, 2, pk.x, pk.y + bob, pk.r + 4);
+      const gOrb = ctx.createRadialGradient(pk.x - 3, pk.y - 3 + bob, 2, pk.x, pk.y + bob, pk.r + 5);
       gOrb.addColorStop(0, "#fef9c3");
       gOrb.addColorStop(0.5, "#fbbf24");
       gOrb.addColorStop(1, "#d97706");
@@ -2525,8 +2575,8 @@
     const wingFlap = Math.sin(b.wingPhase) * 0.35;
     const dir = b.vx >= 0 ? 1 : -1;
     const sprite = getBossSprite(b.kind);
-    const auraR = b.isQueenGuard ? 72 : 58;
-    const drawSize = b.isQueenGuard ? 156 : 132;
+    const auraR = b.isQueenGuard ? 74 : 60;
+    const drawSize = b.isQueenGuard ? 158 : 134;
 
     const ringColor = b.isQueenGuard
       ? "rgba(244, 63, 94, 0.75)"
@@ -2556,7 +2606,6 @@
       ctx.translate(cx, cy + sway);
       ctx.scale(dir, 1);
 
-      // Animated rear wing shimmer
       ctx.save();
       ctx.translate(-12, -16);
       ctx.rotate(-0.25 + wingFlap);
