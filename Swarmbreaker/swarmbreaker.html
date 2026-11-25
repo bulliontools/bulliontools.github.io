@@ -336,18 +336,19 @@
 
     .touch-pad {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       pointer-events: auto;
+      flex-wrap: wrap;
     }
 
     .touch-btn {
-      width: 50px;
-      height: 50px;
+      width: 48px;
+      height: 48px;
       border-radius: 14px;
       background: rgba(19, 26, 41, 0.9);
       border: 1px solid rgba(56, 189, 248, 0.55);
       color: #fff;
-      font-size: 0.76rem;
+      font-size: 0.74rem;
       font-weight: 800;
       display: flex;
       align-items: center;
@@ -566,6 +567,7 @@
         <div class="touch-btn" id="btn-jump">JUMP</div>
         <div class="touch-btn" id="btn-fire">FIRE</div>
         <div class="touch-btn" id="btn-cd1">CD1</div>
+        <div class="touch-btn" id="btn-cd2">CD2</div>
         <div class="touch-btn" id="btn-summon">SUM</div>
       </div>
     </div>
@@ -749,7 +751,7 @@
     return { startBgm, stopBgm, toggle, playSfx, updateAudioBtn, ensureCtx };
   })();
 
-  // Hero & Bad-Guy Artwork Sprites with dark-background keying + safe fallback
+  // Hero, Enemy & Boss Artwork Sprites with dark-background keying + safe fallback
   function createKeyedSprite(srcList, tolLow = 26, tolHigh = 60, onDone) {
     const sources = Array.isArray(srcList) ? srcList : [srcList];
     const stateObj = { canvas: null, ready: false };
@@ -838,9 +840,16 @@
   const miteSprite = createKeyedSprite("mite_enemy.jpg", 26, 58);
   const mothSprite = createKeyedSprite("moth_enemy.jpg", 26, 58);
   const spiderSprite = createKeyedSprite("spider_enemy.jpg", 26, 58);
-  const hornetBossSprite = createKeyedSprite("hornet_boss.jpg", 26, 58);
-  const mantisBossSprite = createKeyedSprite("mantis_boss.jpg", 26, 58);
-  const queenWardenBossSprite = createKeyedSprite(["queen_warden_boss.jpg", "hornet_boss.jpg", "mantis_boss.jpg"], 26, 58);
+
+  const bossSprites = {
+    hornet: createKeyedSprite(["hornet_boss_2.jpg", "hornet_boss.jpg"], 26, 58),
+    mantis: createKeyedSprite(["mantis_boss_2.jpg", "mantis_boss.jpg"], 26, 58),
+    beetle: createKeyedSprite(["beetle_boss.jpg", "hornet_boss_2.jpg"], 26, 58),
+    spider: createKeyedSprite(["spider_boss.jpg", "mantis_boss_2.jpg"], 26, 58),
+    moth: createKeyedSprite(["moth_boss.jpg", "hornet_boss_2.jpg"], 26, 58),
+    wyrm: createKeyedSprite(["wyrm_boss.jpg", "hornet_boss_2.jpg"], 26, 58),
+    queen_warden: createKeyedSprite(["queen_warden_boss.jpg", "hornet_boss_2.jpg", "mantis_boss_2.jpg"], 26, 58)
+  };
 
   const PEST_KINDS = ["wasp", "beetle", "mite", "moth", "spider"];
   const CRAWLER_KINDS = new Set(["beetle", "mite", "spider"]);
@@ -865,49 +874,49 @@
     ctx.restore();
   }
 
-  // Bosses staggered every 8 levels (Stages 8, 16, 24, 32) + Final Boss guarding Queen at Stage 38
+  // Spaced-out bosses every 6 stages (6, 12, 18, 24, 30, 36) + Final Mega Boss guarding Queen at Stage 38
   const STAGES = [
     { id: 1, wing: 1, name: "Mildly Infuriating", communityId: "hive-174602", climax: "princess", skyTop: "#1e1b4b", skyBot: "#090d16", neon: "#f472b6", note: "Laugh off minor hive annoyances and rescue the Princess Bee." },
     { id: 2, wing: 1, name: "Snapie", communityId: "hive-178315", climax: "princess", skyTop: "#134e4a", skyBot: "#042f2e", neon: "#2dd4bf", note: "Snappy micro-platforms and brisk early pest waves." },
     { id: 3, wing: 1, name: "Snaps", communityId: "snaps", climax: "princess", skyTop: "#0c4a6e", skyBot: "#082f49", neon: "#38bdf8", note: "Rapid-fire thread hops across the Snaps canopy." },
     { id: 4, wing: 1, name: "Weekend Experiences", communityId: "hive-168869", climax: "princess", skyTop: "#78350f", skyBot: "#271005", neon: "#fbbf24", note: "Saturday/Sunday trail run with welcoming ledges." },
     { id: 5, wing: 1, name: "Reflections", communityId: "hive-126152", climax: "princess", skyTop: "#312e81", skyBot: "#1e1b4b", neon: "#a5b4fc", note: "Reflective comb ledges and the Trail Princess ahead." },
-    { id: 6, wing: 1, name: "Worldmappin", communityId: "hive-163772", climax: "princess", skyTop: "#14532d", skyBot: "#052e16", neon: "#4ade80", note: "Chart scenic overlooks and rescue the Trail Princess." },
+    { id: 6, wing: 1, name: "Worldmappin", communityId: "hive-163772", climax: "boss", bossName: "Cobalt Carapace Beetle", bossKind: "beetle", skyTop: "#14532d", skyBot: "#052e16", neon: "#4ade80", note: "Stage Boss — Cobalt Carapace Beetle guards a Loot Chest!" },
     { id: 7, wing: 1, name: "Actifit", communityId: "hive-193552", climax: "princess", skyTop: "#164e63", skyBot: "#083344", neon: "#22d3ee", note: "Keep your step rhythm going across active comb bridges." },
-    { id: 8, wing: 1, name: "Foodies Bee Hive", communityId: "hive-120586", climax: "boss", bossName: "Spice-Vault Hornet", bossKind: "hornet", skyTop: "#9a3412", skyBot: "#431407", neon: "#fb923c", note: "Every 8 Levels Boss — Spice-Vault Hornet guards a Loot Chest!" },
+    { id: 8, wing: 1, name: "Foodies Bee Hive", communityId: "hive-120586", climax: "princess", skyTop: "#9a3412", skyBot: "#431407", neon: "#fb923c", note: "Spice-filled comb ledges and pest patrols." },
     { id: 9, wing: 1, name: "Gardening / Homesteading", communityId: "hive-140635", climax: "princess", skyTop: "#365314", skyBot: "#1a2e05", neon: "#a3e635", note: "Cultivated garden rows and homesteading hazards." },
     { id: 10, wing: 1, name: "The Pub", communityId: "pub", climax: "princess", skyTop: "#78350f", skyBot: "#271005", neon: "#f59e0b", note: "Taproom hall run toward the Pub Princess." },
 
     { id: 11, wing: 2, name: "OCD", communityId: "hive-174578", climax: "princess", skyTop: "#1e3a8a", skyBot: "#172554", neon: "#60a5fa", note: "Exact alignment and crisp platforming rhythm." },
-    { id: 12, wing: 2, name: "Hive Gaming", communityId: "hive-140217", climax: "princess", skyTop: "#4c1d95", skyBot: "#2e1065", neon: "#c084fc", note: "Arcade jumps, varied ledges, and classic pest patterns." },
+    { id: 12, wing: 2, name: "Hive Gaming", communityId: "hive-140217", climax: "boss", bossName: "Riff-Breaker Mantis", bossKind: "mantis", skyTop: "#4c1d95", skyBot: "#2e1065", neon: "#c084fc", note: "Stage Boss — Riff-Breaker Mantis guards a Loot Chest!" },
     { id: 13, wing: 2, name: "Sketchbook", communityId: "hive-174301", climax: "princess", skyTop: "#334155", skyBot: "#090d16", neon: "#e2e8f0", note: "Drafted platforms and sharp cliff drops." },
     { id: 14, wing: 2, name: "Freewriters", communityId: "hive-161155", climax: "princess", skyTop: "#1e293b", skyBot: "#020617", neon: "#94a3b8", note: "Ink-lined terraces and aerial pests." },
     { id: 15, wing: 2, name: "Amazing Nature", communityId: "hive-127788", climax: "princess", skyTop: "#14532d", skyBot: "#052e16", neon: "#86efac", note: "Wild forest ledges and canopy leaps." },
-    { id: 16, wing: 2, name: "Music", communityId: "hive-193816", climax: "boss", bossName: "Riff-Breaker Mantis", bossKind: "mantis", skyTop: "#701a75", skyBot: "#2e1065", neon: "#e879f9", note: "Every 8 Levels Boss — Riff-Breaker Mantis guards a Loot Chest!" },
+    { id: 16, wing: 2, name: "Music", communityId: "hive-193816", climax: "princess", skyTop: "#701a75", skyBot: "#2e1065", neon: "#e879f9", note: "High-tempo comb spans and ranged flyers." },
     { id: 17, wing: 2, name: "Natural Medicine", communityId: "hive-120078", climax: "princess", skyTop: "#064e3b", skyBot: "#022c22", neon: "#34d399", note: "Herbal terraces and restorative comb alcoves." },
-    { id: 18, wing: 2, name: "Hive DIY", communityId: "hive-130560", climax: "princess", skyTop: "#7c2d12", skyBot: "#2c0d05", neon: "#fdba74", note: "Workshop spans, gaps, and crafty contraptions." },
+    { id: 18, wing: 2, name: "Hive DIY", communityId: "hive-130560", climax: "boss", bossName: "Velvet Volt Moth", bossKind: "moth", skyTop: "#7c2d12", skyBot: "#2c0d05", neon: "#fdba74", note: "Stage Boss — Velvet Volt Moth guards a Loot Chest!" },
     { id: 19, wing: 2, name: "The Ink Well", communityId: "hive-170798", climax: "princess", skyTop: "#312e81", skyBot: "#1e1b4b", neon: "#a5b4fc", note: "Ink-well sanctum approach and Princess rescue." },
 
     { id: 20, wing: 3, name: "Shadow Hunters", communityId: "hive-179017", climax: "princess", skyTop: "#18181b", skyBot: "#09090b", neon: "#f43f5e", note: "Dimly lit shadow alleys and ambush flyers." },
     { id: 21, wing: 3, name: "Hive Pets", communityId: "hive-196708", climax: "princess", skyTop: "#713f12", skyBot: "#291804", neon: "#fde047", note: "Brisk companion runs past crawlers and flyers." },
     { id: 22, wing: 3, name: "Hive Learners", communityId: "hive-153850", climax: "princess", skyTop: "#0c4a6e", skyBot: "#082f49", neon: "#7dd3fc", note: "Study hall gauntlets testing timing and focus." },
     { id: 23, wing: 3, name: "HiveDevs", communityId: "hive-139531", climax: "princess", skyTop: "#0f172a", skyBot: "#020617", neon: "#22d3ee", note: "Core grid platforms and ranged stinger barrages." },
-    { id: 24, wing: 3, name: "Proof of Brain", communityId: "hive-150329", climax: "boss", bossName: "Synapse Swarm Mantis", bossKind: "mantis", skyTop: "#581c87", skyBot: "#1e0836", neon: "#d8b4fe", note: "Every 8 Levels Boss — Synapse Swarm Mantis guards a Loot Chest!" },
+    { id: 24, wing: 3, name: "Proof of Brain", communityId: "hive-150329", climax: "boss", bossName: "Venom-Weave Spider", bossKind: "spider", skyTop: "#581c87", skyBot: "#1e0836", neon: "#d8b4fe", note: "Stage Boss — Venom-Weave Spider guards a Loot Chest!" },
     { id: 25, wing: 3, name: "Neoxian", communityId: "neoxian", climax: "princess", skyTop: "#7f1d1d", skyBot: "#3b0707", neon: "#fca5a5", note: "City walls and high-pressure swarm lanes." },
     { id: 26, wing: 3, name: "Liketu", communityId: "liketu", climax: "princess", skyTop: "#831843", skyBot: "#3b071e", neon: "#f9a8d4", note: "Fast-paced snapshot ledges and darting pests." },
     { id: 27, wing: 3, name: "GEMS", communityId: "hive-148441", climax: "princess", skyTop: "#075985", skyBot: "#082f49", neon: "#67e8f9", note: "Crystal caverns packed with crawlers and flyers." },
     { id: 28, wing: 3, name: "Silver Gold Stackers", communityId: "hive-136819", climax: "princess", skyTop: "#713f12", skyBot: "#241304", neon: "#fde047", note: "Vault bridges and deep cliff chasms." },
 
     { id: 29, wing: 4, name: "Splinterlands", communityId: "hive-13323", climax: "princess", skyTop: "#4c1d95", skyBot: "#180833", neon: "#c4b5fd", note: "Battle-scarred arenas and heavy pest squads." },
-    { id: 30, wing: 4, name: "Photography Lovers", communityId: "hive-194913", climax: "princess", skyTop: "#1e3a8a", skyBot: "#091333", neon: "#93c5fd", note: "High-contrast ledges and rapid swoops." },
+    { id: 30, wing: 4, name: "Photography Lovers", communityId: "hive-194913", climax: "boss", bossName: "Tempo-Surge Hornet", bossKind: "hornet", skyTop: "#1e3a8a", skyBot: "#091333", neon: "#93c5fd", note: "Stage Boss — Tempo-Surge Hornet guards a Loot Chest!" },
     { id: 31, wing: 4, name: "HIVE CN 中文社区", communityId: "hive-cn", climax: "princess", skyTop: "#7f1d1d", skyBot: "#2e0707", neon: "#fbbf24", note: "Lantern bridges and sweeping aerial hazards." },
-    { id: 32, wing: 4, name: "Scrobble.life", communityId: "scrobble", climax: "boss", bossName: "Tempo-Surge Hornet", bossKind: "hornet", skyTop: "#312e81", skyBot: "#110e38", neon: "#a5b4fc", note: "Every 8 Levels Boss — Tempo-Surge Hornet guards a Loot Chest!" },
+    { id: 32, wing: 4, name: "Scrobble.life", communityId: "scrobble", climax: "princess", skyTop: "#312e81", skyBot: "#110e38", neon: "#a5b4fc", note: "Rhythm bridges and brisk pest encounters." },
     { id: 33, wing: 4, name: "Black And White", communityId: "bw", climax: "princess", skyTop: "#27272a", skyBot: "#09090b", neon: "#f4f4f5", note: "Stark monochrome hazards demanding sharp jumps." },
     { id: 34, wing: 4, name: "Hive Food", communityId: "hive-food", climax: "princess", skyTop: "#7c2d12", skyBot: "#2b0d04", neon: "#fdba74", note: "Banquet hall gauntlet with dense pest waves." },
     { id: 35, wing: 4, name: "Ladies of Hive", communityId: "hive-124452", climax: "princess", skyTop: "#831843", skyBot: "#2b0616", neon: "#f9a8d4", note: "Royal terraces leading toward the inner sanctum." },
-    { id: 36, wing: 4, name: "ASEAN HIVE COMMUNITY", communityId: "asean", climax: "princess", skyTop: "#064e3b", skyBot: "#02261c", neon: "#6ee7b7", note: "Monsoon gusts and tough end-game platforming." },
+    { id: 36, wing: 4, name: "ASEAN HIVE COMMUNITY", communityId: "asean", climax: "boss", bossName: "Molten Hive-Wyrm", bossKind: "wyrm", skyTop: "#064e3b", skyBot: "#02261c", neon: "#6ee7b7", note: "Stage Boss — Molten Hive-Wyrm guards a Loot Chest!" },
     { id: 37, wing: 4, name: "Hive Sanctuary Bonus", communityId: "bonus-37", climax: "princess", skyTop: "#450a0a", skyBot: "#170202", neon: "#f87171", note: "Pre-finale sanctum stretch before the Queen's gates." },
-    { id: 38, wing: 4, name: "Town Square — Queen's Sanctum", communityId: "hive-195328", climax: "queen", bossName: "Queen's Royal Warden", bossKind: "queen_warden", skyTop: "#7c2d12", skyBot: "#1f0903", neon: "#fde047", note: "Final Boss guarding Queen Nectaria!" }
+    { id: 38, wing: 4, name: "Town Square — Queen's Sanctum", communityId: "hive-195328", climax: "queen", bossName: "Queen's Royal Warden (Mega Boss)", bossKind: "queen_warden", skyTop: "#7c2d12", skyBot: "#1f0903", neon: "#fde047", note: "Final Mega Boss guarding Queen Nectaria!" }
   ].filter(s => s.communityId !== EXCLUDED_COMMUNITY);
 
   const SUITS = [
@@ -945,7 +954,7 @@
     { id: "bundle_launch", name: "Full Toolkit Taster (Launch Deal)", priceHive: "1.750", cdGrant: "spring_hop", consumables: { honey_shield: 2, royal_vial: 2, checkpoint_beacon: 1 }, desc: "Spring-Pollen Hop + 2x Shield + 2x Royal Jelly Vial + 1x Beacon." }
   ];
 
-  const STORAGE_KEY = "swarmbreaker_save_v8";
+  const STORAGE_KEY = "swarmbreaker_save_v10";
 
   function defaultState() {
     return {
@@ -968,7 +977,7 @@
       redeemedOrders: [],
       snapsFeed: [
         { author: "nectarbytes", text: "Welcome to Swarmbreaker! Stake 100+ ELIXIR to summon @nectarbytes for 20s per stage.", time: "Hive" },
-        { author: "queen_nectaria", text: "Princess Bees await rescue across 38 community stages—watch out for bosses every 8 levels and the Queen's Royal Warden!", time: "Hive" }
+        { author: "queen_nectaria", text: "Princess Bees await rescue across 38 community stages—battle spaced-out bosses and the Queen's Royal Warden Mega Boss!", time: "Hive" }
       ]
     };
   }
@@ -1149,55 +1158,56 @@
     });
   }
 
-  // Every elevated ledge step is <= 76 px above its preceding step so sequential jumps always reach cleanly
+  // Verified jump reach is ~115px vertically and ~280px horizontally;
+  // each elevated tier rises <= 74px above the previous step and cliff pits stay <= 115px wide.
   function generateStageLayout(st) {
     const layoutVariant = st.id % 4;
     const worldWidth = 2560;
 
     const groundSegments = layoutVariant === 0 ? [
-      { x: 0, y: FLOOR_Y, w: 680, h: 180, kind: "ground" },
-      { x: 790, y: FLOOR_Y, w: 640, h: 180, kind: "ground" },
-      { x: 1545, y: FLOOR_Y, w: 1015, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 690, h: 180, kind: "ground" },
+      { x: 795, y: FLOOR_Y, w: 650, h: 180, kind: "ground" },
+      { x: 1555, y: FLOOR_Y, w: 1005, h: 180, kind: "ground" }
     ] : layoutVariant === 1 ? [
-      { x: 0, y: FLOOR_Y, w: 600, h: 180, kind: "ground" },
-      { x: 715, y: FLOOR_Y, w: 560, h: 180, kind: "ground" },
-      { x: 1390, y: FLOOR_Y, w: 480, h: 180, kind: "ground" },
-      { x: 1985, y: FLOOR_Y, w: 575, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 610, h: 180, kind: "ground" },
+      { x: 715, y: FLOOR_Y, w: 575, h: 180, kind: "ground" },
+      { x: 1395, y: FLOOR_Y, w: 495, h: 180, kind: "ground" },
+      { x: 1995, y: FLOOR_Y, w: 565, h: 180, kind: "ground" }
     ] : layoutVariant === 2 ? [
-      { x: 0, y: FLOOR_Y, w: 740, h: 180, kind: "ground" },
-      { x: 855, y: FLOOR_Y, w: 700, h: 180, kind: "ground" },
-      { x: 1670, y: FLOOR_Y, w: 890, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 745, h: 180, kind: "ground" },
+      { x: 855, y: FLOOR_Y, w: 710, h: 180, kind: "ground" },
+      { x: 1675, y: FLOOR_Y, w: 885, h: 180, kind: "ground" }
     ] : [
-      { x: 0, y: FLOOR_Y, w: 560, h: 180, kind: "ground" },
-      { x: 670, y: FLOOR_Y, w: 670, h: 180, kind: "ground" },
-      { x: 1455, y: FLOOR_Y, w: 1105, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 575, h: 180, kind: "ground" },
+      { x: 680, y: FLOOR_Y, w: 675, h: 180, kind: "ground" },
+      { x: 1465, y: FLOOR_Y, w: 1095, h: 180, kind: "ground" }
     ];
 
     const elevatedLedges = layoutVariant === 0 ? [
-      { x: 220, y: 490, w: 190, h: 22, kind: "ledge" },
-      { x: 440, y: 420, w: 190, h: 22, kind: "ledge" },
-      { x: 840, y: 488, w: 195, h: 22, kind: "ledge" },
-      { x: 1075, y: 416, w: 195, h: 22, kind: "ledge" },
-      { x: 1610, y: 485, w: 200, h: 22, kind: "ledge" },
-      { x: 1850, y: 412, w: 205, h: 22, kind: "ledge" }
+      { x: 225, y: 490, w: 195, h: 22, kind: "ledge" },
+      { x: 445, y: 420, w: 195, h: 22, kind: "ledge" },
+      { x: 845, y: 488, w: 200, h: 22, kind: "ledge" },
+      { x: 1080, y: 416, w: 200, h: 22, kind: "ledge" },
+      { x: 1615, y: 486, w: 205, h: 22, kind: "ledge" },
+      { x: 1855, y: 414, w: 205, h: 22, kind: "ledge" }
     ] : layoutVariant === 1 ? [
-      { x: 190, y: 492, w: 185, h: 22, kind: "ledge" },
-      { x: 400, y: 422, w: 180, h: 22, kind: "ledge" },
-      { x: 775, y: 486, w: 190, h: 22, kind: "ledge" },
-      { x: 1005, y: 414, w: 190, h: 22, kind: "ledge" },
-      { x: 1465, y: 488, w: 190, h: 22, kind: "ledge" },
-      { x: 2060, y: 485, w: 200, h: 22, kind: "ledge" }
+      { x: 195, y: 492, w: 190, h: 22, kind: "ledge" },
+      { x: 405, y: 422, w: 185, h: 22, kind: "ledge" },
+      { x: 775, y: 488, w: 195, h: 22, kind: "ledge" },
+      { x: 1005, y: 416, w: 195, h: 22, kind: "ledge" },
+      { x: 1465, y: 488, w: 195, h: 22, kind: "ledge" },
+      { x: 2060, y: 486, w: 205, h: 22, kind: "ledge" }
     ] : layoutVariant === 2 ? [
-      { x: 240, y: 488, w: 200, h: 22, kind: "ledge" },
-      { x: 475, y: 416, w: 195, h: 22, kind: "ledge" },
-      { x: 920, y: 490, w: 195, h: 22, kind: "ledge" },
+      { x: 245, y: 488, w: 200, h: 22, kind: "ledge" },
+      { x: 480, y: 416, w: 200, h: 22, kind: "ledge" },
+      { x: 920, y: 490, w: 200, h: 22, kind: "ledge" },
       { x: 1155, y: 418, w: 200, h: 22, kind: "ledge" },
-      { x: 1745, y: 485, w: 210, h: 22, kind: "ledge" }
+      { x: 1745, y: 486, w: 210, h: 22, kind: "ledge" }
     ] : [
-      { x: 200, y: 490, w: 190, h: 22, kind: "ledge" },
-      { x: 730, y: 488, w: 195, h: 22, kind: "ledge" },
-      { x: 965, y: 416, w: 195, h: 22, kind: "ledge" },
-      { x: 1530, y: 488, w: 200, h: 22, kind: "ledge" },
+      { x: 205, y: 490, w: 195, h: 22, kind: "ledge" },
+      { x: 735, y: 488, w: 200, h: 22, kind: "ledge" },
+      { x: 970, y: 416, w: 200, h: 22, kind: "ledge" },
+      { x: 1530, y: 488, w: 205, h: 22, kind: "ledge" },
       { x: 1775, y: 416, w: 205, h: 22, kind: "ledge" }
     ];
 
@@ -1294,23 +1304,27 @@
 
     const goalX = world.worldWidth - 135;
     if (st.climax === "boss" || st.climax === "queen") {
-      const maxBossHp = Math.round((st.climax === "queen" ? 460 : 220) * diffMult);
+      const isMega = st.climax === "queen";
+      const bossSize = isMega ? 124 : 104;
+      const maxBossHp = Math.round((isMega ? 540 : 220 + st.wing * 25) * diffMult);
+      const baseSpeed = isMega ? -135 : (st.bossKind === "beetle" || st.bossKind === "wyrm" ? -92 : -118);
       world.boss = {
         name: st.bossName,
         kind: st.bossKind,
-        x: goalX - 210,
-        y: FLOOR_Y - 102,
-        w: 102,
-        h: 102,
-        vx: -105,
+        x: goalX - 220,
+        y: FLOOR_Y - bossSize,
+        w: bossSize,
+        h: bossSize,
+        vx: baseSpeed,
         hp: maxBossHp,
         maxHp: maxBossHp,
         slowTimer: 0,
         limbPhase: 0,
-        attackTimer: 1.4,
+        wingPhase: 0,
+        attackTimer: isMega ? 1.15 : 1.65,
         telegraphTimer: 0,
         patternIdx: 0,
-        isQueenGuard: st.climax === "queen"
+        isQueenGuard: isMega
       };
       world.goal = { x: goalX, y: FLOOR_Y - 64, w: 58, h: 64, type: st.climax, locked: true };
     } else {
@@ -1402,6 +1416,7 @@
   bindTouch("btn-jump", "arrowup");
   bindTouch("btn-fire", null, firePrimary);
   bindTouch("btn-cd1", null, () => triggerCooldownSlot(0));
+  bindTouch("btn-cd2", null, () => triggerCooldownSlot(1));
   bindTouch("btn-summon", null, summonNectarbytes);
 
   function togglePause(forcePause = null) {
@@ -1427,21 +1442,23 @@
       world.projectiles.push({ x: bx, y: by, vx: dir * 580, vy: 0, dmg: 16, r: 6, color: suit.color, fromPlayer: true });
     } else if (suit.attackType === "rapid") {
       p.fireCd = 0.12;
-      world.projectiles.push({ x: bx, y: by + (Math.random() - 0.5) * 8, vx: dir * 660, vy: 0, dmg: 11, r: 5, color: suit.color, fromPlayer: true });
+      world.projectiles.push({ x: bx, y: by + (Math.random() - 0.5) * 9, vx: dir * 680, vy: 0, dmg: 12, r: 5, color: suit.color, fromPlayer: true });
     } else if (suit.attackType === "spread") {
       p.fireCd = 0.34;
-      [-0.24, 0, 0.24].forEach(ang => {
-        world.projectiles.push({ x: bx, y: by, vx: Math.cos(ang) * dir * 540, vy: Math.sin(ang) * 540, dmg: 13, r: 6.5, color: suit.color, fromPlayer: true });
+      [-0.25, 0, 0.25].forEach(ang => {
+        world.projectiles.push({ x: bx, y: by, vx: Math.cos(ang) * dir * 550, vy: Math.sin(ang) * 550, dmg: 14, r: 6.5, color: suit.color, fromPlayer: true });
       });
     } else if (suit.attackType === "arc") {
       p.fireCd = 0.30;
-      world.projectiles.push({ x: bx, y: by - 6, vx: dir * 510, vy: -240, grav: 470, dmg: 23, r: 7.5, color: suit.color, fromPlayer: true });
+      world.projectiles.push({ x: bx, y: by - 6, vx: dir * 520, vy: -250, grav: 460, dmg: 24, r: 8, color: suit.color, fromPlayer: true });
     } else if (suit.attackType === "heavy") {
       p.fireCd = 0.42;
-      world.projectiles.push({ x: bx, y: by, vx: dir * 470, vy: 0, dmg: 35, knock: 170, r: 9.5, color: suit.color, fromPlayer: true });
+      world.projectiles.push({ x: bx, y: by, vx: dir * 480, vy: 0, dmg: 36, knock: 185, r: 10, color: suit.color, fromPlayer: true });
     } else if (suit.attackType === "pierce") {
       p.fireCd = 0.22;
-      world.projectiles.push({ x: bx, y: by, vx: dir * 720, vy: 0, dmg: 27, pierce: 2, r: 7.5, color: suit.color, fromPlayer: true });
+      [-5, 5].forEach(offY => {
+        world.projectiles.push({ x: bx, y: by + offY, vx: dir * 740, vy: 0, dmg: 22, pierce: 2, r: 7, color: suit.color, fromPlayer: true });
+      });
     }
   }
 
@@ -1755,7 +1772,6 @@
     p.vx += (targetVx - p.vx) * blend;
     if (Math.abs(p.vx) < 2 && inputDir === 0 && p.dashTimer <= 0) p.vx = 0;
 
-    // Edge-triggered jump so holding jump never re-triggers or traps Beatrice mid-air
     if (jumpPressed && !p.jumpConsumed && p.onGround) {
       p.vy = -suit.jump;
       p.onGround = false;
@@ -1795,7 +1811,7 @@
     const prevGround = p.onGround;
     p.onGround = false;
     for (const pl of [...world.platforms, ...world.tempPlatforms]) {
-      if (p.vy >= 0 && p.x + p.w > pl.x + 2 && p.x < pl.x + pl.w - 2 && p.y + p.h >= pl.y && p.y + p.h - p.vy * dt <= pl.y + 18) {
+      if (p.vy >= 0 && p.x + p.w > pl.x + 2 && p.x < pl.x + pl.w - 2 && p.y + p.h >= pl.y && p.y + p.h - p.vy * dt <= pl.y + 14) {
         p.y = pl.y - p.h;
         p.vy = 0;
         p.onGround = true;
@@ -1940,8 +1956,9 @@
       if (b.slowTimer > 0) b.slowTimer -= dt;
       const bMul = b.slowTimer > 0 ? 0.35 : 1;
       b.x += b.vx * bMul * dt;
-      b.limbPhase += dt * 7 * bMul;
-      const minBossX = world.worldWidth - 520;
+      b.limbPhase += dt * (b.isQueenGuard ? 9.5 : 7.5) * bMul;
+      b.wingPhase += dt * (b.isQueenGuard ? 26 : 20) * bMul;
+      const minBossX = world.worldWidth - 540;
       const maxBossX = world.worldWidth - 220;
       if (b.x < minBossX) { b.x = minBossX; b.vx = Math.abs(b.vx); }
       if (b.x > maxBossX) { b.x = maxBossX; b.vx = -Math.abs(b.vx); }
@@ -1954,36 +1971,57 @@
       }
 
       if (b.attackTimer <= 0) {
-        b.patternIdx = (b.patternIdx + 1) % 2;
-        b.attackTimer = b.isQueenGuard ? 1.35 : 1.75;
+        b.patternIdx = (b.patternIdx + 1) % (b.isQueenGuard ? 3 : 2);
+        b.attackTimer = b.isQueenGuard ? 1.15 : 1.65;
         const bx = b.x + b.w / 2;
         const by = b.y + b.h / 2;
+        const blastColor = b.kind === "beetle" ? "#38bdf8"
+          : b.kind === "spider" ? "#c084fc"
+          : b.kind === "moth" ? "#22d3ee"
+          : b.kind === "wyrm" ? "#f59e0b"
+          : "#fb923c";
+
         if (b.patternIdx === 0) {
-          fireEnemyBlast(bx, by, p.x + p.w / 2, p.y + p.h / 2, 330, b.isQueenGuard ? 18 : 14, "#fb923c", 8);
-        } else {
-          [-0.25, 0, 0.25].forEach(spread => {
+          fireEnemyBlast(bx, by, p.x + p.w / 2, p.y + p.h / 2, b.isQueenGuard ? 375 : 325, b.isQueenGuard ? 20 : 14, blastColor, 8.5);
+        } else if (b.patternIdx === 1) {
+          [-0.28, -0.1, 0.1, 0.28].forEach((spread, idx) => {
+            if (!b.isQueenGuard && idx === 3) return;
             const baseAng = Math.atan2((p.y + p.h / 2) - by, (p.x + p.w / 2) - bx) + spread;
             world.projectiles.push({
               x: bx, y: by,
-              vx: Math.cos(baseAng) * 300,
-              vy: Math.sin(baseAng) * 300,
-              dmg: b.isQueenGuard ? 16 : 12,
-              r: 7,
-              color: b.isQueenGuard ? "#f43f5e" : "#fbbf24",
+              vx: Math.cos(baseAng) * 320,
+              vy: Math.sin(baseAng) * 320,
+              dmg: b.isQueenGuard ? 17 : 12,
+              r: 7.5,
+              color: b.isQueenGuard ? "#f43f5e" : blastColor,
               fromPlayer: false
             });
           });
+          AudioEngine.playSfx("enemy_shoot");
+        } else {
+          for (let k = -2; k <= 2; k++) {
+            const ang = Math.PI + k * 0.22;
+            world.projectiles.push({
+              x: bx, y: by - 10,
+              vx: Math.cos(ang) * 340,
+              vy: Math.sin(ang) * 340 - 40,
+              dmg: 18,
+              r: 8,
+              color: "#fde047",
+              fromPlayer: false
+            });
+          }
           AudioEngine.playSfx("enemy_shoot");
         }
       }
 
       if (rectsOverlap(p.x, p.y, p.w, p.h, b.x, b.y, b.w, b.h)) {
-        hurtPlayer(20, (p.x < b.x ? -1 : 1) * 260 * (1 - suit.knockbackResist));
+        hurtPlayer(b.isQueenGuard ? 24 : 20, (p.x < b.x ? -1 : 1) * 260 * (1 - suit.knockbackResist));
       }
       if (b.hp <= 0) {
-        state.honey += 30;
+        state.honey += b.isQueenGuard ? 60 : 30;
         AudioEngine.playSfx("clear");
-        spawnParticles(b.x + b.w / 2, b.y + b.h / 2, "#f97316", 26);
+        spawnParticles(b.x + b.w / 2, b.y + b.h / 2, "#f97316", 30);
         world.boss = null;
         world.goal.locked = false;
         showToast(b.isQueenGuard ? "Queen's Royal Warden defeated! Rescue Queen Nectaria!" : "Boss defeated! Reach the goal to claim your Loot Chest!");
@@ -2273,6 +2311,17 @@
     ctx.scale(p.facing * p.scaleX, p.scaleY);
     ctx.rotate(p.tilt);
 
+    if (state.equippedSuit !== "worker") {
+      ctx.save();
+      ctx.strokeStyle = suit.color;
+      ctx.globalAlpha = 0.32;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, -4, 35 + Math.sin(world.time * 8) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(-8, -10);
     ctx.rotate(-0.45 + wingBack);
@@ -2462,45 +2511,70 @@
     ctx.restore();
   }
 
+  function getBossSprite(kind) {
+    const entry = bossSprites[kind] || bossSprites.hornet;
+    return entry && entry.ready && entry.canvas ? entry : null;
+  }
+
   function drawDungeonBoss(b) {
     const cx = b.x + b.w / 2;
     const cy = b.y + b.h / 2;
-    const sway = Math.sin(b.limbPhase) * 4;
-    const armSwing = Math.cos(b.limbPhase) * 0.45;
-    const legSwing = Math.sin(b.limbPhase) * 0.4;
+    const sway = Math.sin(b.limbPhase) * (b.isQueenGuard ? 5.5 : 4.2);
+    const armSwing = Math.cos(b.limbPhase) * 0.48;
+    const legSwing = Math.sin(b.limbPhase) * 0.45;
+    const wingFlap = Math.sin(b.wingPhase) * 0.35;
     const dir = b.vx >= 0 ? 1 : -1;
-    const sprite = b.kind === "queen_warden"
-      ? queenWardenBossSprite
-      : (b.kind === "mantis" ? mantisBossSprite : hornetBossSprite);
+    const sprite = getBossSprite(b.kind);
+    const auraR = b.isQueenGuard ? 72 : 58;
+    const drawSize = b.isQueenGuard ? 156 : 132;
 
-    ctx.strokeStyle = b.isQueenGuard
-      ? "rgba(244, 63, 94, 0.65)"
-      : (b.kind === "mantis" ? "rgba(52, 211, 153, 0.45)" : "rgba(249, 115, 22, 0.45)");
-    ctx.lineWidth = 3;
+    const ringColor = b.isQueenGuard
+      ? "rgba(244, 63, 94, 0.75)"
+      : b.kind === "beetle" ? "rgba(56, 189, 248, 0.55)"
+      : b.kind === "spider" ? "rgba(192, 132, 252, 0.55)"
+      : b.kind === "moth" ? "rgba(34, 211, 238, 0.55)"
+      : b.kind === "wyrm" ? "rgba(245, 158, 11, 0.55)"
+      : b.kind === "mantis" ? "rgba(52, 211, 153, 0.5)"
+      : "rgba(249, 115, 22, 0.5)";
+
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = b.isQueenGuard ? 4 : 3;
     ctx.beginPath();
-    ctx.arc(cx, cy + sway, 58, 0, Math.PI * 2);
+    ctx.arc(cx, cy + sway, auraR, 0, Math.PI * 2);
     ctx.stroke();
 
     if (b.telegraphTimer > 0) {
       ctx.strokeStyle = "#fef08a";
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(cx, cy + sway, 66, 0, Math.PI * 2);
+      ctx.arc(cx, cy + sway, auraR + 8, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    if (sprite.ready && sprite.canvas) {
+    if (sprite) {
       ctx.save();
       ctx.translate(cx, cy + sway);
       ctx.scale(dir, 1);
-      drawLimbSegment(-18, 36, 16, 8, legSwing, "#064e3b");
-      drawLimbSegment(18, 36, 16, 8, -legSwing, "#451a03");
-      ctx.drawImage(sprite.canvas, -64, -68, 128, 136);
+
+      // Animated rear wing shimmer
+      ctx.save();
+      ctx.translate(-12, -16);
+      ctx.rotate(-0.25 + wingFlap);
+      ctx.fillStyle = "rgba(254, 240, 138, 0.22)";
+      ctx.beginPath();
+      ctx.ellipse(-20, -6, 26, 9, -0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      drawLimbSegment(-20, 38, 18, 8.5, legSwing, "#1e293b");
+      drawLimbSegment(20, 38, 18, 8.5, -legSwing, "#0f172a");
+      ctx.drawImage(sprite.canvas, -drawSize / 2, -drawSize / 2 - 4, drawSize, drawSize + 8);
+
       if (b.slowTimer > 0) {
         ctx.strokeStyle = "#a3e635";
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(0, 0, 62, 0, Math.PI * 2);
+        ctx.arc(0, 0, auraR + 4, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.restore();
@@ -2531,7 +2605,7 @@
 
     ctx.fillStyle = "#fef08a";
     ctx.font = "bold 13px sans-serif";
-    ctx.fillText(b.name, b.x - 14, b.y - 30 + sway);
+    ctx.fillText(b.name, b.x - 14, b.y - 32 + sway);
   }
 
   function drawNectarbytesSummon(s) {
@@ -2722,7 +2796,7 @@
     document.getElementById("hud-hp-bar").style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
 
     document.getElementById("hud-objective").textContent =
-      st.climax === "queen" ? "Objective: Defeat Queen's Royal Warden & Rescue Queen Nectaria"
+      st.climax === "queen" ? "Objective: Defeat Queen's Royal Warden (Mega Boss) & Rescue Queen Nectaria"
       : st.climax === "boss" ? `Objective: Defeat ${st.bossName} & Open Loot Chest`
       : "Objective: Rescue the Princess Bee";
 
@@ -2854,7 +2928,7 @@
   function renderStagesModal() {
     return `<div class="grid-cards">${STAGES.map(s => {
       const done = state.completedStages.includes(s.id);
-      const badge = s.climax === "queen" ? "👑 Final Boss + Queen" : (s.climax === "boss" ? "⚔️ Every-8-Levels Boss" : "👸 Princess Rescue");
+      const badge = s.climax === "queen" ? "👑 Final Mega Boss + Queen" : (s.climax === "boss" ? `⚔️ Boss: ${s.bossName}` : "👸 Princess Rescue");
       return `
         <div class="card ${s.id === world.stage.id ? "selected" : ""}">
           <div>
@@ -2945,7 +3019,7 @@
     return `
       <div class="warn-box">
         <strong>Beatrice is out of lives (0/${MAX_LIVES} ❤️) on Stage ${world.stage.id}: ${world.stage.name}!</strong><br/>
-        To keep playing, you must either <strong>buy an Extra Life in the HIVE Shop</strong> (or use Honey on vials if you still had HP, though at 0 lives only HIVE extra lives or starting over from Stage 1 can continue) or <strong>start over from the very beginning (Stage 1)</strong>.
+        To keep playing, you must either <strong>buy an Extra Life in the HIVE Shop</strong> or <strong>start over from the very beginning (Stage 1)</strong>.
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="primary" onclick="window.__sb.buyExtraLife()">Buy Extra Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
@@ -3057,7 +3131,7 @@
       }
       purchaseWithHive("extra_life", "Extra Life (+1 ❤️)", EXTRA_LIFE_HIVE_PRICE, () => {
         const gained = addLives(1, "Purchased Extra Life!");
-        if (gained > 0 && world.player.hp <= 0) {
+        if (gained > 0 && state.lives > 0) {
           world.player.x = world.player.checkpoint.x;
           world.player.y = world.player.checkpoint.y;
           world.player.vx = 0;
