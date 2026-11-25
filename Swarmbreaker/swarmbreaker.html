@@ -655,6 +655,7 @@
   const GAME_NAME = "Swarmbreaker";
   const PAYMENT_RECIPIENT = "nectarbytes";
   const EXCLUDED_COMMUNITY = "hive-167922";
+  const TEST_VIP_ACCOUNT = "bulliontools";
   const STARTING_LIVES = 5;
   const MAX_LIVES = 10;
   const VIAL_HONEY_COST = 15;
@@ -1015,7 +1016,25 @@
     { id: "bundle_launch", name: "Full Toolkit Taster (Launch Deal)", priceHive: "1.750", cdGrant: "spring_hop", consumables: { honey_shield: 2, royal_vial: 2, checkpoint_beacon: 1 }, desc: "Spring-Pollen Hop + 2x Shield + 2x Royal Jelly Vial + 1x Beacon." }
   ];
 
-  const STORAGE_KEY = "swarmbreaker_save_v10";
+  const STORAGE_KEY = "swarmbreaker_save_v11";
+
+  function isVipTester() {
+    return !state.isGuest && String(state.username || "").toLowerCase() === TEST_VIP_ACCOUNT;
+  }
+
+  function applyVipTesterPerks() {
+    if (!isVipTester()) return;
+    state.unlockedSuits = SUITS.map(s => s.id);
+    state.ownedCooldowns = COOLDOWN_POWERUPS.map(c => c.id);
+    if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = "nectar_dash";
+    if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = "stinger_volley";
+    for (const c of CONSUMABLES) {
+      state.consumableStock[c.id] = Math.max(state.consumableStock[c.id] || 0, 99);
+    }
+    state.honey = Math.max(state.honey || 0, 999);
+    state.lives = Math.max(state.lives || 0, MAX_LIVES);
+    state.stakedElixir = Math.max(Number(state.stakedElixir || 0), 1000);
+  }
 
   function defaultState() {
     return {
@@ -1085,6 +1104,7 @@
   }
 
   function saveState(toastMsg = null) {
+    applyVipTesterPerks();
     state.lives = Math.max(0, Math.min(MAX_LIVES, Math.floor(state.lives)));
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
     updateHud();
@@ -1118,12 +1138,9 @@
 
   function closeModal() {
     clearAllInputs();
-    if (activeModalTab === "gameover" && state.lives <= 0) {
-      renderModalContent("gameover");
-      return;
-    }
     document.getElementById("modal-backdrop").classList.remove("open");
     activeModalTab = null;
+    updateHud();
   }
 
   function renderMobileMenuModal() {
@@ -1320,7 +1337,12 @@
   }
 
   function buildStage(stageId, restoreLivesIfZero = false) {
-    const st = STAGES.find(s => s.id === stageId) || STAGES[0];
+    applyVipTesterPerks();
+    if (state.lives <= 0 && !restoreLivesIfZero) {
+      state.currentStageId = 1;
+    }
+    const targetId = state.lives <= 0 && !restoreLivesIfZero ? 1 : stageId;
+    const st = STAGES.find(s => s.id === targetId) || STAGES[0];
     if (restoreLivesIfZero && state.lives <= 0) {
       state.lives = STARTING_LIVES;
     }
@@ -1451,7 +1473,7 @@
     if (["arrowup", "arrowdown", "arrowleft", "arrowright", "space"].includes(k)) e.preventDefault();
     if (k === "p" || k === "escape") {
       clearAllInputs();
-      if (isModalOpen() && activeModalTab !== "gameover") closeModal();
+      if (isModalOpen()) closeModal();
       else if (!isModalOpen()) togglePause();
       return;
     }
@@ -1633,7 +1655,7 @@
         return;
       }
       p.hp = Math.min(p.maxHp, p.hp + 45);
-      state.consumableStock[id]--;
+      if (!isVipTester()) state.consumableStock[id]--;
       AudioEngine.playSfx("pickup");
       spawnParticles(p.x + p.w / 2, p.y + p.h / 2, "#4ade80", 12);
       saveState("Used Royal Jelly Vial (+45 HP)");
@@ -1643,20 +1665,20 @@
     if (id === "honey_shield") {
       p.shield += 25;
       p.invuln = Math.max(p.invuln, 0.8);
-      state.consumableStock[id]--;
+      if (!isVipTester()) state.consumableStock[id]--;
       spawnParticles(p.x + p.w / 2, p.y + p.h / 2, "#38bdf8", 12);
       saveState("Honeycomb Shield active (+25 Shield)");
     } else if (id === "mite_pulse") {
-      state.consumableStock[id]--;
+      if (!isVipTester()) state.consumableStock[id]--;
       damageAllNearby(p.x + p.w / 2, p.y + p.h / 2, 165, 35, 220);
       spawnParticles(p.x + p.w / 2, p.y + p.h / 2, "#fbbf24", 16);
       saveState("Mite-Shake Pulse!");
     } else if (id === "magnet_charm") {
-      state.consumableStock[id]--;
+      if (!isVipTester()) state.consumableStock[id]--;
       world.pickups.forEach(pk => { pk.x = p.x; pk.y = p.y; });
       saveState("Magnetic Comb Charm pulled nearby honey!");
     } else if (id === "checkpoint_beacon") {
-      state.consumableStock[id]--;
+      if (!isVipTester()) state.consumableStock[id]--;
       p.checkpoint = { x: p.x, y: p.y };
       saveState("Checkpoint Beacon set!");
     }
@@ -1689,7 +1711,7 @@
       openModal("keychain");
       return;
     }
-    if (Number(state.stakedElixir || 0) < 100) {
+    if (!isVipTester() && Number(state.stakedElixir || 0) < 100) {
       showToast(`Need 100+ staked ELIXIR (current: ${state.stakedElixir || 0}).`);
       openModal("squad");
       return;
@@ -1710,6 +1732,11 @@
 
   async function refreshElixirStake() {
     if (!state.username) return;
+    if (isVipTester()) {
+      applyVipTesterPerks();
+      saveState(`@${TEST_VIP_ACCOUNT} test perks active (1000 ELIXIR)`);
+      return;
+    }
     for (const rpc of ENGINE_RPCS) {
       try {
         const res = await fetch(`${rpc}/contracts`, {
@@ -3034,7 +3061,7 @@
     document.getElementById("hud-stage-label").textContent =
       `Wing ${st.wing} · Stage ${st.id}/38: ${st.name}`;
     document.getElementById("hud-account").textContent =
-      state.isGuest || !state.username ? "Guest" : `@${state.username}`;
+      state.isGuest || !state.username ? "Guest" : (isVipTester() ? `@${state.username} (VIP)` : `@${state.username}`);
     document.getElementById("hud-lives").textContent = `❤️ ${state.lives}/${MAX_LIVES}`;
     document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
     document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
@@ -3046,7 +3073,7 @@
 
     const stake = Number(state.stakedElixir || 0);
     const elixirEl = document.getElementById("hud-elixir");
-    if (stake >= 100 && !state.isGuest && state.username) {
+    if ((stake >= 100 || isVipTester()) && !state.isGuest && state.username) {
       elixirEl.textContent = `⚡ ELIXIR: ${stake} (@nectarbytes Ready)`;
       elixirEl.className = "pill ok mobile-hide";
     } else {
@@ -3060,10 +3087,15 @@
       `HP: ${Math.max(0, Math.ceil(p.hp))}/${p.maxHp}${p.shield > 0 ? ` (+${p.shield}S)` : ""} · ❤️ ${state.lives}`;
     document.getElementById("hud-hp-bar").style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
 
-    document.getElementById("hud-objective").textContent =
-      st.climax === "queen" ? "Goal: Defeat Mega Boss & Rescue Queen"
-      : st.climax === "boss" ? `Goal: Defeat ${st.bossName}`
-      : "Goal: Rescue Princess Bee";
+    if (state.lives <= 0 && !isModalOpen()) {
+      document.getElementById("hud-objective").textContent =
+        "0 Lives Left — Open Menu / Save to Buy Life or Restart";
+    } else {
+      document.getElementById("hud-objective").textContent =
+        st.climax === "queen" ? "Goal: Defeat Mega Boss & Rescue Queen"
+        : st.climax === "boss" ? `Goal: Defeat ${st.bossName}`
+        : "Goal: Rescue Princess Bee";
+    }
 
     const bossBox = document.getElementById("hud-boss-box");
     if (world.boss) {
@@ -3100,11 +3132,6 @@
 
   function connectKeychain(onSuccess = null, explicitUsername = null) {
     AudioEngine.ensureCtx();
-    if (!hasKeychain()) {
-      showToast("Hive Keychain extension not detected — see Save / Setup.");
-      openModal("keychain");
-      return;
-    }
     const input = document.getElementById("kc-username-input");
     const rawUser = explicitUsername || (input ? input.value : state.username || "");
     const username = rawUser.trim().replace(/^@/, "").toLowerCase();
@@ -3113,14 +3140,34 @@
       showToast("Enter your Hive @username to log in with Keychain.");
       return;
     }
+
+    if (!hasKeychain() && username === TEST_VIP_ACCOUNT) {
+      state.username = username;
+      state.isGuest = false;
+      applyVipTesterPerks();
+      AudioEngine.playSfx("pickup");
+      saveState(`Logged in as @${username} (VIP Testing Mode — All Items Unlocked)`);
+      if (onSuccess) onSuccess();
+      return;
+    }
+
+    if (!hasKeychain()) {
+      showToast("Hive Keychain extension not detected — see Save / Setup.");
+      openModal("keychain");
+      return;
+    }
+
     const challenge = `${GAME_NAME}:login:${username}:${Date.now()}`;
     window.hive_keychain.requestSignBuffer(username, challenge, "Posting", (res) => {
       if (res && res.success) {
         state.username = username;
         state.isGuest = false;
         if (!state.knownSquadmates.includes(username)) state.knownSquadmates.unshift(username);
+        applyVipTesterPerks();
         AudioEngine.playSfx("pickup");
-        saveState(`Logged in as @${username} via Hive Keychain!`);
+        saveState(isVipTester()
+          ? `Logged in as @${username} (VIP Testing Mode — All Items Unlocked)`
+          : `Logged in as @${username} via Hive Keychain!`);
         refreshElixirStake();
         if (onSuccess) onSuccess();
       } else {
@@ -3130,6 +3177,14 @@
   }
 
   async function purchaseWithHive(itemCode, itemLabel, amountHiveStr, onUnlockFn) {
+    if (isVipTester()) {
+      applyVipTesterPerks();
+      onUnlockFn();
+      AudioEngine.playSfx("clear");
+      saveState(`VIP Test Mode (@${TEST_VIP_ACCOUNT}): Unlocked ${itemLabel} for free!`);
+      if (activeModalTab === "shop") openModal("shop");
+      return;
+    }
     if (state.isGuest || !state.username) {
       showToast("Guest mode: Connect Keychain or create a free Ecency account to pay in HIVE.");
       openModal("keychain");
@@ -3266,7 +3321,12 @@
       return `<div class="card"><div><div class="card-title">${c.name} — ${c.priceHive} HIVE${c.honeyCost ? ` / ${c.honeyCost} 🍯` : ""}</div><div class="card-meta">In Stock: ${state.consumableStock[c.id] || 0}</div><div class="card-desc" style="margin-top:4px;">${c.desc}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;">${honeyBtn}<button onclick="window.__sb.buyConsumable('${c.id}')">Buy +1 (${c.priceHive} HIVE)</button></div></div>`;
     }).join("");
 
+    const vipNote = isVipTester()
+      ? `<div class="warn-box"><strong>VIP Tester Mode (@${TEST_VIP_ACCOUNT}):</strong> All suits, cooldowns, consumables, honey, lives, and ELIXIR summon perks are unlocked free for testing.</div>`
+      : "";
+
     return `
+      ${vipNote}
       <div class="notice-box">Health vials can be bought with <strong>Honey (🍯 ${state.honey})</strong> or HIVE. Additional lives are <strong>HIVE-only</strong> (via <strong>@${PAYMENT_RECIPIENT}</strong>) with a max cap of <strong>${MAX_LIVES} lives</strong>.</div>
       <div><strong>Extra Lives (HIVE Only)</strong></div>
       <div class="grid-cards">${lifeCard}</div>
@@ -3295,7 +3355,7 @@
 
   function renderSquadModal() {
     const stake = Number(state.stakedElixir || 0);
-    const eligible = stake >= 100 && !state.isGuest && Boolean(state.username);
+    const eligible = (stake >= 100 || isVipTester()) && !state.isGuest && Boolean(state.username);
     const mates = state.knownSquadmates.map(u => {
       const active = state.selectedSquad.includes(u);
       return `<button class="${active ? "primary" : ""}" onclick="window.__sb.toggleSquadMate('${u}')">@${u} ${active ? "✓" : ""}</button>`;
@@ -3344,14 +3404,11 @@
         openModal("keychain");
         return;
       }
-      if (!hasKeychain()) {
-        openModal("keychain");
-        showToast("Install Hive Keychain or enter your @username to set up.");
-        return;
-      }
-      const typed = prompt("Enter your Hive @username to log in with Hive Keychain:");
+      const typed = prompt("Enter your Hive @username to log in:");
       if (typed && typed.trim()) {
         connectKeychain(() => closeModal(), typed.trim());
+      } else if (!hasKeychain()) {
+        openModal("keychain");
       }
     },
     toggleAudio() { AudioEngine.toggle(); },
@@ -3371,8 +3428,7 @@
         currentStageId: 1
       };
       buildStage(1, true);
-      activeModalTab = null;
-      document.getElementById("modal-backdrop").classList.remove("open");
+      closeModal();
       saveState(`Started over from Stage 1 with ${STARTING_LIVES} lives!`);
     },
     equipSuit(id) {
@@ -3405,8 +3461,7 @@
           world.player.shield = 0;
           world.player.invuln = 1.25;
           if (activeModalTab === "gameover") {
-            activeModalTab = null;
-            document.getElementById("modal-backdrop").classList.remove("open");
+            closeModal();
           }
         }
       });
@@ -3414,11 +3469,11 @@
     buyConsumableWithHoney(consId) {
       const c = CONSUMABLES.find(x => x.id === consId);
       if (!c || !c.honeyCost) return;
-      if (state.honey < c.honeyCost) {
+      if (!isVipTester() && state.honey < c.honeyCost) {
         showToast(`Need ${c.honeyCost} 🍯 Honey (you have ${state.honey} 🍯).`);
         return;
       }
-      state.honey -= c.honeyCost;
+      if (!isVipTester()) state.honey -= c.honeyCost;
       state.consumableStock[c.id] = (state.consumableStock[c.id] || 0) + 1;
       AudioEngine.playSfx("pickup");
       saveState(`Bought +1 ${c.name} for ${c.honeyCost} 🍯!`);
@@ -3514,6 +3569,9 @@
   window.togglePause = togglePause;
 
   buildStage(state.currentStageId || 1);
+  if (state.lives <= 0) {
+    openModal("gameover");
+  }
   updateHud();
   AudioEngine.updateAudioBtn();
   AudioEngine.startBgm();
