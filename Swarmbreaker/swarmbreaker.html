@@ -267,7 +267,7 @@
     }
 
     .cutscene-box {
-      background: rgba(12, 18, 34, 0.95);
+      background: rgba(12, 18, 34, 0.96);
       border: 1px solid rgba(251, 191, 36, 0.65);
       border-radius: 14px;
       padding: 14px 18px;
@@ -275,6 +275,38 @@
       max-width: 960px;
       width: 100%;
       margin: 0 auto;
+    }
+
+    .cutscene-main {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    .cutscene-portrait-wrap {
+      flex-shrink: 0;
+      width: 104px;
+      height: 104px;
+      border-radius: 12px;
+      border: 2px solid rgba(251, 191, 36, 0.75);
+      background: radial-gradient(circle at 50% 25%, #273556, #090d16);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    }
+
+    canvas#cutscene-portrait {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .cutscene-content {
+      flex: 1;
+      min-width: 0;
     }
 
     .cutscene-header {
@@ -288,9 +320,15 @@
 
     .cutscene-speaker {
       font-weight: 900;
-      font-size: 0.95rem;
+      font-size: 0.98rem;
       color: var(--gold);
       letter-spacing: 0.03em;
+    }
+
+    .cutscene-role {
+      font-size: 0.72rem;
+      color: var(--accent);
+      font-weight: 700;
     }
 
     .cutscene-step {
@@ -300,10 +338,9 @@
     }
 
     .cutscene-line {
-      font-size: 0.9rem;
+      font-size: 0.92rem;
       line-height: 1.45;
       color: #f8fafc;
-      margin-bottom: 12px;
     }
 
     .cutscene-actions {
@@ -319,49 +356,6 @@
       background: linear-gradient(135deg, #f59e0b, #fbbf24);
       color: #0b0f19;
       border: none;
-    }
-
-    #replay-banner {
-      position: absolute;
-      top: 42px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: none;
-      align-items: center;
-      gap: 8px;
-      background: rgba(15, 23, 42, 0.92);
-      border: 1.5px solid #f472b6;
-      border-radius: 999px;
-      padding: 5px 14px;
-      z-index: 16;
-      pointer-events: none;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75);
-      max-width: 94%;
-    }
-
-    #replay-banner.visible {
-      display: flex;
-    }
-
-    .replay-badge {
-      background: linear-gradient(135deg, #ec4899, #f59e0b);
-      color: #090d16;
-      font-weight: 900;
-      font-size: 0.68rem;
-      padding: 2px 7px;
-      border-radius: 999px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      white-space: nowrap;
-    }
-
-    .replay-text {
-      font-size: 0.76rem;
-      font-weight: 800;
-      color: #fef08a;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     #canvas-overlay-hud {
@@ -596,6 +590,23 @@
 
       .hud-tag {
         font-size: 0.5rem;
+      }
+
+      #cutscene-overlay {
+        padding: 8px 10px;
+      }
+
+      .cutscene-box {
+        padding: 10px 12px;
+      }
+
+      .cutscene-portrait-wrap {
+        width: 72px;
+        height: 72px;
+      }
+
+      .cutscene-line {
+        font-size: 0.8rem;
       }
     }
 
@@ -840,18 +851,23 @@
       <div id="game-frame">
         <canvas id="game-canvas" width="1280" height="720"></canvas>
 
-        <div id="replay-banner">
-          <span class="replay-badge">Killshot Replay</span>
-          <span class="replay-text" id="replay-caption">Beatrice landed the finishing blow with Smart-Arc Nectar Mortar!</span>
-        </div>
-
         <div id="cutscene-overlay">
           <div class="cutscene-box">
-            <div class="cutscene-header">
-              <span class="cutscene-speaker" id="cutscene-speaker">Beatrice</span>
-              <span class="cutscene-step" id="cutscene-step">Scene 1 / 2</span>
+            <div class="cutscene-main">
+              <div class="cutscene-portrait-wrap" id="cutscene-portrait-wrap">
+                <canvas id="cutscene-portrait" width="112" height="112"></canvas>
+              </div>
+              <div class="cutscene-content">
+                <div class="cutscene-header">
+                  <div>
+                    <span class="cutscene-speaker" id="cutscene-speaker">Beatrice</span>
+                    <span class="cutscene-role" id="cutscene-role"> · Vanguard Heroine</span>
+                  </div>
+                  <span class="cutscene-step" id="cutscene-step">Dialogue 1 / 2</span>
+                </div>
+                <div class="cutscene-line" id="cutscene-line">Dialogue line...</div>
+              </div>
             </div>
-            <div class="cutscene-line" id="cutscene-line">Dialogue line...</div>
             <div class="cutscene-actions">
               <span style="font-size:0.74rem;color:var(--muted);">Press Enter / Space or click Next</span>
               <div style="display:flex;gap:8px;">
@@ -1173,33 +1189,38 @@
     return stateObj;
   }
 
-  const beatriceSprite = createKeyedSprite(["beatrice.jpg", "beatrice_2.jpg"], 30, 64);
+  function onSpriteLoaded() {
+    if (cutsceneActive) renderCutscene();
+    refreshSuitPreviewCanvases();
+  }
+
+  const beatriceSprite = createKeyedSprite(["beatrice.jpg", "beatrice_2.jpg"], 30, 64, onSpriteLoaded);
   const suitSprites = {
     worker: beatriceSprite,
-    scout: createKeyedSprite(["beatrice_scout.jpg", "beatrice.jpg"], 30, 64),
-    pollen: createKeyedSprite(["beatrice_pollen.jpg", "beatrice.jpg"], 30, 64),
-    nectar: createKeyedSprite(["beatrice_nectar.jpg", "beatrice.jpg"], 30, 64),
-    comb_guard: createKeyedSprite(["beatrice_comb_guard.jpg", "beatrice.jpg"], 30, 64),
-    royal_guard: createKeyedSprite(["beatrice_royal_guard.jpg", "beatrice.jpg"], 30, 64)
+    scout: createKeyedSprite(["beatrice_scout.jpg", "beatrice.jpg"], 30, 64, onSpriteLoaded),
+    pollen: createKeyedSprite(["beatrice_pollen.jpg", "beatrice.jpg"], 30, 64, onSpriteLoaded),
+    nectar: createKeyedSprite(["beatrice_nectar.jpg", "beatrice.jpg"], 30, 64, onSpriteLoaded),
+    comb_guard: createKeyedSprite(["beatrice_comb_guard.jpg", "beatrice.jpg"], 30, 64, onSpriteLoaded),
+    royal_guard: createKeyedSprite(["beatrice_royal_guard.jpg", "beatrice.jpg"], 30, 64, onSpriteLoaded)
   };
-  const nectarbytesSprite = createKeyedSprite("nectarbytes.jpg", 30, 64);
-  const princessSprite = createKeyedSprite("princess_bee.jpg", 30, 64);
-  const queenNectariaSprite = createKeyedSprite("queen_nectaria.jpg", 30, 64);
+  const nectarbytesSprite = createKeyedSprite("nectarbytes.jpg", 30, 64, onSpriteLoaded);
+  const princessSprite = createKeyedSprite("princess_bee.jpg", 30, 64, onSpriteLoaded);
+  const queenNectariaSprite = createKeyedSprite("queen_nectaria.jpg", 30, 64, onSpriteLoaded);
   const lootChestSprite = createKeyedSprite("loot_chest.jpg", 30, 64);
-  const waspSprite = createKeyedSprite("wasp_enemy.jpg", 30, 64);
-  const beetleSprite = createKeyedSprite("beetle_enemy.jpg", 30, 64);
-  const miteSprite = createKeyedSprite("mite_enemy.jpg", 30, 64);
-  const mothSprite = createKeyedSprite("moth_enemy.jpg", 30, 64);
-  const spiderSprite = createKeyedSprite("spider_enemy.jpg", 30, 64);
+  const waspSprite = createKeyedSprite("wasp_enemy.jpg", 30, 64, onSpriteLoaded);
+  const beetleSprite = createKeyedSprite("beetle_enemy.jpg", 30, 64, onSpriteLoaded);
+  const miteSprite = createKeyedSprite("mite_enemy.jpg", 30, 64, onSpriteLoaded);
+  const mothSprite = createKeyedSprite("moth_enemy.jpg", 30, 64, onSpriteLoaded);
+  const spiderSprite = createKeyedSprite("spider_enemy.jpg", 30, 64, onSpriteLoaded);
 
   const bossSprites = {
-    hornet: createKeyedSprite(["hornet_boss_2.jpg", "hornet_boss.jpg"], 34, 72),
-    mantis: createKeyedSprite(["mantis_boss_2.jpg", "mantis_boss.jpg"], 34, 72),
-    beetle: createKeyedSprite(["beetle_boss.jpg", "hornet_boss_2.jpg"], 34, 72),
-    spider: createKeyedSprite(["spider_boss.jpg", "mantis_boss_2.jpg"], 34, 72),
-    moth: createKeyedSprite(["moth_boss.jpg", "hornet_boss_2.jpg"], 34, 72),
-    wyrm: createKeyedSprite(["wyrm_boss.jpg", "hornet_boss_2.jpg"], 34, 72),
-    queen_warden: createKeyedSprite(["queen_warden_boss.jpg", "hornet_boss_2.jpg", "mantis_boss_2.jpg"], 34, 72)
+    hornet: createKeyedSprite(["hornet_boss_2.jpg", "hornet_boss.jpg"], 34, 72, onSpriteLoaded),
+    mantis: createKeyedSprite(["mantis_boss_2.jpg", "mantis_boss.jpg"], 34, 72, onSpriteLoaded),
+    beetle: createKeyedSprite(["beetle_boss.jpg", "hornet_boss_2.jpg"], 34, 72, onSpriteLoaded),
+    spider: createKeyedSprite(["spider_boss.jpg", "mantis_boss_2.jpg"], 34, 72, onSpriteLoaded),
+    moth: createKeyedSprite(["moth_boss.jpg", "hornet_boss_2.jpg"], 34, 72, onSpriteLoaded),
+    wyrm: createKeyedSprite(["wyrm_boss.jpg", "hornet_boss_2.jpg"], 34, 72, onSpriteLoaded),
+    queen_warden: createKeyedSprite(["queen_warden_boss.jpg", "hornet_boss_2.jpg", "mantis_boss_2.jpg"], 34, 72, onSpriteLoaded)
   };
 
   const PEST_KINDS = ["wasp", "beetle", "mite", "moth", "spider"];
@@ -1488,6 +1509,191 @@
     updateHud();
   }
 
+  function resolveDialoguePortraitSpec(speaker, st) {
+    const label = String(speaker || "").trim();
+    const low = label.toLowerCase();
+
+    if (low.includes("queen nectaria")) {
+      return {
+        kind: "queen_nectaria",
+        role: "Sovereign of the Hive",
+        accent: "#fde047",
+        spriteEntry: queenNectariaSprite
+      };
+    }
+    if (low.includes("princess bee")) {
+      return {
+        kind: "princess",
+        role: "Royal Bee of the District",
+        accent: "#f472b6",
+        spriteEntry: princessSprite
+      };
+    }
+    if (low.includes("nectarbytes") || low.includes("nectar bytes")) {
+      return {
+        kind: "nectarbytes",
+        role: "ELIXIR Summon Champion",
+        accent: "#c084fc",
+        spriteEntry: nectarbytesSprite
+      };
+    }
+    if (low.includes("beatrice")) {
+      const suit = getSuit(state.equippedSuit);
+      return {
+        kind: "beatrice",
+        role: suit.name,
+        accent: suit.color,
+        spriteEntry: suitSprites[suit.id] || beatriceSprite,
+        suit
+      };
+    }
+
+    const bKind = st?.bossKind || "hornet";
+    if (low.includes("warden") || low.includes("boss") || low.includes("beetle") || low.includes("mantis") || low.includes("moth") || low.includes("spider") || low.includes("hornet") || low.includes("wyrm")) {
+      return {
+        kind: "boss",
+        bossKind: bKind,
+        role: st?.climax === "queen" ? "Final Sanctum Mega Boss" : "Stage Boss",
+        accent: bKind === "beetle" ? "#38bdf8" : bKind === "spider" ? "#c084fc" : bKind === "moth" ? "#22d3ee" : "#fb923c",
+        spriteEntry: bossSprites[bKind] || bossSprites.hornet
+      };
+    }
+
+    const pestKind = PEST_KINDS[(st?.id || 1) % PEST_KINDS.length];
+    return {
+      kind: "pest",
+      pestKind,
+      role: "Hive Swarm Pest",
+      accent: "#f472b6",
+      spriteEntry: getPestSprite(pestKind)
+    };
+  }
+
+  function renderDialoguePortrait(spec) {
+    const pCanvas = document.getElementById("cutscene-portrait");
+    const wrapEl = document.getElementById("cutscene-portrait-wrap");
+    if (!pCanvas || !spec) return;
+
+    if (wrapEl) {
+      wrapEl.style.borderColor = spec.accent || "rgba(251, 191, 36, 0.75)";
+    }
+
+    const pctx = pCanvas.getContext("2d");
+    const w = pCanvas.width;
+    const h = pCanvas.height;
+    pctx.clearRect(0, 0, w, h);
+
+    const bg = pctx.createRadialGradient(w * 0.5, h * 0.35, 6, w * 0.5, h * 0.5, w * 0.65);
+    bg.addColorStop(0, (spec.accent || "#fbbf24") + "38");
+    bg.addColorStop(0.6, "#162038");
+    bg.addColorStop(1, "#070b14");
+    pctx.fillStyle = bg;
+    pctx.fillRect(0, 0, w, h);
+
+    const sprite = spec.spriteEntry;
+    if (sprite && sprite.ready && sprite.canvas) {
+      const pad = 10;
+      const drawW = w - pad * 2;
+      const drawH = h - pad * 2;
+      pctx.drawImage(sprite.canvas, pad, pad, drawW, drawH);
+      return;
+    }
+
+    const cx = w * 0.5;
+    const cy = h * 0.55;
+    pctx.save();
+    pctx.translate(cx, cy);
+
+    if (spec.kind === "beatrice") {
+      const col = spec.suit?.color || "#fbbf24";
+      const trim = spec.suit?.trim || "#d97706";
+      pctx.fillStyle = "rgba(224, 242, 254, 0.65)";
+      pctx.beginPath();
+      pctx.ellipse(-18, -14, 18, 8, -0.35, 0, Math.PI * 2);
+      pctx.fill();
+
+      const g = pctx.createRadialGradient(-6, -8, 4, 0, 2, 28);
+      g.addColorStop(0, "#fef9c3");
+      g.addColorStop(0.55, col);
+      g.addColorStop(1, trim);
+      pctx.fillStyle = g;
+      pctx.beginPath();
+      pctx.ellipse(0, 4, 24, 19, 0, 0, Math.PI * 2);
+      pctx.fill();
+      pctx.strokeStyle = "#0f172a";
+      pctx.lineWidth = 2.5;
+      pctx.stroke();
+
+      pctx.fillStyle = "#0f172a";
+      pctx.fillRect(-10, -13, 4, 34);
+      pctx.fillRect(2, -14, 4, 36);
+
+      pctx.fillStyle = "#38bdf8";
+      pctx.beginPath();
+      pctx.ellipse(14, -2, 5.5, 7.5, 0, 0, Math.PI * 2);
+      pctx.fill();
+    } else if (spec.kind === "nectarbytes") {
+      const g = pctx.createLinearGradient(-24, -24, 24, 24);
+      g.addColorStop(0, "#f472b6");
+      g.addColorStop(0.55, "#7e22ce");
+      g.addColorStop(1, "#1e1b4b");
+      pctx.fillStyle = g;
+      pctx.beginPath();
+      pctx.roundRect(-24, -22, 48, 44, 14);
+      pctx.fill();
+      pctx.strokeStyle = "#fde047";
+      pctx.lineWidth = 2.5;
+      pctx.stroke();
+
+      pctx.fillStyle = "#38bdf8";
+      pctx.fillRect(-12, -6, 10, 7);
+      pctx.fillRect(4, -6, 10, 7);
+    } else if (spec.kind === "queen_nectaria" || spec.kind === "princess") {
+      const isQueen = spec.kind === "queen_nectaria";
+      const g = pctx.createRadialGradient(-4, -6, 4, 0, 4, 30);
+      g.addColorStop(0, "#fdf2f8");
+      g.addColorStop(0.55, isQueen ? "#f59e0b" : "#f472b6");
+      g.addColorStop(1, isQueen ? "#9d174d" : "#be185d");
+      pctx.fillStyle = g;
+      pctx.beginPath();
+      pctx.arc(0, 4, isQueen ? 26 : 22, 0, Math.PI * 2);
+      pctx.fill();
+      pctx.strokeStyle = "#fde047";
+      pctx.lineWidth = 2.5;
+      pctx.stroke();
+
+      pctx.fillStyle = "#fde047";
+      pctx.beginPath();
+      pctx.moveTo(-14, -18);
+      pctx.lineTo(-9, -32);
+      pctx.lineTo(0, -21);
+      pctx.lineTo(9, -32);
+      pctx.lineTo(14, -18);
+      pctx.closePath();
+      pctx.fill();
+    } else {
+      const g = pctx.createRadialGradient(-6, -8, 6, 0, 2, 34);
+      g.addColorStop(0, spec.accent || "#fb923c");
+      g.addColorStop(0.65, "#7c2d12");
+      g.addColorStop(1, "#180808");
+      pctx.fillStyle = g;
+      pctx.beginPath();
+      pctx.roundRect(-28, -24, 56, 48, 18);
+      pctx.fill();
+      pctx.strokeStyle = "#fde047";
+      pctx.lineWidth = 2.5;
+      pctx.stroke();
+
+      pctx.fillStyle = "#ef4444";
+      pctx.beginPath();
+      pctx.arc(-11, -3, 6, 0, Math.PI * 2);
+      pctx.arc(11, -3, 6, 0, Math.PI * 2);
+      pctx.fill();
+    }
+
+    pctx.restore();
+  }
+
   function buildStageCutscene(st) {
     const lines = [
       { speaker: "Beatrice", text: `${st.worldTitle} — ${st.story}` }
@@ -1522,9 +1728,15 @@
     const entry = cutsceneQueue[cutsceneIndex];
     const isFinalStep = cutsceneIndex === cutsceneQueue.length - 1;
     const nextBtn = document.getElementById("btn-cutscene-next");
+    const roleEl = document.getElementById("cutscene-role");
+    const portraitSpec = resolveDialoguePortraitSpec(entry.speaker, world.stage);
+
     document.getElementById("cutscene-speaker").textContent = entry.speaker;
+    if (roleEl) roleEl.textContent = portraitSpec.role ? ` · ${portraitSpec.role}` : "";
     document.getElementById("cutscene-step").textContent = `Dialogue ${cutsceneIndex + 1} / ${cutsceneQueue.length}`;
     document.getElementById("cutscene-line").textContent = entry.text;
+    renderDialoguePortrait(portraitSpec);
+
     if (nextBtn) {
       nextBtn.className = "primary";
       nextBtn.classList.add("primary");
@@ -1784,11 +1996,6 @@
     camX: 0,
     shakeTimer: 0,
     shakeMag: 0,
-    replayTimer: 0,
-    replayPersisted: false,
-    replayCaption: "",
-    replayFocusX: 0,
-    replayFocusY: 0,
     worldWidth: 2560,
     stage: STAGES[0],
     player: {
@@ -1885,7 +2092,7 @@
     });
   }
 
-  function applyBossDamage(b, rawDmg, actor = "Beatrice", abilityName = "Stinger Shot", hitX = null, hitY = null) {
+  function applyBossDamage(b, rawDmg, hitX = null, hitY = null) {
     if (!b || b.hp <= 0) return;
     const summonScale = world.summon.active ? 0.58 : 1.0;
     const finalDmg = Math.max(1, rawDmg * summonScale);
@@ -1894,15 +2101,6 @@
       b.hp = 0;
       const fx = hitX ?? (b.x + b.w / 2);
       const fy = hitY ?? (b.y + b.h / 2);
-      world.replayTimer = 2.6;
-      world.replayPersisted = true;
-      world.replayFocusX = fx;
-      world.replayFocusY = fy;
-      world.replayCaption = `${actor} finished ${b.name} with ${abilityName}! (Replay Active)`;
-      const banner = document.getElementById("replay-banner");
-      const capEl = document.getElementById("replay-caption");
-      if (capEl) capEl.textContent = world.replayCaption;
-      if (banner) banner.classList.add("visible");
       AudioEngine.playSfx("clear");
       triggerShake(6.5, 0.25);
       spawnShockRing(fx, fy, 165, "#fde047", 0.55, 5);
@@ -2136,10 +2334,6 @@
     applyVipTesterPerks();
     clearAllInputs();
     finishCutscene();
-    world.replayTimer = 0;
-    world.replayPersisted = false;
-    world.replayCaption = "";
-    document.getElementById("replay-banner").classList.remove("visible");
 
     if (state.lives <= 0 && !restoreLivesIfZero) {
       state.currentStageId = 1;
@@ -2709,7 +2903,7 @@
       saveState("Honeycomb Shield active (+25 Shield)");
     } else if (id === "mite_pulse") {
       if (!isVipTester()) state.consumableStock[id]--;
-      damageAllNearby(p.x + p.w / 2, p.y + p.h / 2, 165, 35, 220, 0, "Beatrice", "Mite-Shake Pulse");
+      damageAllNearby(p.x + p.w / 2, p.y + p.h / 2, 165, 35, 220, 0);
       spawnShockRing(p.x + p.w / 2, p.y + p.h / 2, 165, "#fbbf24", 0.35, 4);
       spawnParticles(p.x + p.w / 2, p.y + p.h / 2, "#fbbf24", 16);
       saveState("Mite-Shake Pulse!");
@@ -2724,7 +2918,7 @@
     }
   }
 
-  function damageAllNearby(cx, cy, radius, dmg, knock, slowDur = 0, actor = "Beatrice", abilityName = "Splash Burst") {
+  function damageAllNearby(cx, cy, radius, dmg, knock, slowDur = 0) {
     world.enemies.forEach(en => {
       const dx = en.x + en.w / 2 - cx;
       const dy = en.y + en.h / 2 - cy;
@@ -2744,7 +2938,7 @@
       const b = world.boss;
       if (Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy) <= radius + 58) {
         if (slowDur > 0) b.slowTimer = Math.max(b.slowTimer, slowDur * 0.75);
-        applyBossDamage(b, dmg, actor, abilityName, b.x + b.w / 2, b.y + b.h / 2);
+        applyBossDamage(b, dmg, b.x + b.w / 2, b.y + b.h / 2);
       }
     }
   }
@@ -2864,12 +3058,11 @@
 
   let lastTime = performance.now();
   function loop(now) {
-    const rawDt = Math.min(0.033, Math.max(0, (now - lastTime) / 1000));
+    const dt = Math.min(0.033, Math.max(0, (now - lastTime) / 1000));
     lastTime = now;
     if (!paused && !cutsceneActive && !isModalOpen()) {
-      const simDt = world.replayTimer > 0 ? rawDt * 0.35 : rawDt;
-      update(simDt, rawDt);
-      hudSyncAccum += rawDt;
+      update(dt, dt);
+      hudSyncAccum += dt;
       if (hudSyncAccum >= 0.065) {
         hudSyncAccum = 0;
         updateHud();
@@ -2930,7 +3123,7 @@
 
   function triggerProjectileImpact(pr, impactX, impactY) {
     if (pr.splash > 0) {
-      damageAllNearby(impactX, impactY, pr.splash, pr.dmg * 0.75, 130, pr.splashSlow || 0, pr.actor || "Beatrice", pr.abilityName || "Splash Burst");
+      damageAllNearby(impactX, impactY, pr.splash, pr.dmg * 0.75, 130, pr.splashSlow || 0);
       spawnShockRing(impactX, impactY, pr.splash, pr.color, 0.28, 3.2);
       spawnParticles(impactX, impactY, pr.color, 14, 155);
     } else if (pr.style !== "orb") {
@@ -3012,15 +3205,6 @@
     if (world.shakeTimer > 0) {
       world.shakeTimer = Math.max(0, world.shakeTimer - rawDt);
       if (world.shakeTimer === 0) world.shakeMag = 0;
-    }
-    if (world.replayTimer > 0) {
-      world.replayTimer = Math.max(0, world.replayTimer - rawDt);
-    }
-    if (world.replayPersisted) {
-      const banner = document.getElementById("replay-banner");
-      const capEl = document.getElementById("replay-caption");
-      if (capEl && world.replayCaption) capEl.textContent = world.replayCaption;
-      if (banner) banner.classList.add("visible");
     }
 
     const p = world.player;
@@ -3123,10 +3307,7 @@
 
     updateTrapsBreakablesAndBarriers(dt);
 
-    const focusX = world.replayPersisted ? world.replayFocusX : (p.x + p.w / 2);
-    const targetCamX = world.replayPersisted
-      ? Math.max(0, Math.min(world.worldWidth - canvas.width, focusX - canvas.width * 0.5))
-      : Math.max(0, Math.min(world.worldWidth - canvas.width, focusX - canvas.width * 0.36));
+    const targetCamX = Math.max(0, Math.min(world.worldWidth - canvas.width, (p.x + p.w / 2) - canvas.width * 0.36));
     world.camX += (targetCamX - world.camX) * (1 - Math.exp(-8 * dt));
 
     updateBeatriceAnim(p, suit, dt);
@@ -3179,7 +3360,7 @@
             AudioEngine.playSfx("dash");
             s.attackTimer = 0.65;
             s.slashTimer = 0.34;
-            damageAllNearby(sx, sy, 145, 34, 160, 0, "@nectarbytes", "Two-Sword Top-Spin");
+            damageAllNearby(sx, sy, 145, 34, 160, 0);
             spawnShockRing(sx, sy, 145, "#f472b6", 0.32, 4);
             spawnShockRing(sx, sy, 98, "#fde047", 0.26, 3);
             spawnParticles(sx, sy, "#38bdf8", 18, 195);
@@ -3403,7 +3584,7 @@
           if (pr.x + pr.r > b.x - pad && pr.x - pr.r < b.x + b.w + pad && pr.y + pr.r > b.y - pad && pr.y - pr.r < b.y + b.h + pad) {
             pr.hitIds.add("boss");
             if (pr.snare) b.slowTimer = 2.5;
-            applyBossDamage(b, pr.dmg, pr.actor || "Beatrice", pr.abilityName || "Stinger Shot", pr.x, pr.y);
+            applyBossDamage(b, pr.dmg, pr.x, pr.y);
             triggerProjectileImpact(pr, pr.x, pr.y);
             if (!pr.pierce || --pr.pierce <= 0) pr.dead = true;
           }
@@ -3986,14 +4167,6 @@
 
     ctx.restore();
 
-    if (world.replayPersisted) {
-      ctx.save();
-      ctx.strokeStyle = "rgba(244, 114, 182, 0.55)";
-      ctx.lineWidth = 8;
-      ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
-      ctx.restore();
-    }
-
     if (paused) {
       ctx.fillStyle = "rgba(6, 9, 17, 0.78)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -4446,250 +4619,134 @@
       grad.addColorStop(1, "#1e1b4b");
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.roundRect(-18, -18, 36, 36, 12);
+      ctx.roundRect(-20 - recoilShift, -18, 40, 36, 12);
       ctx.fill();
       ctx.strokeStyle = "#fde047";
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
-      ctx.strokeStyle = "#fef08a";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(4 - recoilShift, -3);
-      ctx.lineTo(28 - recoilShift, -12);
-      ctx.moveTo(4 - recoilShift, 6);
-      ctx.lineTo(28 - recoilShift, 15);
-      ctx.stroke();
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(-10 - recoilShift, -6, 8, 6);
+      ctx.fillRect(4 - recoilShift, -6, 8, 6);
     }
 
-    if (s.pistolRecoil > 0.15) {
-      drawMuzzleStarFlash(32 - recoilShift, -9, 10 * s.pistolRecoil, "#38bdf8", "#ffffff");
-      drawMuzzleStarFlash(32 - recoilShift, 10, 10 * s.pistolRecoil, "#f472b6", "#fef08a");
+    if (s.pistolRecoil > 0.12) {
+      drawMuzzleStarFlash(32 - recoilShift, -2, 11 * s.pistolRecoil, "#38bdf8", "#ffffff");
+    }
+
+    if (s.beamTimer > 0) {
+      const beamGrad = ctx.createLinearGradient(24, 0, 480, 0);
+      beamGrad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+      beamGrad.addColorStop(0.25, "rgba(232, 121, 249, 0.85)");
+      beamGrad.addColorStop(0.7, "rgba(56, 189, 248, 0.55)");
+      beamGrad.addColorStop(1, "rgba(56, 189, 248, 0)");
+      ctx.fillStyle = beamGrad;
+      ctx.beginPath();
+      ctx.roundRect(24 - recoilShift, -9, 456, 18, 9);
+      ctx.fill();
     }
 
     ctx.restore();
 
-    if (s.beamTimer > 0 && world.boss) {
-      const bx = world.boss.x + world.boss.w / 2;
-      const by = world.boss.y + world.boss.h / 2;
-
-      ctx.strokeStyle = "rgba(192, 132, 252, 0.45)";
-      ctx.lineWidth = 28;
-      ctx.beginPath();
-      ctx.moveTo(cx + dir * 26, cy);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-
-      ctx.strokeStyle = "rgba(244, 114, 182, 0.92)";
-      ctx.lineWidth = 14;
-      ctx.beginPath();
-      ctx.moveTo(cx + dir * 26, cy);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-
-      ctx.strokeStyle = "#38bdf8";
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.moveTo(cx + dir * 26, cy);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(cx + dir * 26, cy);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-
-      drawMuzzleStarFlash(bx, by, 22, "#f472b6", "#ffffff");
-    }
-
     ctx.fillStyle = "#f5d0fe";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText("@nectarbytes", s.x - 16, s.y - 48 + floatY);
-  }
-
-  function drawLootChestArtwork(g, bob) {
-    const cx = g.x + g.w / 2;
-    const cy = g.y + g.h / 2 + bob;
-    const pulse = 1 + Math.sin(world.time * 6) * 0.06;
-
-    const aura = ctx.createRadialGradient(cx, cy, 8, cx, cy, 62 * pulse);
-    if (g.locked) {
-      aura.addColorStop(0, "rgba(245, 158, 11, 0.22)");
-      aura.addColorStop(1, "rgba(245, 158, 11, 0)");
-    } else {
-      aura.addColorStop(0, "rgba(253, 224, 71, 0.65)");
-      aura.addColorStop(0.55, "rgba(245, 158, 11, 0.24)");
-      aura.addColorStop(1, "rgba(245, 158, 11, 0)");
-    }
-    ctx.fillStyle = aura;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 62 * pulse, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (lootChestSprite.ready && lootChestSprite.canvas) {
-      const drawSize = 74;
-      ctx.save();
-      ctx.translate(cx, cy);
-      if (g.locked) ctx.globalAlpha = 0.78;
-      ctx.drawImage(lootChestSprite.canvas, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
-      if (!g.locked) {
-        ctx.strokeStyle = "#fde047";
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        ctx.arc(0, 0, 40 * pulse, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      ctx.restore();
-    } else {
-      const baseX = g.x + 4;
-      const baseY = g.y + 18 + bob;
-      const baseW = g.w - 8;
-      const baseH = g.h - 20;
-
-      const bodyGrad = ctx.createLinearGradient(baseX, baseY, baseX, baseY + baseH);
-      bodyGrad.addColorStop(0, "#b45309");
-      bodyGrad.addColorStop(0.6, "#78350f");
-      bodyGrad.addColorStop(1, "#451a03");
-      ctx.fillStyle = bodyGrad;
-      ctx.beginPath();
-      ctx.roundRect(baseX, baseY + 10, baseW, baseH - 10, 7);
-      ctx.fill();
-      ctx.strokeStyle = "#fde047";
-      ctx.lineWidth = 2.2;
-      ctx.stroke();
-
-      ctx.save();
-      ctx.translate(baseX, baseY + 12);
-      if (!g.locked) {
-        ctx.rotate(-0.42);
-        ctx.fillStyle = "#fef08a";
-        ctx.beginPath();
-        ctx.arc(baseW * 0.5, 4, 13, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      const lidGrad = ctx.createLinearGradient(0, -14, 0, 4);
-      lidGrad.addColorStop(0, "#fbbf24");
-      lidGrad.addColorStop(1, "#92400e");
-      ctx.fillStyle = lidGrad;
-      ctx.beginPath();
-      ctx.roundRect(0, -14, baseW, 15, [8, 8, 3, 3]);
-      ctx.fill();
-      ctx.strokeStyle = "#fef08a";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.fillStyle = "#facc15";
-      ctx.fillRect(baseX + 3, baseY + 10, 5, baseH - 10);
-      ctx.fillRect(baseX + baseW - 8, baseY + 10, 5, baseH - 10);
-
-      const claspX = cx;
-      const claspY = baseY + 14;
-      ctx.fillStyle = g.locked ? "#ef4444" : "#22c55e";
-      ctx.beginPath();
-      ctx.roundRect(claspX - 7, claspY - 5, 14, 15, 4);
-      ctx.fill();
-      ctx.strokeStyle = "#fef9c3";
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-
-      ctx.fillStyle = "#090d16";
-      ctx.beginPath();
-      ctx.arc(claspX, claspY + 1, 2.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(claspX - 1.1, claspY + 2, 2.2, 4.5);
-    }
-
-    if (!g.locked) {
-      const spX = cx + Math.cos(world.time * 5) * 24;
-      const spY = cy - 18 + Math.sin(world.time * 7) * 10;
-      ctx.fillStyle = "#fef9c3";
-      ctx.beginPath();
-      ctx.arc(spX, spY, 3.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.fillText(`@nectarbytes (${s.timer.toFixed(1)}s)`, s.x - 18, s.y - 44 + floatY);
   }
 
   function drawGoalCharacter(g) {
+    const cx = g.x + g.w / 2;
+    const cy = g.y + g.h / 2;
     const bob = Math.sin(world.time * 4) * 3;
+    const isChest = g.type === "boss";
     const isQueen = g.type === "queen";
-    const isBossClimax = g.type === "boss" || isQueen;
 
-    if (isBossClimax) {
-      drawLootChestArtwork(g, bob);
-    } else {
-      const cx = g.x + g.w / 2;
-      const cy = g.y + g.h / 2 + bob;
-      const wingFlap = Math.sin(world.time * 22) * 0.4;
+    ctx.strokeStyle = g.locked ? "rgba(239, 68, 68, 0.72)" : "rgba(251, 191, 36, 0.65)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy + bob, 38, 0, Math.PI * 2);
+    ctx.stroke();
 
-      if (princessSprite.ready && princessSprite.canvas) {
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.drawImage(princessSprite.canvas, -36, -42, 72, 84);
-        ctx.restore();
+    if (isChest) {
+      const chestSprite = lootChestSprite.ready && lootChestSprite.canvas ? lootChestSprite : null;
+      if (chestSprite) {
+        ctx.drawImage(chestSprite.canvas, g.x - 10, g.y - 12 + bob, g.w + 20, g.h + 18);
       } else {
-        ctx.save();
-        ctx.translate(cx - 8, cy - 8);
-        ctx.rotate(-0.35 + wingFlap);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
-        ctx.beginPath();
-        ctx.ellipse(-10, -4, 13, 5.5, -0.3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-
-        const pGrad = ctx.createRadialGradient(cx - 4, cy - 6, 3, cx, cy, 24);
-        pGrad.addColorStop(0, "#fdf2f8");
-        pGrad.addColorStop(0.55, "#f472b6");
-        pGrad.addColorStop(1, "#be185d");
-        ctx.fillStyle = pGrad;
-        ctx.beginPath();
-        ctx.arc(cx, cy + 2, 18, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = g.opened ? "#78350f" : "#b45309";
         ctx.strokeStyle = "#fde047";
-        ctx.lineWidth = 2.2;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.roundRect(g.x + 4, g.y + 10 + bob, g.w - 8, g.h - 12, 8);
+        ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = "#fde047";
+        ctx.fillStyle = "#fbbf24";
+        ctx.fillRect(g.x + 2, g.y + 8 + bob, g.w - 4, 14);
+        ctx.fillStyle = g.locked ? "#ef4444" : "#22c55e";
         ctx.beginPath();
-        ctx.moveTo(cx - 10, cy - 15);
-        ctx.lineTo(cx - 7, cy - 26);
-        ctx.lineTo(cx, cy - 18);
-        ctx.lineTo(cx + 7, cy - 26);
-        ctx.lineTo(cx + 10, cy - 15);
-        ctx.closePath();
+        ctx.arc(cx, g.y + 22 + bob, 6, 0, Math.PI * 2);
         ctx.fill();
       }
-    }
-
-    if (isQueen && queenNectariaSprite.ready && queenNectariaSprite.canvas) {
-      const qx = g.x + 88;
-      const qy = g.y - 6 + bob;
-      ctx.save();
-      ctx.drawImage(queenNectariaSprite.canvas, qx, qy, 68, 76);
-      ctx.restore();
-      ctx.fillStyle = "#fde047";
+      ctx.fillStyle = g.locked ? "#fca5a5" : "#fde047";
       ctx.font = "bold 12px sans-serif";
-      ctx.fillText("Queen Nectaria", qx - 10, qy - 6);
+      ctx.fillText(g.locked ? "Locked Chest" : (g.opened ? "Chest Opened" : "Loot Chest!"), g.x - 14, g.y - 24 + bob);
+      return;
     }
 
-    ctx.fillStyle = isBossClimax ? (g.locked ? "#fca5a5" : "#fde047") : "#f9a8d4";
+    const royalSprite = isQueen
+      ? (queenNectariaSprite.ready && queenNectariaSprite.canvas ? queenNectariaSprite : (princessSprite.ready && princessSprite.canvas ? princessSprite : null))
+      : (princessSprite.ready && princessSprite.canvas ? princessSprite : null);
+
+    if (royalSprite) {
+      ctx.save();
+      ctx.translate(cx, cy + bob);
+      ctx.drawImage(royalSprite.canvas, -36, -42, 72, 80);
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.translate(cx, cy + bob);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.58)";
+      ctx.beginPath();
+      ctx.ellipse(-15, -14, 15, 6, -0.4, 0, Math.PI * 2);
+      ctx.ellipse(15, -14, 15, 6, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      const grad = ctx.createRadialGradient(-4, -6, 3, 0, 2, 26);
+      grad.addColorStop(0, "#fdf2f8");
+      grad.addColorStop(0.55, isQueen ? "#f59e0b" : "#f472b6");
+      grad.addColorStop(1, isQueen ? "#9d174d" : "#be185d");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 4, isQueen ? 24 : 20, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      ctx.fillStyle = "#fde047";
+      ctx.beginPath();
+      ctx.moveTo(-12, -16);
+      ctx.lineTo(-8, -28);
+      ctx.lineTo(0, -18);
+      ctx.lineTo(8, -28);
+      ctx.lineTo(12, -16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.fillStyle = isQueen ? "#fde047" : "#f9a8d4";
     ctx.font = "bold 12px sans-serif";
-    const label = isBossClimax
-      ? (g.locked ? "Locked Chest" : "Open Loot Chest!")
-      : "Princess Bee";
-    ctx.fillText(label, g.x - 14, g.y - 12 + bob);
+    ctx.fillText(isQueen ? (g.locked ? "Queen Nectaria (Sealed)" : "Queen Nectaria!") : "Princess Bee", g.x - 24, g.y - 44 + bob);
   }
 
-  function drawHex(x, y, r) {
+  function drawHex(cx, cy, r) {
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const a = (Math.PI / 3) * i;
-      const px = x + Math.cos(a) * r;
-      const py = y + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
     ctx.closePath();
     ctx.stroke();
@@ -4698,38 +4755,21 @@
   function updateHud() {
     applyVipTesterPerks();
     const st = world.stage || STAGES[0];
-    const p = world.player;
     const suit = getSuit(state.equippedSuit);
-    const s0 = getCooldownDef(state.equippedCooldowns[0]);
-    const s1 = getCooldownDef(state.equippedCooldowns[1]);
+    const p = world.player;
 
-    const mobilePauseBtn = document.getElementById("btn-mobile-pause");
-    const desktopPauseBtn = document.getElementById("btn-desktop-pause");
-    const pauseCta = document.getElementById("pause-overlay-cta");
-    if (mobilePauseBtn) mobilePauseBtn.textContent = paused ? "▶" : "⏸";
-    if (desktopPauseBtn) desktopPauseBtn.textContent = paused ? "Resume (P)" : "Pause (P)";
-    if (pauseCta) pauseCta.classList.toggle("visible", paused && !isModalOpen());
-
-    const stageIdx = STAGES.findIndex(s => s.id === st.id) + 1;
-    document.getElementById("hud-stage-label").textContent = `Wing ${st.wing} · Stage ${stageIdx}/${STAGES.length}: ${st.worldTitle}`;
-
-    const accEl = document.getElementById("hud-account");
-    if (!state.isGuest && state.username) {
-      accEl.textContent = isVipTester() ? `👑 @${state.username} (VIP)` : `@${state.username}`;
-      accEl.className = "pill ok";
-      document.getElementById("guest-banner").classList.remove("visible");
-    } else {
-      accEl.textContent = "Guest Mode";
-      accEl.className = "pill ok";
-      document.getElementById("guest-banner").classList.add("visible");
-    }
+    document.getElementById("hud-stage-label").textContent = `Wing ${st.wing} · Stage ${st.id}/38: ${st.name}`;
+    document.getElementById("hud-account").textContent = state.isGuest
+      ? "Guest Mode"
+      : (isVipTester() ? `@${state.username} (VIP Test)` : `@${state.username}`);
+    document.getElementById("hud-account").className = state.isGuest ? "pill ok" : "pill accent";
 
     const loginBtn = document.getElementById("btn-keychain-login");
     if (loginBtn) {
-      loginBtn.textContent = (!state.isGuest && state.username) ? `@${state.username}` : "🔑 Login";
-      loginBtn.title = (!state.isGuest && state.username)
-        ? `Connected as @${state.username} — click to manage account`
-        : "Connect Hive Keychain";
+      loginBtn.textContent = state.isGuest ? "🔑 Login" : `@${state.username} ✓`;
+      loginBtn.title = state.isGuest
+        ? "Connect Hive Keychain account"
+        : `Logged in as @${state.username} — click to manage Keychain`;
     }
 
     const livesEl = document.getElementById("hud-lives");
@@ -4738,19 +4778,28 @@
 
     document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
     document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
-    const stakeNum = Number(state.stakedElixir || 0);
-    const elixirPill = document.getElementById("hud-elixir");
-    elixirPill.textContent = `⚡ ELIXIR: ${stakeNum}/100 Stake`;
-    elixirPill.className = stakeNum >= 100 ? "pill ok mobile-hide" : "pill warn mobile-hide";
+    document.getElementById("hud-elixir").textContent = `⚡ ELIXIR: ${Number(state.stakedElixir || 0)}/100 Stake`;
 
-    const hpPct = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
+    const banner = document.getElementById("guest-banner");
+    if (banner) banner.classList.toggle("visible", Boolean(state.isGuest));
+
+    const pauseCta = document.getElementById("pause-overlay-cta");
+    if (pauseCta) pauseCta.classList.toggle("visible", Boolean(paused && !isModalOpen() && !cutsceneActive));
+
+    const mobilePauseBtn = document.getElementById("btn-mobile-pause");
+    if (mobilePauseBtn) mobilePauseBtn.textContent = paused ? "▶" : "⏸";
+
+    const desktopPauseBtn = document.getElementById("btn-desktop-pause");
+    if (desktopPauseBtn) desktopPauseBtn.textContent = paused ? "Resume (P)" : "Pause (P)";
+
+    const hpPct = Math.max(0, Math.min(100, (p.hp / Math.max(1, p.maxHp)) * 100));
     document.getElementById("hud-hp-text").textContent = `HP ${Math.ceil(p.hp)} / ${p.maxHp}${p.shield > 0 ? ` (+${p.shield}🛡️)` : ""}`;
     document.getElementById("hud-hp-bar").style.width = `${hpPct}%`;
 
     const bossBox = document.getElementById("hud-boss-box");
     if (world.boss) {
       bossBox.style.display = "block";
-      const bPct = Math.max(0, Math.min(100, (world.boss.hp / world.boss.maxHp) * 100));
+      const bPct = Math.max(0, Math.min(100, (world.boss.hp / Math.max(1, world.boss.maxHp)) * 100));
       document.getElementById("hud-boss-name").textContent = `${world.boss.name} · ${Math.ceil(bPct)}%`;
       document.getElementById("hud-boss-bar").style.width = `${bPct}%`;
     } else {
@@ -4767,47 +4816,47 @@
       sumBox.style.display = "none";
     }
 
-    const c0Txt = s0 ? `${s0.name} [K/X] ${p.cdTimers[0] > 0 ? p.cdTimers[0].toFixed(1) + "s" : "READY"}` : "Spec 1: Empty";
-    const c1Txt = s1 ? `${s1.name} [L/C] ${p.cdTimers[1] > 0 ? p.cdTimers[1].toFixed(1) + "s" : "READY"}` : "Spec 2: Empty";
-    const sumTxt = p.stageSummonUsed ? "@nectarbytes: Used" : (stakeNum >= 100 ? "@nectarbytes [R]: READY" : "@nectarbytes [R]: Need 100 ELIXIR");
-    document.getElementById("hud-abilities").textContent =
-      `A/D Move · W/Space Jump · J/Z ${suit.attackLabel} · ${c0Txt} · ${c1Txt} · 1-5 Items · ${sumTxt} · P Pause`;
+    const c0 = getCooldownDef(state.equippedCooldowns[0]);
+    const c1 = getCooldownDef(state.equippedCooldowns[1]);
+    const abEl = document.getElementById("hud-abilities");
+    if (abEl) {
+      abEl.textContent =
+        `Spec 1 [K/X]: ${c0 ? `${c0.name} (${p.cdTimers[0] > 0 ? `${p.cdTimers[0].toFixed(1)}s` : "Ready"})` : "None"} · ` +
+        `Spec 2 [L/C]: ${c1 ? `${c1.name} (${p.cdTimers[1] > 0 ? `${p.cdTimers[1].toFixed(1)}s` : "Ready"})` : "None"} · ` +
+        `[1] Vial: ${state.consumableStock.royal_vial || 0} · [2] Shield: ${state.consumableStock.honey_shield || 0} · [3] Pulse: ${state.consumableStock.mite_pulse || 0} · [4] Magnet: ${state.consumableStock.magnet_charm || 0} · [5] Beacon: ${state.consumableStock.checkpoint_beacon || 0} · ` +
+        `[R] Summon: ${p.stageSummonUsed ? "Used" : (Number(state.stakedElixir || 0) >= 100 ? "Ready" : "Need 100 ELIXIR")}`;
+    }
 
-    const cd1Btn = document.getElementById("btn-cd1");
-    const cd2Btn = document.getElementById("btn-cd2");
     const healBtn = document.getElementById("btn-heal");
-    if (cd1Btn) cd1Btn.innerHTML = p.cdTimers[0] > 0 ? `S1<br/>${p.cdTimers[0].toFixed(1)}s` : "SPEC 1<br/>RDY";
-    if (cd2Btn) cd2Btn.innerHTML = p.cdTimers[1] > 0 ? `S2<br/>${p.cdTimers[1].toFixed(1)}s` : "SPEC 2<br/>RDY";
     if (healBtn) healBtn.textContent = `🧪 ${state.consumableStock.royal_vial || 0}`;
+    const cd1Btn = document.getElementById("btn-cd1");
+    if (cd1Btn) cd1Btn.innerHTML = p.cdTimers[0] > 0 ? `S1<br/>${p.cdTimers[0].toFixed(1)}s` : "SPEC 1<br/>CD";
+    const cd2Btn = document.getElementById("btn-cd2");
+    if (cd2Btn) cd2Btn.innerHTML = p.cdTimers[1] > 0 ? `S2<br/>${p.cdTimers[1].toFixed(1)}s` : "SPEC 2<br/>CD";
+    const sumBtn = document.getElementById("btn-summon");
+    if (sumBtn) {
+      sumBtn.textContent = world.summon.active ? `${Math.ceil(world.summon.timer)}s` : (p.stageSummonUsed ? "USED" : "SUM");
+    }
   }
 
   function renderStagesModal() {
-    const wings = [1, 2, 3, 4];
-    const wingNames = {
-      1: "Wing 1 — Outer Hive & Daily Commons",
-      2: "Wing 2 — Creators, Makers & Lore Spires",
-      3: "Wing 3 — Shadows, Grids & Vaults",
-      4: "Wing 4 — Arenas, Lanterns & Queen's Sanctum"
-    };
-    return wings.map(w => {
-      const list = STAGES.filter(s => s.wing === w).map(st => {
-        const done = state.completedStages.includes(st.id);
-        const current = world.stage.id === st.id;
-        const badge = st.climax === "queen" ? "👑 MEGA BOSS" : (st.climax === "boss" ? "👾 BOSS + CHEST" : "👸 PRINCESS");
-        return `
-          <div class="card ${current ? "selected" : ""}">
-            <div>
-              <div class="card-title">Stage ${st.id}: ${st.worldTitle}</div>
-              <div class="card-meta">${st.name} · ${badge} ${done ? "· Cleared ✓" : ""}</div>
-              <div class="card-desc" style="margin-top:4px;">${st.note}</div>
-            </div>
-            <button class="${current ? "primary" : ""}" onclick="closeModal(); window.__sb.selectStage(${st.id});">
-              ${current ? "Current Stage" : "Launch Stage"}
-            </button>
-          </div>`;
-      }).join("");
-      return `<div><strong>${wingNames[w]}</strong></div><div class="grid-cards">${list}</div>`;
+    const cards = STAGES.map(st => {
+      const done = state.completedStages.includes(st.id);
+      const current = world.stage.id === st.id;
+      const badge = st.climax === "queen" ? "👑 Final Mega Boss + Queen" : (st.climax === "boss" ? `👾 Boss + Loot Chest` : "🐝 Princess Rescue");
+      return `
+        <div class="card ${current ? "selected" : ""}">
+          <div>
+            <div class="card-title">Stage ${st.id}: ${st.name}</div>
+            <div class="card-meta">Wing ${st.wing} · ${badge} · ${done ? "Cleared ✓" : "Open"}</div>
+            <div class="card-desc" style="margin-top:4px;">${st.worldTitle} — ${st.note}</div>
+          </div>
+          <button class="${current ? "primary" : ""}" onclick="closeModal(); buildStage(${st.id}, false, true);">
+            ${current ? "Play Current Stage" : "Warp to Stage"}
+          </button>
+        </div>`;
     }).join("");
+    return `<div class="notice-box">All <strong>38 stages</strong> across 4 wings are unlocked to play or warp to anytime (<code>hive-167922</code> excluded).</div><div class="grid-cards">${cards}</div>`;
   }
 
   function renderLoadoutModal() {
@@ -4815,12 +4864,12 @@
       const owned = state.unlockedSuits.includes(su.id);
       const equipped = state.equippedSuit === su.id;
       const previewOpen = previewSuitIds.has(su.id);
-      const unlockTag = su.unlock === "starter" ? "Starter" : (su.unlock === "loot_drop" ? "Boss Loot Drop" : `${su.priceHive} HIVE Shop`);
+      const unlockText = su.unlock === "starter" ? "Starter Suit" : (su.unlock === "loot_drop" ? "Boss Loot Chest Drop" : `HIVE Shop (${su.priceHive} HIVE)`);
       return `
         <div class="card ${equipped ? "selected" : ""}">
           <div>
             <div class="card-title">${su.name}</div>
-            <div class="card-meta">${owned ? `Unlocked · HP ${su.maxHp} · Speed ${su.speed}` : `Locked (${unlockTag})`}</div>
+            <div class="card-meta">${unlockText} · HP ${su.maxHp} · Speed ${su.speed}</div>
             <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
             ${previewOpen ? `<canvas data-preview-suit="${su.id}" width="210" height="84" style="width:100%;height:84px;border-radius:8px;margin-top:8px;border:1px solid var(--border);"></canvas>` : ""}
           </div>
@@ -4846,228 +4895,215 @@
           </div>
           ${owned
             ? `<div style="display:flex;gap:6px;">
-                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.equipCd(0, '${cd.id}')">${s0 ? "Slot 1 ✓" : "Equip Slot 1"}</button>
-                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.equipCd(1, '${cd.id}')">${s1 ? "Slot 2 ✓" : "Equip Slot 2"}</button>
+                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.equipCooldown(0, '${cd.id}')">${s0 ? "Slot 1 [K/X] ✓" : "Equip Slot 1"}</button>
+                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.equipCooldown(1, '${cd.id}')">${s1 ? "Slot 2 [L/C] ✓" : "Equip Slot 2"}</button>
               </div>`
             : `<button onclick="openModal('shop')">Buy in HIVE Shop</button>`}
         </div>`;
     }).join("");
 
-    const consCards = CONSUMABLES.map(c => {
-      const qty = state.consumableStock[c.id] || 0;
-      return `
-        <div class="card">
-          <div>
-            <div class="card-title">${c.name} (Stock: ${qty})</div>
-            <div class="card-desc">${c.desc}</div>
-          </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="primary" onclick="window.__sb.useConsumable('${c.id}')">Use Now</button>
-            ${c.honeyCost ? `<button onclick="window.__sb.buyVialWithHoney()">+1 (${c.honeyCost} 🍯)</button>` : ""}
-          </div>
-        </div>`;
-    }).join("");
+    const consCards = CONSUMABLES.map(c => `
+      <div class="card">
+        <div>
+          <div class="card-title">${c.name}: ${state.consumableStock[c.id] || 0}</div>
+          <div class="card-desc">${c.desc}</div>
+        </div>
+        <button onclick="window.__sb.useConsFromUi('${c.id}')">Use Now</button>
+      </div>`).join("");
 
     return `
-      <div class="notice-box">
-        <strong>Combat Setup:</strong> Primary attack comes from Beatrice's equipped suit (including 3 Boss Loot suits + 2 HIVE Shop suits). Equip up to 2 Cooldown Power-Ups (<b>[K/X]</b> &amp; <b>[L/C]</b>) and trigger consumables with keys <b>1–5</b>.
-      </div>
-      <div><strong>Beatrice Suits (Starter, Boss Loot Drops &amp; HIVE Shop)</strong></div>
+      <div><strong>Beatrice's Suits (1 Starter + 3 Boss Loot Drops + 2 HIVE Shop Suits)</strong></div>
       <div class="grid-cards">${suitCards}</div>
-      <div><strong>Special Cooldown Power-Ups (Keys K/X and L/C)</strong></div>
+      <div><strong>Special Cooldown Power-Ups (Equip up to 2: Slot 1 = K/X, Slot 2 = L/C)</strong></div>
       <div class="grid-cards">${cdCards}</div>
-      <div><strong>Consumables (Keys 1–5)</strong></div>
+      <div><strong>Consumables Inventory (Hotkeys 1–5)</strong></div>
       <div class="grid-cards">${consCards}</div>`;
   }
 
   function renderShopModal() {
-    const shopSuits = SUITS.filter(s => s.unlock === "shop").map(su => {
-      const owned = state.unlockedSuits.includes(su.id);
-      return `
-        <div class="card ${owned ? "selected" : ""}">
-          <div>
-            <div class="card-title">${su.name}</div>
-            <div class="card-meta">Price: ${su.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div>
-            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
-          </div>
-          <button class="${owned ? "" : "primary"}" ${owned ? "disabled" : ""} onclick="window.__sb.buyHiveItem('suit', '${su.id}', '${su.priceHive}', '${escapeJs(su.name)}')">
-            ${owned ? "Unlocked ✓" : `Buy (${su.priceHive} HIVE)`}
-          </button>
-        </div>`;
-    }).join("");
+    const lifeCard = `
+      <div class="card promo-card">
+        <div>
+          <div class="card-title">❤️ Extra Life (+1 Life · Cap ${MAX_LIVES})</div>
+          <div class="card-meta">Current Lives: ${state.lives}/${MAX_LIVES} · Price: ${EXTRA_LIFE_HIVE_PRICE} HIVE</div>
+          <div class="card-desc" style="margin-top:4px;">Adds +1 extra life for Beatrice up to the ${MAX_LIVES}-life cap.</div>
+        </div>
+        <button class="primary" ${state.lives >= MAX_LIVES ? "disabled" : ""} onclick="window.__sb.buyHiveItem('life_extra', 'Extra Life (+1)', '${EXTRA_LIFE_HIVE_PRICE}')">
+          ${state.lives >= MAX_LIVES ? "Max Lives (10/10)" : `Buy (${EXTRA_LIFE_HIVE_PRICE} HIVE)`}
+        </button>
+      </div>`;
 
     const bundleCards = STARTER_BUNDLES.map(b => `
       <div class="card promo-card">
         <div>
           <div class="card-title">🎁 ${b.name}</div>
-          <div class="card-meta">Bundle Deal: ${b.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div>
+          <div class="card-meta">Bundle Deal · ${b.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div>
           <div class="card-desc" style="margin-top:4px;">${b.desc}</div>
         </div>
-        <button class="primary" onclick="window.__sb.buyHiveItem('bundle', '${b.id}', '${b.priceHive}', '${escapeJs(b.name)}')">
-          Buy Bundle (${b.priceHive} HIVE)
-        </button>
+        <button class="primary" onclick="window.__sb.buyHiveItem('${b.id}', '${b.name}', '${b.priceHive}')">Buy Bundle (${b.priceHive} HIVE)</button>
       </div>`).join("");
+
+    const shopSuits = SUITS.filter(s => s.unlock === "shop").map(s => {
+      const owned = state.unlockedSuits.includes(s.id);
+      const previewOpen = previewSuitIds.has(s.id);
+      return `
+        <div class="card">
+          <div>
+            <div class="card-title">${s.name}</div>
+            <div class="card-meta">${s.priceHive} HIVE · HP ${s.maxHp} · Speed ${s.speed}</div>
+            <div class="card-desc" style="margin-top:4px;">${s.desc}</div>
+            ${previewOpen ? `<canvas data-preview-suit="${s.id}" width="210" height="84" style="width:100%;height:84px;border-radius:8px;margin-top:8px;border:1px solid var(--border);"></canvas>` : ""}
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="accent" onclick="window.__sb.toggleSuitPreview('${s.id}')">${previewOpen ? "Hide Preview" : "👁️ Preview"}</button>
+            <button class="primary" ${owned ? "disabled" : ""} onclick="window.__sb.buyHiveItem('suit_${s.id}', '${s.name}', '${s.priceHive}')">${owned ? "Owned ✓" : `Buy (${s.priceHive} HIVE)`}</button>
+          </div>
+        </div>`;
+    }).join("");
 
     const cdShop = COOLDOWN_POWERUPS.map(cd => {
       const owned = state.ownedCooldowns.includes(cd.id);
       return `
-        <div class="card ${owned ? "selected" : ""}">
+        <div class="card">
           <div>
             <div class="card-title">${cd.name} (${cd.cd}s CD)</div>
             <div class="card-meta">${cd.cat} · ${cd.priceHive} HIVE</div>
             <div class="card-desc" style="margin-top:4px;">${cd.desc}</div>
           </div>
-          <button class="${owned ? "" : "primary"}" ${owned ? "disabled" : ""} onclick="window.__sb.buyHiveItem('cd', '${cd.id}', '${cd.priceHive}', '${escapeJs(cd.name)}')">
-            ${owned ? "Owned ✓" : `Buy (${cd.priceHive} HIVE)`}
-          </button>
+          <button class="primary" ${owned ? "disabled" : ""} onclick="window.__sb.buyHiveItem('cd_${cd.id}', '${cd.name}', '${cd.priceHive}')">${owned ? "Owned ✓" : `Buy (${cd.priceHive} HIVE)`}</button>
         </div>`;
     }).join("");
 
-    const consShop = CONSUMABLES.map(c => `
-      <div class="card">
-        <div>
-          <div class="card-title">${c.name} (Have: ${state.consumableStock[c.id] || 0})</div>
-          <div class="card-meta">${c.priceHive} HIVE${c.honeyCost ? ` or ${c.honeyCost} Honey` : ""}</div>
-          <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="primary" onclick="window.__sb.buyHiveItem('cons', '${c.id}', '${c.priceHive}', '${escapeJs(c.name)}')">Buy (${c.priceHive} HIVE)</button>
-          ${c.honeyCost ? `<button onclick="window.__sb.buyVialWithHoney()">Buy (${c.honeyCost} 🍯)</button>` : ""}
-        </div>
-      </div>`).join("");
-
-    const atCap = state.lives >= MAX_LIVES;
+    const consShop = CONSUMABLES.map(c => {
+      const honeyBtn = c.honeyCost
+        ? `<button onclick="window.__sb.buyHoneyConsumable('${c.id}', '${c.name}', ${c.honeyCost})">Buy (${c.honeyCost} 🍯)</button>`
+        : "";
+      return `
+        <div class="card">
+          <div>
+            <div class="card-title">${c.name} (Stock: ${state.consumableStock[c.id] || 0})</div>
+            <div class="card-meta">${c.priceHive} HIVE${c.honeyCost ? ` or ${c.honeyCost} Honey` : ""}</div>
+            <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${honeyBtn}
+            <button class="primary" onclick="window.__sb.buyHiveItem('cons_${c.id}', '${c.name}', '${c.priceHive}')">Buy (${c.priceHive} HIVE)</button>
+          </div>
+        </div>`;
+    }).join("");
 
     return `
       <div class="notice-box">
-        <strong>HIVE Payments &amp; Guest Mode:</strong> HIVE transfers go to <strong>@${PAYMENT_RECIPIENT}</strong> via <strong>Hive Keychain</strong>. In <strong>Guest Mode</strong>, you can earn Honey in stages, buy Royal Jelly Vials with Honey, and test offline unlocks.
+        <strong>Payment Routing:</strong> Every HIVE purchase signs a Keychain <code>transfer</code> directly to <strong>@${PAYMENT_RECIPIENT}</strong> with a unique order memo. <strong>Royal Jelly Vials</strong> can also be bought in-game with <strong>Honey (🍯)</strong>, and <strong>Extra Lives</strong> (${EXTRA_LIFE_HIVE_PRICE} HIVE) can be purchased up to ${MAX_LIVES} lives.
       </div>
-      <div><strong>Extra Lives &amp; Starter Bundles (Quick Boosters)</strong></div>
-      <div class="grid-cards">
-        <div class="card promo-card">
-          <div>
-            <div class="card-title">❤️ Extra Life (+1 Life · Cap ${MAX_LIVES})</div>
-            <div class="card-meta">Current: ${state.lives}/${MAX_LIVES} Lives · ${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT}</div>
-            <div class="card-desc" style="margin-top:4px;">Adds +1 extra life immediately (up to ${MAX_LIVES} max). Also grants a full HP &amp; checkpoint recovery if used from Game Over.</div>
-          </div>
-          <button class="primary" ${atCap ? "disabled" : ""} onclick="window.__sb.buyHiveItem('extra_life', 'extra_life', '${EXTRA_LIFE_HIVE_PRICE}', 'Extra Life (+1 ❤️)')">
-            ${atCap ? `At Max (${MAX_LIVES}/${MAX_LIVES}) ✓` : `Buy +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)`}
-          </button>
-        </div>
-        ${bundleCards}
-      </div>
-      <div><strong>Exclusive HIVE Shop Suits</strong></div>
+      <div><strong>Extra Lives &amp; Starter Bundles</strong></div>
+      <div class="grid-cards">${lifeCard}${bundleCards}</div>
+      <div><strong>HIVE Shop Exclusive Suits</strong></div>
       <div class="grid-cards">${shopSuits}</div>
-      <div><strong>Cooldown Power-Ups</strong></div>
+      <div><strong>Special Cooldown Power-Ups</strong></div>
       <div class="grid-cards">${cdShop}</div>
-      <div><strong>Consumables</strong></div>
+      <div><strong>Consumables (Refillable)</strong></div>
       <div class="grid-cards">${consShop}</div>`;
   }
 
   function renderGameOverModal() {
-    const atCap = state.lives >= MAX_LIVES;
-    const spotlightSuits = SUITS.filter(s => s.unlock === "shop").map(su => {
-      const owned = state.unlockedSuits.includes(su.id);
-      return `
-        <div class="card ${owned ? "selected" : "promo-card"}">
-          <div>
-            <div class="card-title">${su.name}</div>
-            <div class="card-meta">HP ${su.maxHp} · Speed ${su.speed} · ${su.priceHive} HIVE</div>
-            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
-          </div>
-          <button class="${owned ? "" : "primary"}" ${owned ? "disabled" : ""} onclick="window.__sb.buyHiveItem('suit', '${su.id}', '${su.priceHive}', '${escapeJs(su.name)}')">
-            ${owned ? "Unlocked ✓" : `Unlock (${su.priceHive} HIVE)`}
-          </button>
-        </div>`;
-    }).join("");
-
-    const spotlightBundles = STARTER_BUNDLES.slice(0, 2).map(b => `
-      <div class="card promo-card">
-        <div>
-          <div class="card-title">🎁 ${b.name}</div>
-          <div class="card-meta">${b.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div>
-          <div class="card-desc" style="margin-top:4px;">${b.desc}</div>
-        </div>
-        <button class="primary" onclick="window.__sb.buyHiveItem('bundle', '${b.id}', '${b.priceHive}', '${escapeJs(b.name)}')">
-          Buy Bundle (${b.priceHive} HIVE)
-        </button>
-      </div>`).join("");
+    const suitOption = SUITS.find(s => s.id === "comb_guard") || SUITS[0];
+    const cdOption = COOLDOWN_POWERUPS.find(c => c.id === "stinger_volley") || COOLDOWN_POWERUPS[0];
+    const bundleOption = STARTER_BUNDLES[3];
 
     return `
       <div class="warn-box">
-        <strong>All Lives Lost (${state.lives}/${MAX_LIVES}):</strong> Buy an <strong>Extra Life (+1 ❤️ for ${EXTRA_LIFE_HIVE_PRICE} HIVE)</strong> or grab a power-up / suit below to continue right from your checkpoint, or restart from Stage 1 with ${STARTING_LIVES} fresh lives.
+        <strong>Out of Lives!</strong> Beatrice ran out of ❤️ lives on <strong>${escapeHtml(world.stage.worldTitle)}</strong> (Stage ${world.stage.id}).
+      </div>
+      <div class="notice-box">
+        <strong>Hive Shop Life Offer:</strong> Top up with <strong>+1 Extra Life (${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT})</strong> up to ${MAX_LIVES} lives, or restart from <strong>Stage 1</strong> with <strong>${STARTING_LIVES} fresh lives</strong>.
       </div>
       <div class="grid-cards">
         <div class="card promo-card">
           <div>
-            <div class="card-title">❤️ Emergency Extra Life (+1 ❤️)</div>
-            <div class="card-meta">${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT} · Resumes at checkpoint</div>
-            <div class="card-desc" style="margin-top:4px;">Adds +1 life (up to ${MAX_LIVES}) and restores Beatrice's HP &amp; shield at your current checkpoint.</div>
+            <div class="card-title">❤️ Buy +1 Extra Life</div>
+            <div class="card-meta">${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT}</div>
+            <div class="card-desc" style="margin-top:4px;">Adds +1 life immediately so Beatrice can keep fighting right away.</div>
           </div>
-          <button class="primary" ${atCap ? "disabled" : ""} onclick="window.__sb.buyHiveItem('extra_life', 'extra_life', '${EXTRA_LIFE_HIVE_PRICE}', 'Extra Life (+1 ❤️)')">
-            ${atCap ? "Max Lives Reached" : `Buy +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)`}
+          <button class="primary" onclick="window.__sb.buyHiveItem('life_extra', 'Extra Life (+1)', '${EXTRA_LIFE_HIVE_PRICE}')">Buy +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
+        </div>
+        <div class="card">
+          <div>
+            <div class="card-title">🛡️ ${suitOption.name}</div>
+            <div class="card-meta">${suitOption.priceHive} HIVE · HP ${suitOption.maxHp}</div>
+            <div class="card-desc" style="margin-top:4px;">${suitOption.desc}</div>
+          </div>
+          <button class="primary" ${state.unlockedSuits.includes(suitOption.id) ? "disabled" : ""} onclick="window.__sb.buyHiveItem('suit_${suitOption.id}', '${suitOption.name}', '${suitOption.priceHive}')">
+            ${state.unlockedSuits.includes(suitOption.id) ? "Owned ✓" : `Buy (${suitOption.priceHive} HIVE)`}
           </button>
         </div>
-        ${spotlightBundles}
-        ${spotlightSuits}
+        <div class="card">
+          <div>
+            <div class="card-title">⚡ ${cdOption.name} (${cdOption.cd}s CD)</div>
+            <div class="card-meta">${cdOption.priceHive} HIVE · ${cdOption.cat}</div>
+            <div class="card-desc" style="margin-top:4px;">${cdOption.desc}</div>
+          </div>
+          <button class="primary" ${state.ownedCooldowns.includes(cdOption.id) ? "disabled" : ""} onclick="window.__sb.buyHiveItem('cd_${cdOption.id}', '${cdOption.name}', '${cdOption.priceHive}')">
+            ${state.ownedCooldowns.includes(cdOption.id) ? "Owned ✓" : `Buy (${cdOption.priceHive} HIVE)`}
+          </button>
+        </div>
+        <div class="card promo-card">
+          <div>
+            <div class="card-title">🎁 ${bundleOption.name}</div>
+            <div class="card-meta">${bundleOption.priceHive} HIVE Bundle</div>
+            <div class="card-desc" style="margin-top:4px;">${bundleOption.desc}</div>
+          </div>
+          <button class="primary" onclick="window.__sb.buyHiveItem('${bundleOption.id}', '${bundleOption.name}', '${bundleOption.priceHive}')">Buy Bundle (${bundleOption.priceHive} HIVE)</button>
+        </div>
       </div>
-      <div class="prestage-bar">
-        <button onclick="openModal('shop')">🛒 Open Full HIVE Shop</button>
-        <button class="primary" onclick="closeModal(); window.__sb.selectStage(1, true);">↺ Restart Stage 1 (${STARTING_LIVES} Lives)</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+        <button onclick="openModal('shop')">Open Full HIVE Shop</button>
+        <button class="primary" onclick="closeModal(); buildStage(1, true, true);">↺ Restart Stage 1 (${STARTING_LIVES} Lives)</button>
       </div>`;
   }
 
   function renderSquadModal() {
-    const stakeNum = Number(state.stakedElixir || 0);
-    const eligible = isVipTester() || (!state.isGuest && stakeNum >= 100);
-    const squadList = state.knownSquadmates.map(member => {
-      const active = state.selectedSquad.includes(member);
-      return `
-        <div class="card ${active ? "selected" : ""}">
-          <div>
-            <div class="card-title">@${escapeHtml(member)}</div>
-            <div class="card-meta">Hive Companion Roster</div>
-          </div>
-          <button class="${active ? "primary" : ""}" onclick="window.__sb.toggleSquadMember('${escapeJs(member)}')">
-            ${active ? "In Squad ✓" : "Add to Squad"}
-          </button>
-        </div>`;
-    }).join("");
+    const stake = Number(state.stakedElixir || 0);
+    const eligible = isVipTester() || stake >= 100;
+    const squadList = state.knownSquadmates.map(acc => {
+      const picked = state.selectedSquad.includes(acc);
+      return `<button class="${picked ? "primary" : ""}" onclick="window.__sb.toggleSquadmate('${acc}')">@${acc} ${picked ? "✓" : ""}</button>`;
+    }).join(" ");
 
     return `
       <div class="notice-box">
-        <strong>@nectarbytes Summon Requirement:</strong> Requires Hive Keychain login + <strong>100+ staked ELIXIR</strong> on Hive Engine. Once active, press <b>[R]</b> (or tap <b>SUM</b>) once per stage to summon <strong>@nectarbytes</strong> for <strong>20 seconds</strong> with twin tracer shots, two-sword top-spin slashes, and mega beam blasts on bosses.
+        <strong>@nectarbytes Summon Requirement:</strong> Stake at least <strong>100 ELIXIR</strong> on Hive Engine to summon <strong>@nectarbytes</strong> once per stage for <strong>20 seconds</strong> of dual-blade + blaster support.<br/>
+        <strong>Current Staked ELIXIR:</strong> ${stake} ELIXIR (${eligible ? "Eligible ✓" : "Need 100+ ELIXIR"})
       </div>
-      <div class="card">
-        <div class="card-title">Summon Status: ${eligible ? "ELIGIBLE (100+ Staked ELIXIR) ✓" : `Locked (${stakeNum}/100 Staked ELIXIR)`}</div>
-        <div class="card-desc">Account: ${state.isGuest ? "Guest Mode" : `@${escapeHtml(state.username)}`} · Stage Summon Used: ${world.player.stageSummonUsed ? "Yes" : "No"}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
-          <button onclick="window.__sb.refreshElixirStake()">🔄 Refresh ELIXIR Stake</button>
-          <button class="primary" onclick="closeModal(); window.__sb.summonNectarbytes();">⚡ Summon @nectarbytes Now [R]</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="primary" ${(!eligible || world.player.stageSummonUsed) ? "disabled" : ""} onclick="closeModal(); summonNectarbytes();">
+          ${world.player.stageSummonUsed ? "@nectarbytes Already Used This Stage" : "⚡ Summon @nectarbytes Now (20s)"}
+        </button>
+        <button onclick="window.__sb.refreshElixirStake()">🔄 Refresh ELIXIR Stake</button>
+      </div>
+      <div>
+        <strong>Add @username Squadmate (Saved Locally)</strong>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <input type="text" id="input-squad-user" placeholder="Enter Hive @username (e.g. alicebee)" />
+          <button onclick="window.__sb.addSquadmate()">Add</button>
         </div>
-      </div>
-      <div><strong>Add @username Squadmate</strong></div>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="input-squad-user" placeholder="Enter Hive @username (e.g. nectarbytes)" />
-        <button class="primary" onclick="window.__sb.addSquadMember()">Add</button>
-      </div>
-      <div class="grid-cards">${squadList}</div>`;
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">${squadList}</div>
+      </div>`;
   }
 
   function renderSnapsModal() {
     const items = state.snapsFeed.map(item => `
       <div class="feed-item">
-        <span class="feed-author">@${escapeHtml(item.author)}</span>
-        <span class="card-meta"> · ${escapeHtml(item.time)}</span>
-        <div style="margin-top:4px;">${escapeHtml(item.text)}</div>
+        <span class="feed-author">@${escapeHtml(item.author)}</span>: ${escapeHtml(item.text)}
+        <div class="card-meta">${escapeHtml(item.time)}</div>
       </div>`).join("");
 
     return `
       <div class="notice-box">
-        <strong>Hive Snaps Feed:</strong> Post quick updates or milestones here. When logged in with <strong>Hive Keychain</strong>, you can also publish a real Hive Snap / post to the Hive blockchain!
+        <strong>Hive Snaps:</strong> Post quick updates in-game anytime, or broadcast a milestone to Hive via Keychain when logged in with an account.
       </div>
       <div style="display:flex;gap:8px;">
-        <input type="text" id="input-snap-text" placeholder="Share a Hive Snap or stage milestone..." />
+        <input type="text" id="input-snap-text" maxlength="240" placeholder="Share a Hive Snap or stage update..." />
         <button class="primary" onclick="window.__sb.postSnap()">Post Snap</button>
       </div>
       <div class="feed-list">${items}</div>`;
@@ -5076,47 +5112,54 @@
   function renderKeychainModal() {
     return `
       <div class="notice-box">
-        <strong>New to Hive?</strong> You can play right away in <strong>Guest Mode</strong> with local save. To use <strong>@${PAYMENT_RECIPIENT}</strong> HIVE purchases and <strong>@nectarbytes</strong> ELIXIR summon, install <a href="https://hive-keychain.com" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;font-weight:700;">Hive Keychain</a> and create a free account via <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;font-weight:700;">Ecency</a>.
+        <strong>Hive Keychain + Free Account Onboarding:</strong><br/>
+        • Need Hive Keychain? Get <a href="https://hive-keychain.com" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;">Hive Keychain</a>.<br/>
+        • Need a free Hive account? Sign up via <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;">Ecency</a>.<br/>
+        • Guest Mode plays offline with local save; Keychain login unlocks HIVE payments and @nectarbytes ELIXIR summon verification.
       </div>
-      <div><strong>Connect with Hive Keychain (@username)</strong></div>
+      <div>
+        <strong>Login with Hive Keychain (@username)</strong>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <input type="text" id="input-hive-user" value="${escapeHtml(state.username || "")}" placeholder="Enter Hive username without @" />
+          <button class="primary" onclick="window.__sb.loginKeychain()">Connect Keychain</button>
+          <button onclick="window.__sb.switchToGuest()">Guest Mode</button>
+        </div>
+      </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <input type="text" id="input-hive-username" value="${escapeHtml(state.username || "")}" placeholder="Enter Hive username (without @)" style="flex:1;min-width:180px;" />
-        <button class="primary" onclick="window.__sb.keychainLogin()">🔑 Sign In with Keychain</button>
-        ${!state.isGuest ? `<button onclick="window.__sb.switchToGuest()">Switch to Guest</button>` : ""}
-      </div>
-      <div class="prestage-bar">
-        <button onclick="window.__sb.exportSave()">📋 Export Save JSON</button>
+        <button onclick="window.__sb.exportSave()">📋 Copy Save JSON</button>
         <button class="danger" onclick="window.__sb.resetSave()">🗑️ Reset Local Save</button>
       </div>`;
   }
 
-  function keychainLogin() {
-    const inp = document.getElementById("input-hive-username");
-    const raw = (inp ? inp.value : state.username || "").trim().replace(/^@+/, "").toLowerCase();
+  function escapeHtml(str) {
+    return String(str || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
+
+  function hasKeychain() {
+    return typeof window.hive_keychain !== "undefined" && Boolean(window.hive_keychain);
+  }
+
+  function loginKeychain() {
+    const raw = (document.getElementById("input-hive-user")?.value || "").trim().toLowerCase().replace(/^@/, "");
     if (!raw) {
-      showToast("Please enter a Hive username first.");
+      showToast("Enter a Hive username first.");
       return;
     }
-    if (!window.hive_keychain) {
-      state.username = raw;
-      state.isGuest = false;
-      applyVipTesterPerks();
-      saveState(`Profile set to @${raw} (Keychain extension not detected in browser)`);
-      refreshElixirStake();
-      renderModalContent(activeModalTab);
+    if (!hasKeychain()) {
+      showToast("Hive Keychain extension not detected — staying in Guest Mode.");
       return;
     }
-    const memo = `${GAME_NAME} Keychain login for @${raw} (${Date.now()})`;
-    window.hive_keychain.requestSignBuffer(raw, memo, "Posting", (res) => {
-      if (res && res.success) {
+    const challenge = `${GAME_NAME} login:${raw}:${Date.now()}`;
+    window.hive_keychain.requestSignBuffer(raw, challenge, "Posting", (resp) => {
+      if (resp && resp.success) {
         state.username = raw;
         state.isGuest = false;
         applyVipTesterPerks();
-        saveState(`Signed in via Hive Keychain as @${raw}!`);
+        saveState(`Connected as @${raw} via Hive Keychain!`);
         refreshElixirStake();
-        renderModalContent(activeModalTab);
+        if (activeModalTab) renderModalContent(activeModalTab);
       } else {
-        showToast(res?.message || "Keychain signature cancelled.");
+        showToast(resp?.message || "Keychain signature cancelled.");
       }
     });
   }
@@ -5126,242 +5169,257 @@
       openModal("keychain");
       return;
     }
-    if (window.hive_keychain) {
-      const suggested = (state.username || "").trim().replace(/^@+/, "").toLowerCase();
-      if (suggested) {
-        const memo = `${GAME_NAME} Keychain login for @${suggested} (${Date.now()})`;
-        window.hive_keychain.requestSignBuffer(suggested, memo, "Posting", (res) => {
-          if (res && res.success) {
-            state.username = suggested;
-            state.isGuest = false;
-            applyVipTesterPerks();
-            saveState(`Signed in via Hive Keychain as @${suggested}!`);
-            refreshElixirStake();
-          } else {
-            openModal("keychain");
-          }
-        });
-        return;
-      }
+    if (!hasKeychain()) {
+      showToast("Hive Keychain not detected — opening setup & Guest Mode options.");
+      openModal("keychain");
+      return;
     }
-    openModal("keychain");
+    const suggested = (document.getElementById("input-hive-user")?.value || state.username || "").trim().toLowerCase().replace(/^@/, "");
+    if (!suggested) {
+      openModal("keychain");
+      return;
+    }
+    const challenge = `${GAME_NAME} login:${suggested}:${Date.now()}`;
+    window.hive_keychain.requestSignBuffer(suggested, challenge, "Posting", (resp) => {
+      if (resp && resp.success) {
+        state.username = suggested;
+        state.isGuest = false;
+        applyVipTesterPerks();
+        saveState(`Connected as @${suggested} via Hive Keychain!`);
+        refreshElixirStake();
+        if (activeModalTab) renderModalContent(activeModalTab);
+      } else {
+        openModal("keychain");
+      }
+    });
   }
 
   function switchToGuest() {
     state.isGuest = true;
-    saveState("Switched to Guest Mode (local save active)");
-    renderModalContent(activeModalTab);
+    saveState("Switched to Guest Mode (local save active).");
+    if (activeModalTab) renderModalContent(activeModalTab);
   }
 
-  function grantPurchasedItem(category, itemId, label) {
-    if (category === "extra_life") {
-      if (state.lives >= MAX_LIVES) {
-        showToast(`Lives already at maximum (${MAX_LIVES}/${MAX_LIVES})!`);
-        return;
-      }
-      addLives(1, `Purchased ${label}`);
-      if (world.player.hp <= 0) {
+  function grantPurchase(sku, label) {
+    if (sku === "life_extra") {
+      const gained = addLives(1, `Purchased ${label}`);
+      if (gained === 0) return;
+      if (world.player.hp <= 0 && state.lives > 0) {
         resumeBeatriceFromCheckpoint();
-        if (activeModalTab === "gameover") {
-          closeModal();
-          saveState("Extra life activated — back in action!");
-          return;
-        }
+        if (activeModalTab === "gameover") closeModal();
       }
-      saveState();
-    } else if (category === "suit") {
-      if (!state.unlockedSuits.includes(itemId)) state.unlockedSuits.push(itemId);
-      state.equippedSuit = itemId;
-      const su = getSuit(itemId);
+    } else if (sku.startsWith("suit_")) {
+      const id = sku.replace("suit_", "");
+      if (!state.unlockedSuits.includes(id)) state.unlockedSuits.push(id);
+      state.equippedSuit = id;
+      const su = getSuit(id);
       world.player.maxHp = su.maxHp;
       world.player.hp = su.maxHp;
-      saveState(`Unlocked & equipped ${su.name}!`);
-    } else if (category === "cd") {
-      if (!state.ownedCooldowns.includes(itemId)) state.ownedCooldowns.push(itemId);
-      if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = itemId;
-      else if (!state.equippedCooldowns[1] && state.equippedCooldowns[0] !== itemId) state.equippedCooldowns[1] = itemId;
-      saveState(`Unlocked ${label}!`);
-    } else if (category === "cons") {
-      state.consumableStock[itemId] = (state.consumableStock[itemId] || 0) + 1;
-      saveState(`Received +1 ${label}!`);
-    } else if (category === "bundle") {
-      const b = STARTER_BUNDLES.find(x => x.id === itemId);
-      if (b) {
-        if (b.cdGrant && !state.ownedCooldowns.includes(b.cdGrant)) {
-          state.ownedCooldowns.push(b.cdGrant);
-          if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = b.cdGrant;
-          else if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = b.cdGrant;
-        }
-        for (const [k, v] of Object.entries(b.consumables || {})) {
-          state.consumableStock[k] = (state.consumableStock[k] || 0) + v;
-        }
-      }
-      saveState(`Bundle unlocked: ${label}!`);
-    }
-    if (activeModalTab) renderModalContent(activeModalTab);
-  }
-
-  function buyHiveItem(category, itemId, priceHive, label) {
-    if (state.isGuest || !state.username || !window.hive_keychain) {
-      grantPurchasedItem(category, itemId, label);
-      showToast("Guest / offline mode: item granted locally for testing.");
-      return;
-    }
-    const formattedAmount = Number(priceHive).toFixed(3);
-    const memo = `${GAME_NAME}|${category}|${itemId}|${state.username}|${Date.now()}`;
-    window.hive_keychain.requestTransfer(state.username, PAYMENT_RECIPIENT, formattedAmount, memo, "HIVE", (res) => {
-      if (res && res.success) {
-        grantPurchasedItem(category, itemId, label);
-      } else {
-        showToast(res?.message || "HIVE transfer cancelled.");
-      }
-    }, true);
-  }
-
-  function buyVialWithHoney() {
-    if (state.honey < VIAL_HONEY_COST) {
-      showToast(`Need ${VIAL_HONEY_COST} Honey (have ${state.honey}).`);
-      return;
-    }
-    state.honey -= VIAL_HONEY_COST;
-    state.consumableStock.royal_vial = (state.consumableStock.royal_vial || 0) + 1;
-    AudioEngine.playSfx("pickup");
-    saveState(`Bought +1 Royal Jelly Vial for ${VIAL_HONEY_COST} Honey!`);
-    if (activeModalTab) renderModalContent(activeModalTab);
-  }
-
-  function addSquadMember() {
-    const inp = document.getElementById("input-squad-user");
-    const name = (inp ? inp.value : "").trim().replace(/^@+/, "").toLowerCase();
-    if (!name) return;
-    if (!state.knownSquadmates.includes(name)) state.knownSquadmates.push(name);
-    if (!state.selectedSquad.includes(name)) {
-      if (state.selectedSquad.length >= 3) state.selectedSquad.shift();
-      state.selectedSquad.push(name);
-    }
-    saveState(`Added @${name} to squad!`);
-    renderModalContent("squad");
-  }
-
-  function toggleSquadMember(name) {
-    if (state.selectedSquad.includes(name)) {
-      state.selectedSquad = state.selectedSquad.filter(x => x !== name);
+    } else if (sku.startsWith("cd_")) {
+      const id = sku.replace("cd_", "");
+      if (!state.ownedCooldowns.includes(id)) state.ownedCooldowns.push(id);
+      if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = id;
+      else if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = id;
+    } else if (sku.startsWith("cons_")) {
+      const id = sku.replace("cons_", "");
+      state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
     } else {
-      if (state.selectedSquad.length >= 3) state.selectedSquad.shift();
-      state.selectedSquad.push(name);
+      const bundle = STARTER_BUNDLES.find(b => b.id === sku);
+      if (bundle) {
+        if (bundle.cdGrant && !state.ownedCooldowns.includes(bundle.cdGrant)) {
+          state.ownedCooldowns.push(bundle.cdGrant);
+          if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = bundle.cdGrant;
+          else if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = bundle.cdGrant;
+        }
+        for (const [cId, qty] of Object.entries(bundle.consumables || {})) {
+          state.consumableStock[cId] = (state.consumableStock[cId] || 0) + qty;
+        }
+      }
+    }
+    saveState(`Unlocked / added: ${label}`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function buyHiveItem(sku, label, priceHive) {
+    if (sku === "life_extra" && state.lives >= MAX_LIVES) {
+      showToast(`Lives already at max (${MAX_LIVES}/${MAX_LIVES}).`);
+      return;
+    }
+    if (state.isGuest || !state.username) {
+      showToast("Connect Hive Keychain first to pay with HIVE.");
+      openModal("keychain");
+      return;
+    }
+    if (!hasKeychain()) {
+      showToast("Hive Keychain extension required for HIVE transfers.");
+      return;
+    }
+    const orderId = `${GAME_NAME.toUpperCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const memo = `${GAME_NAME}|${sku}|order:${orderId}`;
+    window.hive_keychain.requestTransfer(state.username, PAYMENT_RECIPIENT, Number(priceHive).toFixed(3), memo, "HIVE", (resp) => {
+      if (resp && resp.success) {
+        state.redeemedOrders.push(orderId);
+        grantPurchase(sku, label);
+      } else {
+        showToast(resp?.message || "HIVE transfer cancelled.");
+      }
+    });
+  }
+
+  function buyHoneyConsumable(id, name, honeyCost) {
+    if (state.honey < honeyCost) {
+      showToast(`Need ${honeyCost} Honey (you have ${state.honey}).`);
+      return;
+    }
+    state.honey -= honeyCost;
+    state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
+    AudioEngine.playSfx("pickup");
+    saveState(`Bought +1 ${name} for ${honeyCost} Honey!`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function equipSuit(id) {
+    if (!state.unlockedSuits.includes(id)) return;
+    state.equippedSuit = id;
+    const su = getSuit(id);
+    world.player.maxHp = su.maxHp;
+    world.player.hp = Math.min(su.maxHp, Math.max(world.player.hp, Math.round(su.maxHp * 0.6)));
+    saveState(`Equipped ${su.name}`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function equipCooldown(slot, id) {
+    if (!state.ownedCooldowns.includes(id)) return;
+    state.equippedCooldowns[slot] = id;
+    saveState(`Equipped ${getCooldownDef(id)?.name} in Slot ${slot + 1}`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function toggleSuitPreview(id) {
+    if (previewSuitIds.has(id)) previewSuitIds.delete(id);
+    else previewSuitIds.add(id);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function pickPreStageSuit(id) {
+    if (!state.unlockedSuits.includes(id)) return;
+    state.equippedSuit = id;
+    const su = getSuit(id);
+    world.player.maxHp = su.maxHp;
+    world.player.hp = su.maxHp;
+    saveState(`Selected ${su.name} for stage`);
+    if (activeModalTab === "prestage") renderModalContent("prestage");
+  }
+
+  function setPreStageCd(slot, id) {
+    if (!state.ownedCooldowns.includes(id)) return;
+    state.equippedCooldowns[slot] = id;
+    saveState(`Set ${getCooldownDef(id)?.name} as Special ${slot + 1}`);
+    if (activeModalTab === "prestage") renderModalContent("prestage");
+  }
+
+  function quickHoneyBuyPreStage(id) {
+    const c = CONSUMABLES.find(x => x.id === id);
+    if (!c || !c.honeyCost) return;
+    buyHoneyConsumable(c.id, c.name, c.honeyCost);
+  }
+
+  function togglePreStagePicker(checked) {
+    state.showPreStagePicker = Boolean(checked);
+    saveState(state.showPreStagePicker ? "Pre-stage world intro & gear picker enabled." : "Pre-stage picker hidden (open anytime via Gear button).");
+  }
+
+  function maybeStartStageIntro() {
+    if (state.lives > 0 && world.stage) {
+      startCutscene(buildStageCutscene(world.stage));
+    }
+  }
+
+  function addSquadmate() {
+    const raw = (document.getElementById("input-squad-user")?.value || "").trim().toLowerCase().replace(/^@/, "");
+    if (!raw) return;
+    if (!state.knownSquadmates.includes(raw)) state.knownSquadmates.push(raw);
+    if (!state.selectedSquad.includes(raw) && state.selectedSquad.length < 3) state.selectedSquad.push(raw);
+    saveState(`Added @${raw} to squad`);
+    if (activeModalTab === "squad") renderModalContent("squad");
+  }
+
+  function toggleSquadmate(acc) {
+    if (state.selectedSquad.includes(acc)) {
+      state.selectedSquad = state.selectedSquad.filter(x => x !== acc);
+    } else if (state.selectedSquad.length < 3) {
+      state.selectedSquad.push(acc);
+    } else {
+      showToast("Up to 3 @username squadmates can be active.");
+      return;
     }
     saveState();
-    renderModalContent("squad");
+    if (activeModalTab === "squad") renderModalContent("squad");
   }
 
   function postSnap() {
     const inp = document.getElementById("input-snap-text");
-    const text = (inp ? inp.value : "").trim();
-    if (!text) return;
-    const author = (!state.isGuest && state.username) ? state.username : "guest_bee";
-    state.snapsFeed.unshift({ author, text, time: "Just now" });
+    const txt = (inp?.value || "").trim();
+    if (!txt) return;
+    const author = state.isGuest || !state.username ? "guest_bee" : state.username;
+    state.snapsFeed.unshift({ author, text: txt, time: "Just now" });
     if (inp) inp.value = "";
-    saveState("Posted to Hive Snaps feed!");
-    renderModalContent("snaps");
+    saveState("Snap posted!");
+    if (activeModalTab === "snaps") renderModalContent("snaps");
   }
 
   function exportSave() {
-    const blob = JSON.stringify(state, null, 2);
+    const payload = JSON.stringify(state, null, 2);
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(blob).then(() => showToast("Save JSON copied to clipboard!")).catch(() => showToast("Save JSON ready in console."));
+      navigator.clipboard.writeText(payload).then(() => showToast("Save JSON copied to clipboard!")).catch(() => showToast("Copy failed."));
+    } else {
+      showToast("Clipboard API unavailable in this browser.");
     }
-    console.log("Swarmbreaker Save JSON:", blob);
   }
 
   function resetSave() {
     localStorage.removeItem(STORAGE_KEY);
     state = defaultState();
-    buildStage(1, false, false);
-    showToast("Local save reset to Stage 1.");
-    renderModalContent("keychain");
-  }
-
-  function escapeHtml(str) {
-    return String(str ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-  }
-
-  function escapeJs(str) {
-    return String(str ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    saveState("Local save reset to fresh start.");
+    buildStage(1, false, true);
   }
 
   window.__sb = {
-    selectStage: (id, restoreLives = false) => buildStage(id, restoreLives, true),
-    toggleAudio: () => AudioEngine.toggle(),
-    equipSuit: (id) => {
-      if (!state.unlockedSuits.includes(id)) return;
-      state.equippedSuit = id;
-      const su = getSuit(id);
-      world.player.maxHp = su.maxHp;
-      world.player.hp = Math.min(su.maxHp, Math.max(world.player.hp, su.maxHp));
-      saveState(`Equipped ${su.name}`);
-      renderModalContent(activeModalTab);
-    },
-    equipCd: (slot, id) => {
-      if (!state.ownedCooldowns.includes(id)) return;
-      state.equippedCooldowns[slot] = id;
-      saveState(`Equipped ${getCooldownDef(id).name} in Slot ${slot + 1}`);
-      renderModalContent(activeModalTab);
-    },
-    pickPreStageSuit: (id) => {
-      if (!state.unlockedSuits.includes(id)) return;
-      state.equippedSuit = id;
-      const su = getSuit(id);
-      world.player.maxHp = su.maxHp;
-      world.player.hp = su.maxHp;
-      saveState(`Selected ${su.name}`);
-      renderModalContent("prestage");
-    },
-    toggleSuitPreview: (id) => {
-      if (previewSuitIds.has(id)) previewSuitIds.delete(id);
-      else previewSuitIds.add(id);
-      renderModalContent(activeModalTab);
-    },
-    setPreStageCd: (slot, id) => {
-      if (!state.ownedCooldowns.includes(id)) return;
-      state.equippedCooldowns[slot] = id;
-      saveState(`Set Special ${slot + 1}: ${getCooldownDef(id).name}`);
-      renderModalContent("prestage");
-    },
-    quickHoneyBuyPreStage: (id) => {
-      if (id === "royal_vial") {
-        buyVialWithHoney();
-        renderModalContent("prestage");
-      }
-    },
-    togglePreStagePicker: (checked) => {
-      state.showPreStagePicker = Boolean(checked);
-      saveState();
-    },
-    maybeStartStageIntro: () => {
-      if (state.lives > 0 && world.stage) {
-        startCutscene(buildStageCutscene(world.stage));
-      }
-    },
-    advanceCutscene,
-    skipCutscene: finishCutscene,
-    useConsumable,
-    buyVialWithHoney,
-    buyHiveItem,
-    summonNectarbytes,
-    refreshElixirStake,
-    addSquadMember,
-    toggleSquadMember,
-    postSnap,
-    keychainLogin,
+    toggleAudio: AudioEngine.toggle,
     quickKeychainLogin,
+    loginKeychain,
     switchToGuest,
+    buyHiveItem,
+    buyHoneyConsumable,
+    equipSuit,
+    equipCooldown,
+    toggleSuitPreview,
+    pickPreStageSuit,
+    setPreStageCd,
+    quickHoneyBuyPreStage,
+    togglePreStagePicker,
+    maybeStartStageIntro,
+    useConsFromUi: (id) => { closeModal(); useConsumable(id); },
+    refreshElixirStake,
+    addSquadmate,
+    toggleSquadmate,
+    postSnap,
     exportSave,
-    resetSave
+    resetSave,
+    advanceCutscene,
+    skipCutscene: finishCutscene
   };
+  window.openModal = openModal;
+  window.closeModal = closeModal;
+  window.togglePause = togglePause;
+  window.buildStage = buildStage;
 
-  buildStage(state.currentStageId || 1, false, false);
-  updateHud();
   AudioEngine.updateAudioBtn();
+  if (!state.isGuest && state.username) {
+    applyVipTesterPerks();
+    refreshElixirStake();
+  }
+  buildStage(state.currentStageId || 1, false, Boolean(state.showPreStagePicker));
   requestAnimationFrame(loop);
 })();
 </script>
