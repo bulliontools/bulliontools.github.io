@@ -1505,7 +1505,7 @@
       if (!Number.isFinite(parsed.lives)) parsed.lives = STARTING_LIVES;
       parsed.lives = Math.max(0, Math.min(MAX_LIVES, Math.floor(parsed.lives)));
       if (!Number.isFinite(parsed.difficultyTier)) parsed.difficultyTier = 1;
-      parsed.difficultyTier = Math.max(1, Math.floor(parsed.difficultyTier));
+      parsed.difficultyTier = Math.max(1, Math.floor(Number(parsed.difficultyTier) || 1));
       if (!Array.isArray(parsed.bonusLifeAwardedStages)) parsed.bonusLifeAwardedStages = [];
       return parsed;
     } catch {
@@ -2083,7 +2083,7 @@
     camX: 0,
     shakeTimer: 0,
     shakeMag: 0,
-    worldWidth: 2560,
+    worldWidth: 5120,
     stage: STAGES[0],
     player: {
       x: 90, y: 460, w: 46, h: 46, vx: 0, vy: 0, facing: 1, onGround: false,
@@ -2110,7 +2110,7 @@
     traps: [],
     breakables: [],
     barriers: [],
-    goal: { x: 2420, y: FLOOR_Y - 64, w: 58, h: 64, type: "princess", locked: false, opened: false },
+    goal: { x: 4985, y: FLOOR_Y - 64, w: 58, h: 64, type: "princess", locked: false, opened: false },
     boss: null,
     stageCleared: false
   };
@@ -2235,55 +2235,88 @@
     return { vx: dir * 520, vy: -245, grav, target: null };
   }
 
+  function findGroundSegmentAt(x, w = 44) {
+    const segs = world.groundSegments || [];
+    for (const seg of segs) {
+      if (x >= seg.x && x + w <= seg.x + seg.w) {
+        return seg;
+      }
+    }
+    return null;
+  }
+
+  function getSafeCrawlerBounds(seg, entityW = 44) {
+    const pad = Math.max(24, entityW + 14);
+    const minX = seg.x + pad;
+    const maxX = seg.x + seg.w - entityW - pad;
+    if (maxX <= minX) {
+      const centerX = seg.x + Math.max(8, (seg.w - entityW) * 0.5);
+      return { minX: centerX, maxX: centerX };
+    }
+    return { minX, maxX };
+  }
+
   function generateStageLayout(st) {
     const layoutVariant = st.id % 4;
-    const worldWidth = 2560;
+    const worldWidth = 5120;
 
     const groundSegments = layoutVariant === 0 ? [
-      { x: 0, y: FLOOR_Y, w: 690, h: 180, kind: "ground" },
-      { x: 795, y: FLOOR_Y, w: 650, h: 180, kind: "ground" },
-      { x: 1555, y: FLOOR_Y, w: 1005, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 1120, h: 180, kind: "ground" },
+      { x: 1230, y: FLOOR_Y, w: 1080, h: 180, kind: "ground" },
+      { x: 2420, y: FLOOR_Y, w: 1140, h: 180, kind: "ground" },
+      { x: 3670, y: FLOOR_Y, w: 1450, h: 180, kind: "ground" }
     ] : layoutVariant === 1 ? [
-      { x: 0, y: FLOOR_Y, w: 610, h: 180, kind: "ground" },
-      { x: 715, y: FLOOR_Y, w: 575, h: 180, kind: "ground" },
-      { x: 1395, y: FLOOR_Y, w: 495, h: 180, kind: "ground" },
-      { x: 1995, y: FLOOR_Y, w: 565, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 1040, h: 180, kind: "ground" },
+      { x: 1150, y: FLOOR_Y, w: 980, h: 180, kind: "ground" },
+      { x: 2240, y: FLOOR_Y, w: 960, h: 180, kind: "ground" },
+      { x: 3310, y: FLOOR_Y, w: 820, h: 180, kind: "ground" },
+      { x: 4240, y: FLOOR_Y, w: 880, h: 180, kind: "ground" }
     ] : layoutVariant === 2 ? [
-      { x: 0, y: FLOOR_Y, w: 745, h: 180, kind: "ground" },
-      { x: 855, y: FLOOR_Y, w: 710, h: 180, kind: "ground" },
-      { x: 1675, y: FLOOR_Y, w: 885, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 1220, h: 180, kind: "ground" },
+      { x: 1335, y: FLOOR_Y, w: 1160, h: 180, kind: "ground" },
+      { x: 2610, y: FLOOR_Y, w: 1120, h: 180, kind: "ground" },
+      { x: 3840, y: FLOOR_Y, w: 1280, h: 180, kind: "ground" }
     ] : [
-      { x: 0, y: FLOOR_Y, w: 575, h: 180, kind: "ground" },
-      { x: 680, y: FLOOR_Y, w: 675, h: 180, kind: "ground" },
-      { x: 1465, y: FLOOR_Y, w: 1095, h: 180, kind: "ground" }
+      { x: 0, y: FLOOR_Y, w: 990, h: 180, kind: "ground" },
+      { x: 1100, y: FLOOR_Y, w: 1140, h: 180, kind: "ground" },
+      { x: 2350, y: FLOOR_Y, w: 1120, h: 180, kind: "ground" },
+      { x: 3580, y: FLOOR_Y, w: 1540, h: 180, kind: "ground" }
     ];
 
     const elevatedLedges = layoutVariant === 0 ? [
-      { x: 225, y: 490, w: 195, h: 22, kind: "ledge" },
-      { x: 445, y: 420, w: 195, h: 22, kind: "ledge" },
-      { x: 845, y: 488, w: 200, h: 22, kind: "ledge" },
-      { x: 1080, y: 416, w: 200, h: 22, kind: "ledge" },
-      { x: 1615, y: 486, w: 205, h: 22, kind: "ledge" },
-      { x: 1855, y: 414, w: 205, h: 22, kind: "ledge" }
+      { x: 340, y: 490, w: 205, h: 22, kind: "ledge" },
+      { x: 640, y: 420, w: 205, h: 22, kind: "ledge" },
+      { x: 1320, y: 488, w: 205, h: 22, kind: "ledge" },
+      { x: 1660, y: 416, w: 205, h: 22, kind: "ledge" },
+      { x: 2540, y: 486, w: 210, h: 22, kind: "ledge" },
+      { x: 2910, y: 414, w: 210, h: 22, kind: "ledge" },
+      { x: 3780, y: 488, w: 210, h: 22, kind: "ledge" },
+      { x: 4160, y: 418, w: 210, h: 22, kind: "ledge" }
     ] : layoutVariant === 1 ? [
-      { x: 195, y: 492, w: 190, h: 22, kind: "ledge" },
-      { x: 405, y: 422, w: 185, h: 22, kind: "ledge" },
-      { x: 775, y: 488, w: 195, h: 22, kind: "ledge" },
-      { x: 1005, y: 416, w: 195, h: 22, kind: "ledge" },
-      { x: 1465, y: 488, w: 195, h: 22, kind: "ledge" },
-      { x: 2060, y: 486, w: 205, h: 22, kind: "ledge" }
+      { x: 300, y: 492, w: 195, h: 22, kind: "ledge" },
+      { x: 590, y: 422, w: 195, h: 22, kind: "ledge" },
+      { x: 1240, y: 488, w: 200, h: 22, kind: "ledge" },
+      { x: 1580, y: 416, w: 200, h: 22, kind: "ledge" },
+      { x: 2350, y: 488, w: 200, h: 22, kind: "ledge" },
+      { x: 2710, y: 418, w: 200, h: 22, kind: "ledge" },
+      { x: 3420, y: 486, w: 205, h: 22, kind: "ledge" },
+      { x: 4340, y: 486, w: 210, h: 22, kind: "ledge" }
     ] : layoutVariant === 2 ? [
-      { x: 245, y: 488, w: 200, h: 22, kind: "ledge" },
-      { x: 480, y: 416, w: 200, h: 22, kind: "ledge" },
-      { x: 920, y: 490, w: 200, h: 22, kind: "ledge" },
-      { x: 1155, y: 418, w: 200, h: 22, kind: "ledge" },
-      { x: 1745, y: 486, w: 210, h: 22, kind: "ledge" }
+      { x: 360, y: 488, w: 205, h: 22, kind: "ledge" },
+      { x: 720, y: 416, w: 205, h: 22, kind: "ledge" },
+      { x: 1450, y: 490, w: 205, h: 22, kind: "ledge" },
+      { x: 1820, y: 418, w: 205, h: 22, kind: "ledge" },
+      { x: 2740, y: 486, w: 210, h: 22, kind: "ledge" },
+      { x: 3120, y: 416, w: 210, h: 22, kind: "ledge" },
+      { x: 3960, y: 486, w: 210, h: 22, kind: "ledge" }
     ] : [
-      { x: 205, y: 490, w: 195, h: 22, kind: "ledge" },
-      { x: 735, y: 488, w: 200, h: 22, kind: "ledge" },
-      { x: 970, y: 416, w: 200, h: 22, kind: "ledge" },
-      { x: 1530, y: 488, w: 205, h: 22, kind: "ledge" },
-      { x: 1775, y: 416, w: 205, h: 22, kind: "ledge" }
+      { x: 310, y: 490, w: 200, h: 22, kind: "ledge" },
+      { x: 1210, y: 488, w: 205, h: 22, kind: "ledge" },
+      { x: 1580, y: 416, w: 205, h: 22, kind: "ledge" },
+      { x: 2470, y: 488, w: 205, h: 22, kind: "ledge" },
+      { x: 2850, y: 416, w: 205, h: 22, kind: "ledge" },
+      { x: 3690, y: 488, w: 210, h: 22, kind: "ledge" },
+      { x: 4080, y: 416, w: 210, h: 22, kind: "ledge" }
     ];
 
     const platforms = [...groundSegments, ...elevatedLedges];
@@ -2315,14 +2348,13 @@
 
     const groundSegs = layout.groundSegments || [];
     const ledges = layout.platforms.filter(pl => pl.kind === "ledge");
-    const diffMult = (1 + (st.wing - 1) * 0.25 + (st.id % 10) * 0.03) * getDifficultyMult();
 
-    const trapCount = Math.min(4, 1 + Math.floor(st.id / 9) + (rand() > 0.4 ? 1 : 0));
+    const trapCount = Math.min(7, 2 + Math.floor(st.id / 7) + (rand() > 0.4 ? 1 : 0));
     for (let i = 0; i < trapCount; i++) {
       const seg = groundSegs[i % groundSegs.length];
-      if (!seg || seg.w < 260) continue;
-      const tx = seg.x + 135 + rand() * Math.max(40, seg.w - 235);
-      if (tx < 240 || tx > world.worldWidth - 340) continue;
+      if (!seg || seg.w < 300) continue;
+      const tx = seg.x + 150 + ((i * 197) % Math.max(80, seg.w - 260));
+      if (tx < 260 || tx > world.worldWidth - 620) continue;
 
       const kind = rand() > 0.45 ? "spike_vent" : "pulse_pad";
       world.traps.push({
@@ -2340,7 +2372,7 @@
       });
     }
 
-    const crateCount = 5;
+    const crateCount = 9;
     for (let i = 0; i < crateCount; i++) {
       const useLedge = i < ledges.length && rand() > 0.35;
       let bx, by;
@@ -2349,11 +2381,11 @@
         bx = l.x + l.w * 0.5 - 16;
         by = l.y - 32;
       } else {
-        const seg = groundSegs[i % groundSegs.length] || { x: 260, w: 400 };
-        bx = seg.x + 90 + ((i * 115) % Math.max(80, seg.w - 150));
+        const seg = groundSegs[i % groundSegs.length] || { x: 320, w: 700 };
+        bx = seg.x + 110 + ((i * 175) % Math.max(90, seg.w - 180));
         by = FLOOR_Y - 32;
       }
-      if (bx < 180 || bx > world.worldWidth - 250) continue;
+      if (bx < 190 || bx > world.worldWidth - 520) continue;
 
       world.breakables.push({
         id: `crate_${st.id}_${i}`,
@@ -2367,11 +2399,14 @@
       });
     }
 
-    const midSeg = groundSegs[Math.min(1, groundSegs.length - 1)] || groundSegs[0];
-    if (midSeg) {
-      const barrierX = Math.min(world.worldWidth - 650, midSeg.x + Math.round(midSeg.w * 0.68));
+    const midSeg = groundSegs[Math.floor(groundSegs.length * 0.5)] || groundSegs[0];
+    if (midSeg && midSeg.w >= 340) {
+      const barrierX = Math.min(world.worldWidth - 950, midSeg.x + Math.round(midSeg.w * 0.55));
       const wardId = `ward_${st.id}_1`;
       const wardHp = Math.round((52 + st.wing * 18) * (1 + (st.id % 10) * 0.04) * getDifficultyMult());
+      const wardW = 46;
+      const wardBounds = getSafeCrawlerBounds(midSeg, wardW);
+      const wardStartX = Math.max(wardBounds.minX, Math.min(wardBounds.maxX, barrierX + 95));
 
       world.barriers.push({
         id: `barrier_${st.id}_1`,
@@ -2388,12 +2423,12 @@
         id: wardId,
         isBarrierWard: true,
         name: "Swarm Ward",
-        x: barrierX + 95,
+        x: wardStartX,
         y: FLOOR_Y - 50,
         baseY: FLOOR_Y - 50,
-        minX: Math.max(midSeg.x + 40, barrierX + 45),
-        maxX: Math.min(midSeg.x + midSeg.w - 50, barrierX + 205),
-        w: 46,
+        minX: wardBounds.minX,
+        maxX: wardBounds.maxX,
+        w: wardW,
         h: 46,
         vx: (65 + st.wing * 8) * (1 + (state.difficultyTier - 1) * 0.14),
         vy: 0,
@@ -2444,6 +2479,7 @@
 
     const layout = generateStageLayout(st);
     world.worldWidth = layout.worldWidth;
+    world.groundSegments = layout.groundSegments;
     world.platforms = layout.platforms;
     world.pits = layout.pits;
     world.camX = 0;
@@ -2467,16 +2503,29 @@
 
     const diffMult = (1 + (st.wing - 1) * 0.25 + (st.id % 10) * 0.03) * getDifficultyMult();
     const speedScale = 1 + (Math.max(1, state.difficultyTier || 1) - 1) * 0.14;
-    const enemyCount = st.climax === "princess" ? 7 + Math.min(4, st.wing) : 5;
+    const enemyCount = st.climax === "princess" ? 13 + Math.min(5, st.wing) : 10;
     world.enemies = [];
 
     for (let i = 0; i < enemyCount; i++) {
       const kind = PEST_KINDS[(st.id + i) % PEST_KINDS.length];
+      const isCrawler = CRAWLER_KINDS.has(kind);
       const isFlyer = FLYER_KINDS.has(kind);
       const canShoot = STINGER_RANGED_KINDS.has(kind);
-      const minX = 300 + i * 175;
-      const maxX = Math.min(world.worldWidth - 360, minX + 260);
-      const startX = Math.min(world.worldWidth - 380, 340 + i * 170);
+      const seg = layout.groundSegments[i % layout.groundSegments.length] || layout.groundSegments[0];
+      const ew = 44;
+
+      let minX, maxX, startX;
+      if (isCrawler && seg) {
+        const bounds = getSafeCrawlerBounds(seg, ew);
+        minX = bounds.minX;
+        maxX = bounds.maxX;
+        const frac = enemyCount > 1 ? i / (enemyCount - 1) : 0.5;
+        startX = minX + (maxX - minX) * frac;
+      } else {
+        minX = 420 + i * 310;
+        maxX = Math.min(world.worldWidth - 620, minX + 360);
+        startX = Math.min(world.worldWidth - 660, 480 + i * 310);
+      }
       const baseY = isFlyer ? (345 + ((i * 29) % 75)) : (FLOOR_Y - 42);
 
       world.enemies.push({
@@ -2486,7 +2535,7 @@
         baseY,
         minX,
         maxX,
-        w: 44,
+        w: ew,
         h: 42,
         vx: (i % 2 === 0 ? 1 : -1) * (isFlyer ? (95 + st.wing * 14) : (78 + st.wing * 12)) * speedScale,
         vy: 0,
@@ -2500,7 +2549,7 @@
         telegraphTimer: 0,
         lungeTimer: 0,
         kind,
-        isCrawler: CRAWLER_KINDS.has(kind),
+        isCrawler,
         isFlyer,
         canShoot
       });
@@ -2523,7 +2572,7 @@
       world.boss = {
         name: st.bossName,
         kind: st.bossKind,
-        x: goalX - 220,
+        x: goalX - 240,
         y: FLOOR_Y - bossSize,
         w: bossSize,
         h: bossSize,
@@ -2545,12 +2594,14 @@
     }
 
     world.pickups = [
-      { x: 310, y: 450, r: 11, val: 6 },
-      { x: 530, y: 380, r: 11, val: 6 },
-      { x: 935, y: 448, r: 11, val: 6 },
-      { x: 1170, y: 376, r: 11, val: 8 },
-      { x: 1705, y: 445, r: 11, val: 8 },
-      { x: 1950, y: 372, r: 11, val: 10 }
+      { x: 440, y: 450, r: 11, val: 6 },
+      { x: 740, y: 380, r: 11, val: 6 },
+      { x: 1420, y: 448, r: 11, val: 6 },
+      { x: 1760, y: 376, r: 11, val: 8 },
+      { x: 2640, y: 445, r: 11, val: 8 },
+      { x: 3010, y: 372, r: 11, val: 10 },
+      { x: 3880, y: 446, r: 11, val: 10 },
+      { x: 4260, y: 376, r: 11, val: 12 }
     ];
 
     if (AudioEngine.isEnabled()) {
@@ -3013,7 +3064,17 @@
       const dy = en.y + en.h / 2 - cy;
       if (Math.hypot(dx, dy) <= radius) {
         en.hp -= dmg;
-        if (knock) en.vx = (dx >= 0 ? 1 : -1) * knock;
+        if (knock) {
+          const dir = dx >= 0 ? 1 : -1;
+          en.vx = dir * knock;
+          if (en.isCrawler) {
+            const seg = findGroundSegmentAt(en.x, en.w);
+            if (seg) {
+              const bounds = getSafeCrawlerBounds(seg, en.w);
+              en.x = Math.max(bounds.minX, Math.min(bounds.maxX, en.x + dir * 12));
+            }
+          }
+        }
         if (slowDur > 0) en.slowTimer = Math.max(en.slowTimer, slowDur);
       }
     });
@@ -3491,20 +3552,40 @@
       const distToPlayer = Math.hypot((p.x + p.w / 2) - (en.x + en.w / 2), (p.y + p.h / 2) - (en.y + en.h / 2));
 
       if (en.isCrawler) {
+        const seg = findGroundSegmentAt(en.x, en.w) || (world.groundSegments || []).find(s => en.x + en.w / 2 >= s.x && en.x + en.w / 2 <= s.x + s.w);
+        const safeBounds = seg ? getSafeCrawlerBounds(seg, en.w) : { minX: en.minX, maxX: en.maxX };
+        const loX = Math.max(en.minX, safeBounds.minX);
+        const hiX = Math.min(en.maxX, safeBounds.maxX);
+
         if (en.lungeTimer > 0) {
           en.lungeTimer -= dt;
           en.x += en.vx * 1.9 * speedMul * dt;
         } else {
           en.x += en.vx * speedMul * dt;
           if (distToPlayer < 220 && en.aiTimer <= 0) {
-            en.lungeTimer = 0.35;
-            en.aiTimer = 2.0;
-            en.vx = ((p.x >= en.x) ? 1 : -1) * Math.max(95, Math.abs(en.vx));
+            const desiredDir = (p.x >= en.x) ? 1 : -1;
+            const nearLeftEdge = desiredDir < 0 && en.x <= loX + 18;
+            const nearRightEdge = desiredDir > 0 && en.x >= hiX - 18;
+            if (!nearLeftEdge && !nearRightEdge) {
+              en.lungeTimer = 0.35;
+              en.aiTimer = 2.0;
+              en.vx = desiredDir * Math.max(95, Math.abs(en.vx));
+            } else {
+              en.aiTimer = 0.65;
+            }
           }
         }
         en.y = FLOOR_Y - en.h;
-        if (en.x < en.minX) { en.x = en.minX; en.vx = Math.abs(en.vx); }
-        if (en.x > en.maxX) { en.x = en.maxX; en.vx = -Math.abs(en.vx); }
+        if (en.x <= loX) {
+          en.x = loX;
+          en.vx = Math.abs(en.vx);
+          en.lungeTimer = 0;
+        }
+        if (en.x >= hiX) {
+          en.x = hiX;
+          en.vx = -Math.abs(en.vx);
+          en.lungeTimer = 0;
+        }
       } else {
         en.x += en.vx * speedMul * dt;
         const desiredY = distToPlayer < 380 ? Math.max(250, Math.min(FLOOR_Y - 75, p.y - 45)) : en.baseY;
@@ -3562,7 +3643,7 @@
       b.y = FLOOR_Y - b.h + hoverAmp;
       b.limbPhase += dt * (b.isQueenGuard ? 9.5 : 7.5) * bMul * cadenceMul;
       b.wingPhase += dt * (b.isQueenGuard ? 26 : 20) * bMul;
-      const minBossX = world.worldWidth - 540;
+      const minBossX = world.worldWidth - 560;
       const maxBossX = world.worldWidth - 220;
       if (b.x < minBossX) { b.x = minBossX; b.vx = Math.abs(b.vx); }
       if (b.x > maxBossX) { b.x = maxBossX; b.vx = -Math.abs(b.vx); }
@@ -3662,7 +3743,17 @@
             pr.hitIds.add(en.id);
             en.hp -= pr.dmg;
             if (pr.snare) en.slowTimer = 3.0;
-            if (pr.knock) en.vx = (pr.vx >= 0 ? 1 : -1) * pr.knock;
+            if (pr.knock) {
+              const kDir = pr.vx >= 0 ? 1 : -1;
+              en.vx = kDir * pr.knock;
+              if (en.isCrawler) {
+                const seg = findGroundSegmentAt(en.x, en.w);
+                if (seg) {
+                  const bounds = getSafeCrawlerBounds(seg, en.w);
+                  en.x = Math.max(bounds.minX, Math.min(bounds.maxX, en.x + kDir * 10));
+                }
+              }
+            }
             triggerProjectileImpact(pr, pr.x, pr.y);
             if (!pr.pierce || --pr.pierce <= 0) pr.dead = true;
             break;
@@ -3866,7 +3957,7 @@
       ctx.globalAlpha = 1;
     }
 
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 36; i++) {
       const bx = i * 165 + 18 - world.camX * 0.24;
       const bh = 115 + ((i * 41) % 105);
       const by = FLOOR_Y - bh;
@@ -4512,312 +4603,311 @@
 
       const grad = ctx.createRadialGradient(-4, -4, 2, 0, 0, 22);
       grad.addColorStop(0, en.slowTimer > 0 ? "#bef264" : (en.isBarrierWard ? "#38bdf8" : "#f472b6"));
-      grad.addColorStop(1, en.slowTimer > 0 ? "#3f6212" : (en.isBarrierWard ? "#0369a1" : "#7e22ce"));
+      grad.addColorStop(1, "#4c0519");
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.ellipse(0, 0, en.w * 0.52, en.h * 0.44, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 20, 15, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "#090d16";
+      ctx.strokeStyle = "#0f172a";
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      ctx.fillStyle = "#ef4444";
+      ctx.fillStyle = "#fef08a";
       ctx.beginPath();
-      ctx.arc(12, -3, 4.5, 0, Math.PI * 2);
+      ctx.arc(10, -3, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
 
-    if (en.isBarrierWard) {
-      ctx.fillStyle = "#7dd3fc";
-      ctx.font = "bold 11px sans-serif";
-      ctx.fillText("Ward Core", en.x - 8, en.y - 40);
+    if (en.hp < en.maxHp) {
+      const bw = 38;
+      ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+      ctx.fillRect(cx - bw / 2, en.y - 12, bw, 5);
+      ctx.fillStyle = en.isBarrierWard ? "#38bdf8" : "#f43f5e";
+      ctx.fillRect(cx - bw / 2, en.y - 12, bw * Math.max(0, en.hp / en.maxHp), 5);
     }
-  }
-
-  function getBossSprite(kind) {
-    const entry = bossSprites[kind] || bossSprites.hornet;
-    return entry && entry.ready && entry.canvas ? entry : null;
   }
 
   function drawDungeonBoss(b) {
     const cx = b.x + b.w / 2;
     const cy = b.y + b.h / 2;
-    const sway = Math.sin(b.limbPhase) * (b.isQueenGuard ? 5.5 : 4.2);
-    const armSwing = Math.cos(b.limbPhase) * 0.48;
-    const legSwing = Math.sin(b.limbPhase) * 0.45;
-    const wingFlap = Math.sin(b.wingPhase) * 0.35;
     const dir = b.vx >= 0 ? 1 : -1;
-    const sprite = getBossSprite(b.kind);
-    const auraR = b.isQueenGuard ? 74 : 60;
-    const drawSize = b.isQueenGuard ? 158 : 134;
+    const legA = Math.sin(b.limbPhase) * 0.52;
+    const legB = Math.sin(b.limbPhase + Math.PI * 0.66) * 0.52;
+    const legC = Math.sin(b.limbPhase + Math.PI * 1.33) * 0.52;
+    const flap = Math.sin(b.wingPhase) * 0.45;
+    const sprite = bossSprites[b.kind] || bossSprites.hornet;
+    const auraColor = b.isQueenGuard ? "#f43f5e"
+      : b.kind === "beetle" ? "#38bdf8"
+      : b.kind === "spider" ? "#c084fc"
+      : b.kind === "moth" ? "#22d3ee"
+      : b.kind === "wyrm" ? "#f59e0b"
+      : "#fb923c";
 
-    const ringColor = b.isQueenGuard
-      ? "rgba(244, 63, 94, 0.75)"
-      : b.kind === "beetle" ? "rgba(56, 189, 248, 0.55)"
-      : b.kind === "spider" ? "rgba(192, 132, 252, 0.55)"
-      : b.kind === "moth" ? "rgba(34, 211, 238, 0.55)"
-      : b.kind === "wyrm" ? "rgba(245, 158, 11, 0.55)"
-      : b.kind === "mantis" ? "rgba(52, 211, 153, 0.5)"
-      : "rgba(249, 115, 22, 0.5)";
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(dir, 1);
 
-    ctx.strokeStyle = ringColor;
-    ctx.lineWidth = b.isQueenGuard ? 4 : 3;
+    const aura = ctx.createRadialGradient(0, 0, 14, 0, 0, b.w * 0.62);
+    aura.addColorStop(0, auraColor + "40");
+    aura.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.arc(cx, cy + sway, auraR, 0, Math.PI * 2);
-    ctx.stroke();
-
-    if (world.summon.active) {
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([7, 5]);
-      ctx.beginPath();
-      ctx.arc(cx, cy + sway, auraR + 10, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
+    ctx.arc(0, 0, b.w * 0.62, 0, Math.PI * 2);
+    ctx.fill();
 
     if (b.telegraphTimer > 0) {
-      ctx.strokeStyle = "#fef08a";
+      ctx.strokeStyle = "#fde047";
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(cx, cy + sway, auraR + 8, 0, Math.PI * 2);
+      ctx.arc(0, 0, b.w * 0.54, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    if (sprite) {
-      ctx.save();
-      ctx.translate(cx, cy + sway);
-      ctx.scale(dir, 1);
+    if (sprite && sprite.ready && sprite.canvas) {
+      if (b.kind === "moth" || b.kind === "hornet") {
+        ctx.save();
+        ctx.translate(-12, -26);
+        ctx.rotate(-0.35 + flap);
+        ctx.fillStyle = "rgba(224, 242, 254, 0.36)";
+        ctx.beginPath();
+        ctx.ellipse(-22, -8, 28, 11, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      drawLimbSegment(-20, 26, 18, 7, -legA, "#1e293b");
+      drawLimbSegment(0, 28, 18, 7.5, -legB, "#0f172a");
+      drawLimbSegment(20, 26, 18, 7, legC, "#1e293b");
 
-      ctx.save();
-      ctx.translate(-12, -16);
-      ctx.rotate(-0.25 + wingFlap);
-      ctx.fillStyle = "rgba(254, 240, 138, 0.22)";
-      ctx.beginPath();
-      ctx.ellipse(-20, -6, 26, 9, -0.25, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      drawLimbSegment(-20, 38, 18, 8.5, legSwing, "#1e293b");
-      drawLimbSegment(20, 38, 18, 8.5, -legSwing, "#0f172a");
-      ctx.drawImage(sprite.canvas, -drawSize / 2, -drawSize / 2 - 4, drawSize, drawSize + 8);
+      const drawW = b.w * 1.16;
+      const drawH = b.h * 1.16;
+      ctx.drawImage(sprite.canvas, -drawW / 2, -drawH / 2 - 4, drawW, drawH);
 
       if (b.slowTimer > 0) {
         ctx.strokeStyle = "#a3e635";
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3.5;
         ctx.beginPath();
-        ctx.arc(0, 0, auraR + 4, 0, Math.PI * 2);
+        ctx.arc(0, 0, b.w * 0.48, 0, Math.PI * 2);
         ctx.stroke();
       }
-      ctx.restore();
     } else {
-      drawLimbSegment(b.x + 18, b.y + b.h - 6 + sway, 16, 9, legSwing, "#451a03");
-      drawLimbSegment(b.x + b.w - 18, b.y + b.h - 6 + sway, 16, 9, -legSwing, "#451a03");
-      drawLimbSegment(b.x + 6, cy + 4 + sway, 22, 10, 0.5 + armSwing, "#9a3412");
-      drawLimbSegment(b.x + b.w - 6, cy + 4 + sway, 22, 10, -0.5 - armSwing, "#9a3412");
+      const legLen = b.kind === "spider" ? 26 : (b.kind === "beetle" || b.kind === "wyrm" ? 14 : 18);
+      drawLimbSegment(-22, 16, legLen, 7, -legA, "#1e293b");
+      drawLimbSegment(-4, 18, legLen, 7.5, legB, "#0f172a");
+      drawLimbSegment(16, 16, legLen, 7, -legC, "#1e293b");
 
-      const grad = ctx.createRadialGradient(cx - 16, cy - 18, 12, cx, cy, 62);
-      grad.addColorStop(0, b.slowTimer > 0 ? "#a3e635" : (b.isQueenGuard ? "#f43f5e" : "#fb923c"));
-      grad.addColorStop(0.55, b.slowTimer > 0 ? "#365314" : (b.isQueenGuard ? "#881337" : "#9a3412"));
-      grad.addColorStop(1, "#1c0a05");
-      ctx.fillStyle = grad;
+      if (b.kind === "moth" || b.kind === "hornet") {
+        ctx.save();
+        ctx.translate(-10, -20);
+        ctx.rotate(-0.3 + flap);
+        ctx.fillStyle = "rgba(224, 242, 254, 0.42)";
+        ctx.beginPath();
+        ctx.ellipse(-20, -6, 26, 10, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      const bGrad = ctx.createRadialGradient(-10, -12, 8, 0, 0, b.w * 0.55);
+      bGrad.addColorStop(0, b.slowTimer > 0 ? "#bef264" : auraColor);
+      bGrad.addColorStop(0.65, b.isQueenGuard ? "#9d174d" : "#7c2d12");
+      bGrad.addColorStop(1, "#180808");
+      ctx.fillStyle = bGrad;
       ctx.beginPath();
-      ctx.roundRect(b.x, b.y + sway, b.w, b.h, 24);
+      ctx.roundRect(-b.w * 0.46, -b.h * 0.42, b.w * 0.92, b.h * 0.84, b.kind === "wyrm" ? 18 : 26);
       ctx.fill();
-      ctx.strokeStyle = b.isQueenGuard ? "#fde047" : "#facc15";
+      ctx.strokeStyle = "#0f172a";
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      ctx.fillStyle = "#fef08a";
+      ctx.fillStyle = b.isQueenGuard ? "#fde047" : "#ef4444";
       ctx.beginPath();
-      ctx.arc(cx - 18, cy - 8 + sway, 9, 0, Math.PI * 2);
-      ctx.arc(cx + 18, cy - 8 + sway, 9, 0, Math.PI * 2);
+      ctx.arc(b.w * 0.24, -6, 7, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    const barW = b.isQueenGuard ? 150 : 124;
-    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-    ctx.fillRect(cx - barW / 2, b.y - 22 + sway, barW, 8);
-    ctx.fillStyle = b.isQueenGuard ? "#f43f5e" : "#ef4444";
-    ctx.fillRect(cx - barW / 2, b.y - 22 + sway, barW * Math.max(0, b.hp / b.maxHp), 8);
+    ctx.restore();
 
     ctx.fillStyle = b.isQueenGuard ? "#fde047" : "#fecaca";
-    ctx.font = "bold 12px sans-serif";
-    ctx.fillText(b.name, cx - barW / 2, b.y - 28 + sway);
+    ctx.font = "bold 13px sans-serif";
+    ctx.fillText(b.name, b.x - 10, b.y - 16);
   }
 
   function drawNectarbytesSummon(s) {
     const cx = s.x + 22;
-    const cy = s.y + 22;
+    const cy = s.y + 20;
+    const dir = world.player.facing;
     const bob = Math.sin(world.time * 7) * 5;
-    const stride = Math.sin(s.walkPhase) * 0.45;
-    const wingFlap = Math.sin(s.wingPhase) * 0.45;
-    const faceDir = world.player.facing;
+    const wingAngle = Math.sin(s.wingPhase) * 0.55;
+    const stride = Math.sin(s.walkPhase) * 0.55;
 
     ctx.save();
     ctx.translate(cx, cy + bob);
 
-    ctx.strokeStyle = "rgba(232, 121, 249, 0.72)";
-    ctx.lineWidth = 3;
+    const aura = ctx.createRadialGradient(0, 0, 8, 0, 0, 44);
+    aura.addColorStop(0, "rgba(232, 121, 249, 0.35)");
+    aura.addColorStop(1, "rgba(56, 189, 248, 0)");
+    ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.arc(0, 0, 38 + Math.sin(world.time * 10) * 3, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.arc(0, 0, 44, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.save();
-    ctx.rotate(s.spinAngle);
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 2.5;
-    for (let i = 0; i < 3; i++) {
-      const a = (Math.PI * 2 * i) / 3;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * 24, Math.sin(a) * 24);
-      ctx.lineTo(Math.cos(a) * 35, Math.sin(a) * 35);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.scale(faceDir, 1);
+    ctx.scale(dir, 1);
     ctx.rotate(s.tilt);
 
     ctx.save();
-    ctx.translate(-10, -12);
-    ctx.rotate(-0.3 + wingFlap);
+    ctx.translate(-6, -12);
+    ctx.rotate(-0.35 + wingAngle);
     ctx.fillStyle = "rgba(186, 230, 253, 0.55)";
     ctx.beginPath();
-    ctx.ellipse(-12, -4, 15, 5.5, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(-12, -5, 16, 6, -0.3, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    drawLimbSegment(-6, 16, 10, 5, -stride, "#1e1b4b");
-    drawLimbSegment(6, 16, 10, 5, stride, "#312e81");
-
     if (nectarbytesSprite.ready && nectarbytesSprite.canvas) {
-      ctx.drawImage(nectarbytesSprite.canvas, -34, -40, 68, 76);
+      drawLimbSegment(-5, 16, 10, 5, -stride, "#3b0764");
+      drawLimbSegment(6, 16, 10, 5, stride, "#7e22ce");
+      ctx.drawImage(nectarbytesSprite.canvas, -34, -42, 68, 76);
+      if (s.pistolRecoil > 0.15) {
+        drawMuzzleStarFlash(30 - s.pistolRecoil * 4, -2, 11 * s.pistolRecoil, "#e879f9", "#ffffff");
+      }
     } else {
-      const g = ctx.createLinearGradient(-22, -22, 22, 22);
+      drawLimbSegment(-5, 10, 10, 5, -stride, "#3b0764");
+      drawLimbSegment(5, 10, 10, 5, stride, "#7e22ce");
+      const g = ctx.createLinearGradient(-20, -20, 20, 20);
       g.addColorStop(0, "#f472b6");
       g.addColorStop(0.55, "#7e22ce");
       g.addColorStop(1, "#1e1b4b");
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.roundRect(-22, -20, 44, 40, 12);
+      ctx.roundRect(-20, -18, 40, 36, 12);
       ctx.fill();
       ctx.strokeStyle = "#fde047";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.2;
       ctx.stroke();
 
       ctx.fillStyle = "#38bdf8";
-      ctx.fillRect(-10, -6, 8, 6);
-      ctx.fillRect(4, -6, 8, 6);
+      ctx.fillRect(-10, -5, 8, 6);
+      ctx.fillRect(3, -5, 8, 6);
     }
-
-    ctx.save();
-    ctx.translate(12 - s.pistolRecoil * 4, 2);
-    ctx.rotate(-s.pistolRecoil * 0.25);
-    ctx.fillStyle = "#e2e8f0";
-    ctx.fillRect(0, -3, 15, 6);
-    if (s.pistolRecoil > 0.2) {
-      drawMuzzleStarFlash(17, 0, 10 * s.pistolRecoil, "#38bdf8", "#ffffff");
-    }
-    ctx.restore();
-
-    ctx.restore();
 
     if (s.beamTimer > 0) {
-      const beamGrad = ctx.createLinearGradient(0, 0, faceDir * 440, 0);
-      beamGrad.addColorStop(0, "#ffffff");
-      beamGrad.addColorStop(0.35, "#38bdf8");
-      beamGrad.addColorStop(1, "rgba(232, 121, 249, 0)");
-      ctx.fillStyle = beamGrad;
-      ctx.fillRect(faceDir * 14, -6, faceDir * 420, 12);
+      const beamAlpha = Math.min(1, s.beamTimer / 0.25);
+      const bx = 24 - s.pistolRecoil * 4;
+      const by = -2;
+      const beamLen = 460;
+      ctx.save();
+      ctx.globalAlpha = beamAlpha * 0.92;
+      const outerGrad = ctx.createLinearGradient(bx, by, bx + beamLen, by);
+      outerGrad.addColorStop(0, "#ffffff");
+      outerGrad.addColorStop(0.2, "#e879f9");
+      outerGrad.addColorStop(0.75, "#38bdf8");
+      outerGrad.addColorStop(1, "rgba(56,189,248,0)");
+      ctx.strokeStyle = outerGrad;
+      ctx.lineWidth = 14;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + beamLen, by);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + beamLen * 0.85, by);
+      ctx.stroke();
+      ctx.restore();
     }
 
     if (s.slashTimer > 0) {
+      const slashProgress = 1 - Math.max(0, s.slashTimer / 0.34);
+      ctx.save();
+      ctx.globalAlpha = 1 - slashProgress * 0.7;
       ctx.strokeStyle = "#f472b6";
-      ctx.lineWidth = 5;
+      ctx.lineWidth = 6;
       ctx.beginPath();
-      ctx.arc(0, 0, 56, -0.9, 0.9);
+      ctx.arc(8, 0, 56, -1.1 + slashProgress * 0.4, 1.1 + slashProgress * 0.4);
       ctx.stroke();
+
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(12, 0, 42, -0.9 + slashProgress * 0.4, 0.9 + slashProgress * 0.4);
+      ctx.stroke();
+      ctx.restore();
     }
 
+    ctx.restore();
     ctx.restore();
 
     ctx.fillStyle = "#f5d0fe";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText(`@nectarbytes (${s.timer.toFixed(1)}s)`, s.x - 16, s.y - 36 + bob);
+    ctx.fillText(`@nectarbytes (${s.timer.toFixed(1)}s)`, s.x - 24, s.y - 28 + bob);
   }
 
-  function drawGoalCharacter(goal) {
-    if (goal.type === "boss") {
-      if (lootChestSprite.ready && lootChestSprite.canvas) {
-        ctx.drawImage(lootChestSprite.canvas, goal.x - 14, goal.y - 12, goal.w + 28, goal.h + 16);
-      } else {
-        ctx.fillStyle = goal.locked ? "#64748b" : "#f59e0b";
-        ctx.beginPath();
-        ctx.roundRect(goal.x, goal.y + 10, goal.w, goal.h - 10, 8);
-        ctx.fill();
-        ctx.strokeStyle = "#fef08a";
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-      }
-      ctx.fillStyle = goal.locked ? "#cbd5e1" : "#fef08a";
-      ctx.font = "bold 12px sans-serif";
-      ctx.fillText(goal.locked ? "Locked Loot Chest" : "Open Loot Chest!", goal.x - 18, goal.y - 16);
-      return;
-    }
-
-    const isQueen = goal.type === "queen";
-    const sprite = isQueen ? queenNectariaSprite : princessSprite;
-    const cx = goal.x + goal.w / 2;
-    const cy = goal.y + goal.h / 2;
-    const bob = Math.sin(world.time * 4) * 4;
-    const wingFlutter = Math.sin(world.time * 24) * 0.25;
+  function drawGoalCharacter(g) {
+    const cx = g.x + g.w / 2;
+    const cy = g.y + g.h / 2;
+    const bob = Math.sin(world.time * 4) * 3.5;
 
     ctx.save();
     ctx.translate(cx, cy + bob);
 
-    ctx.save();
-    ctx.translate(-8, -8);
-    ctx.rotate(-0.2 + wingFlutter);
-    ctx.fillStyle = "rgba(253, 242, 248, 0.65)";
-    ctx.beginPath();
-    ctx.ellipse(-12, -4, 15, 6, -0.25, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    if (g.locked) {
+      const chestEntry = lootChestSprite;
+      if (chestEntry && chestEntry.ready && chestEntry.canvas) {
+        ctx.drawImage(chestEntry.canvas, -34, -30, 68, 60);
+      } else {
+        ctx.fillStyle = "#92400e";
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.roundRect(-26, -18, 52, 38, 7);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#fde047";
+        ctx.fillRect(-26, -4, 52, 6);
+      }
+      ctx.fillStyle = "#fca5a5";
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillText("LOCKED", -22, -34);
+      ctx.restore();
+      return;
+    }
 
-    if (sprite.ready && sprite.canvas) {
-      ctx.drawImage(sprite.canvas, -36, -42, 72, 82);
+    const isQueen = g.type === "queen";
+    const spriteEntry = isQueen ? queenNectariaSprite : princessSprite;
+
+    if (spriteEntry && spriteEntry.ready && spriteEntry.canvas) {
+      ctx.drawImage(spriteEntry.canvas, -34, -38, 68, 74);
     } else {
-      const grad = ctx.createRadialGradient(-6, -8, 4, 0, 0, 30);
-      grad.addColorStop(0, "#fdf2f8");
-      grad.addColorStop(0.55, isQueen ? "#f59e0b" : "#f472b6");
-      grad.addColorStop(1, isQueen ? "#9d174d" : "#be185d");
-      ctx.fillStyle = grad;
+      const bodyGrad = ctx.createRadialGradient(-4, -6, 3, 0, 2, 24);
+      bodyGrad.addColorStop(0, "#fdf2f8");
+      bodyGrad.addColorStop(0.55, isQueen ? "#f59e0b" : "#f472b6");
+      bodyGrad.addColorStop(1, isQueen ? "#9d174d" : "#be185d");
+      ctx.fillStyle = bodyGrad;
       ctx.beginPath();
-      ctx.arc(0, 2, isQueen ? 26 : 22, 0, Math.PI * 2);
+      ctx.arc(0, 4, isQueen ? 24 : 20, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = "#fde047";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.2;
       ctx.stroke();
 
       ctx.fillStyle = "#fde047";
       ctx.beginPath();
-      ctx.moveTo(-13, -18);
-      ctx.lineTo(-8, -30);
-      ctx.lineTo(0, -20);
-      ctx.lineTo(8, -30);
-      ctx.lineTo(13, -18);
+      ctx.moveTo(-12, -16);
+      ctx.lineTo(-8, -28);
+      ctx.lineTo(0, -19);
+      ctx.lineTo(8, -28);
+      ctx.lineTo(12, -16);
       ctx.closePath();
       ctx.fill();
     }
 
     ctx.restore();
-
-    ctx.fillStyle = isQueen ? "#fde047" : "#f9a8d4";
+    ctx.fillStyle = "#fde047";
     ctx.font = "bold 12px sans-serif";
-    ctx.fillText(isQueen ? (goal.locked ? "Queen Nectaria (Guarded)" : "Rescue Queen Nectaria!") : "Princess Bee", goal.x - 16, goal.y - 36 + bob);
+    ctx.fillText(isQueen ? "Queen Nectaria" : "Princess Bee", g.x - 14, g.y - 16 + bob);
   }
 
   function drawHex(cx, cy, r) {
@@ -4834,123 +4924,149 @@
   }
 
   function updateHud() {
-    applyVipTesterPerks();
     const st = world.stage;
     const suit = getSuit(state.equippedSuit);
     const p = world.player;
+    const stake = Number(state.stakedElixir || 0);
+    const hasSummonStake = isVipTester() || stake >= 100;
 
     document.getElementById("hud-stage-label").textContent =
-      `Wing ${st.wing} · Stage ${st.id}/${STAGES.length}: ${st.name} (${st.worldTitle}) · ${getDifficultyLabel()}`;
-    document.getElementById("hud-account").textContent =
-      state.isGuest ? "Guest Mode" : `@${state.username}`;
-    document.getElementById("hud-account").className =
-      `pill ${state.isGuest ? "ok" : "accent"}`;
+      `Wing ${st.wing} · Stage ${st.id}/${STAGES.length}: ${st.name} (${getDifficultyLabel()})`;
 
-    const loginBtn = document.getElementById("btn-keychain-login");
-    if (loginBtn) {
-      loginBtn.textContent = state.isGuest || !state.username ? "🔑 Login" : `🔑 @${state.username}`;
+    const accEl = document.getElementById("hud-account");
+    if (state.isGuest || !state.username) {
+      accEl.textContent = "Guest Mode";
+      accEl.className = "pill ok";
+    } else {
+      accEl.textContent = `@${state.username}`;
+      accEl.className = "pill ok";
     }
 
     const bannerEl = document.getElementById("guest-banner");
-    if (bannerEl) bannerEl.classList.toggle("visible", Boolean(state.isGuest));
+    if (bannerEl) {
+      bannerEl.classList.toggle("visible", Boolean(state.isGuest || !state.username));
+    }
+
+    const loginBtn = document.getElementById("btn-keychain-login");
+    if (loginBtn) {
+      if (state.isGuest || !state.username) {
+        loginBtn.textContent = "🔑 Login";
+        loginBtn.title = "Connect Hive Keychain (@username)";
+      } else {
+        loginBtn.textContent = `🔑 @${state.username}`;
+        loginBtn.title = `Connected as @${state.username} (Click to manage Keychain)`;
+      }
+    }
 
     document.getElementById("hud-lives").textContent = `❤️ ${state.lives}/${MAX_LIVES}`;
     document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
     document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
 
-    const stake = Number(state.stakedElixir || 0);
-    const elixirPill = document.getElementById("hud-elixir");
-    elixirPill.textContent = `⚡ ELIXIR: ${stake}/100 Stake`;
-    elixirPill.className = `pill ${stake >= 100 ? "ok" : "warn"} mobile-hide`;
+    const elixirEl = document.getElementById("hud-elixir");
+    if (state.isGuest || !state.username) {
+      elixirEl.textContent = "⚡ ELIXIR: Guest (0/100)";
+      elixirEl.className = "pill warn mobile-hide";
+    } else if (hasSummonStake) {
+      elixirEl.textContent = `⚡ ELIXIR: ${stake} Stake (Ready)`;
+      elixirEl.className = "pill ok mobile-hide";
+    } else {
+      elixirEl.textContent = `⚡ ELIXIR: ${stake}/100 Stake`;
+      elixirEl.className = "pill warn mobile-hide";
+    }
 
+    const hpPct = Math.max(0, Math.min(100, (p.hp / Math.max(1, p.maxHp)) * 100));
     document.getElementById("hud-hp-text").textContent =
       `HP ${Math.max(0, Math.ceil(p.hp))} / ${p.maxHp}${p.shield > 0 ? ` (+${p.shield} 🛡️)` : ""}`;
-    document.getElementById("hud-hp-bar").style.width = `${Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100))}%`;
+    document.getElementById("hud-hp-bar").style.width = `${hpPct}%`;
 
     const bossBox = document.getElementById("hud-boss-box");
     if (world.boss) {
       bossBox.style.display = "block";
-      const pct = Math.max(0, Math.min(100, (world.boss.hp / world.boss.maxHp) * 100));
-      document.getElementById("hud-boss-name").textContent = `${world.boss.name} · ${Math.ceil(pct)}%`;
-      document.getElementById("hud-boss-bar").style.width = `${pct}%`;
+      const bPct = Math.max(0, Math.min(100, (world.boss.hp / Math.max(1, world.boss.maxHp)) * 100));
+      document.getElementById("hud-boss-name").textContent = `${world.boss.name} · ${Math.ceil(bPct)}%`;
+      document.getElementById("hud-boss-bar").style.width = `${bPct}%`;
     } else {
       bossBox.style.display = "none";
     }
 
-    const summonBox = document.getElementById("hud-summon-box");
+    const sumBox = document.getElementById("hud-summon-box");
     if (world.summon.active) {
-      summonBox.style.display = "block";
+      sumBox.style.display = "block";
+      const sPct = Math.max(0, Math.min(100, (world.summon.timer / world.summon.maxTimer) * 100));
       document.getElementById("hud-summon-text").textContent = `@nectarbytes · ${world.summon.timer.toFixed(1)}s`;
-      document.getElementById("hud-summon-bar").style.width = `${Math.max(0, (world.summon.timer / world.summon.maxTimer) * 100)}%`;
+      document.getElementById("hud-summon-bar").style.width = `${sPct}%`;
     } else {
-      summonBox.style.display = "none";
+      sumBox.style.display = "none";
     }
 
     const c0 = getCooldownDef(state.equippedCooldowns[0]);
     const c1 = getCooldownDef(state.equippedCooldowns[1]);
-    const t0 = p.cdTimers[0] > 0 ? `${p.cdTimers[0].toFixed(1)}s` : "READY";
-    const t1 = p.cdTimers[1] > 0 ? `${p.cdTimers[1].toFixed(1)}s` : "READY";
-    const sumStatus = p.stageSummonUsed ? "Used this stage" : (stake >= 100 ? "READY (R)" : "Need 100+ ELIXIR");
-    const vials = state.consumableStock.royal_vial || 0;
-    const shields = state.consumableStock.honey_shield || 0;
-    const pulses = state.consumableStock.mite_pulse || 0;
+    const c0Txt = c0 ? `${c0.name} (${p.cdTimers[0] > 0 ? p.cdTimers[0].toFixed(1) + "s" : "Ready"})` : "Empty";
+    const c1Txt = c1 ? `${c1.name} (${p.cdTimers[1] > 0 ? p.cdTimers[1].toFixed(1) + "s" : "Ready"})` : "Empty";
+    const sumStatus = p.stageSummonUsed
+      ? "Used this stage"
+      : (state.isGuest || !state.username)
+        ? "Login for ELIXIR"
+        : hasSummonStake
+          ? "Ready (R)"
+          : `Need 100+ staked (${stake})`;
 
     document.getElementById("hud-abilities").textContent =
-      `[K/X] Spec 1 (${c0 ? c0.name : "None"}: ${t0}) · [L/C] Spec 2 (${c1 ? c1.name : "None"}: ${t1}) · [1] Vial:${vials} [2] Shield:${shields} [3] Pulse:${pulses} · [R] @nectarbytes: ${sumStatus}`;
+      `A/D Move · W/Space Jump · J/Z ${suit.attackLabel} · K/X Spec1: ${c0Txt} · L/C Spec2: ${c1Txt} · 1 Vial(${state.consumableStock.royal_vial || 0}) 2 Shield(${state.consumableStock.honey_shield || 0}) 3 Pulse(${state.consumableStock.mite_pulse || 0}) 4 Magnet(${state.consumableStock.magnet_charm || 0}) 5 Beacon(${state.consumableStock.checkpoint_beacon || 0}) · R @nectarbytes: ${sumStatus}`;
 
-    const btnCd1 = document.getElementById("btn-cd1");
-    const btnCd2 = document.getElementById("btn-cd2");
-    const btnHeal = document.getElementById("btn-heal");
-    if (btnCd1) {
-      btnCd1.innerHTML = c0 ? `${c0.name.split(" ")[0]}<br/>${p.cdTimers[0] > 0 ? p.cdTimers[0].toFixed(1) + "s" : "RDY"}` : "SP 1<br/>--";
+    const healBtn = document.getElementById("btn-heal");
+    if (healBtn) healBtn.textContent = `🧪 ${state.consumableStock.royal_vial || 0}`;
+
+    const cd1Btn = document.getElementById("btn-cd1");
+    if (cd1Btn) {
+      cd1Btn.innerHTML = p.cdTimers[0] > 0 ? `S1<br/>${p.cdTimers[0].toFixed(1)}s` : `SPEC 1<br/>${c0 ? "RDY" : "--"}`;
     }
-    if (btnCd2) {
-      btnCd2.innerHTML = c1 ? `${c1.name.split(" ")[0]}<br/>${p.cdTimers[1] > 0 ? p.cdTimers[1].toFixed(1) + "s" : "RDY"}` : "SP 2<br/>--";
-    }
-    if (btnHeal) {
-      btnHeal.textContent = `🧪 ${vials}`;
+    const cd2Btn = document.getElementById("btn-cd2");
+    if (cd2Btn) {
+      cd2Btn.innerHTML = p.cdTimers[1] > 0 ? `S2<br/>${p.cdTimers[1].toFixed(1)}s` : `SPEC 2<br/>${c1 ? "RDY" : "--"}`;
     }
 
-    const pauseText = paused ? "▶ Resume" : "Pause (P)";
-    const dPause = document.getElementById("btn-desktop-pause");
-    const mPause = document.getElementById("btn-mobile-pause");
-    if (dPause) dPause.textContent = pauseText;
-    if (mPause) mPause.textContent = paused ? "▶" : "⏸";
-
+    const desktopPauseBtn = document.getElementById("btn-desktop-pause");
+    if (desktopPauseBtn) {
+      desktopPauseBtn.textContent = paused ? "Resume (P)" : "Pause (P)";
+    }
+    const mobilePauseBtn = document.getElementById("btn-mobile-pause");
+    if (mobilePauseBtn) {
+      mobilePauseBtn.textContent = paused ? "▶" : "⏸";
+    }
     const pauseCta = document.getElementById("pause-overlay-cta");
-    if (pauseCta) pauseCta.classList.toggle("visible", Boolean(paused && !isModalOpen() && !cutsceneActive));
+    if (pauseCta) {
+      pauseCta.classList.toggle("visible", Boolean(paused && !isModalOpen()));
+    }
+    AudioEngine.updateAudioBtn();
   }
 
   function renderStagesModal() {
-    const wings = [1, 2, 3, 4];
-    const nextTier = Math.max(2, Number(state.difficultyTier || 1) + 1);
-    const higherDiffBar = state.queenRescued ? `
-      <div class="story-box" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div>
-          <strong>👑 Campaign Cleared (${escapeHtml(getDifficultyLabel())})!</strong> Ready for an even tougher run?
-        </div>
-        <button class="primary" onclick="closeModal(); window.__sb.startHigherDifficultyRun();">🔥 Start Over on ${escapeHtml(getDifficultyLabel(nextTier))}</button>
-      </div>` : "";
-
-    return higherDiffBar + wings.map(w => {
-      const list = STAGES.filter(s => s.wing === w);
-      const cards = list.map(s => {
+    const wings = [1, 2, 3, 4].map(w => {
+      const list = STAGES.filter(s => s.wing === w).map(s => {
         const done = state.completedStages.includes(s.id);
-        const current = world.stage.id === s.id;
+        const cur = state.currentStageId === s.id;
+        const badge = s.climax === "queen" ? "👑 Mega Boss + Queen" : (s.climax === "boss" ? "👾 Boss + Chest" : "🐝 Princess");
         return `
-          <div class="card ${current ? "selected" : ""}">
+          <div class="card ${cur ? "selected" : ""}">
             <div>
-              <div class="card-title">Stage ${s.id}: ${s.name} ${done ? "✅" : ""}</div>
-              <div class="card-meta">${s.worldTitle} · ${s.communityId}</div>
+              <div class="card-title">Stage ${s.id}: ${s.name}</div>
+              <div class="card-meta">${s.worldTitle} · ${badge} ${done ? "· Cleared ✓" : ""}</div>
               <div class="card-desc" style="margin-top:4px;">${s.note}</div>
             </div>
-            <button class="${current ? "primary" : ""}" onclick="closeModal(); buildStage(${s.id}, true, true);">
-              ${current ? "Intro / Play Stage" : "Warp & Prep"}
+            <button class="${cur ? "primary" : ""}" onclick="closeModal(); buildStage(${s.id}, true, true);">
+              ${cur ? "Play Current Stage" : "Warp & Gear Up"}
             </button>
           </div>`;
       }).join("");
-      return `<div><h3 style="margin:4px 0 8px 0;color:var(--accent);">Wing ${w}</h3><div class="grid-cards">${cards}</div></div>`;
+      return `<div><h3 style="margin:0 0 8px 0;color:var(--accent);">Wing ${w}</h3><div class="grid-cards">${list}</div></div>`;
     }).join("");
+
+    return `
+      <div class="notice-box">
+        <strong>38 Community Stages Across 4 Wings:</strong> LeoFinance (<code>hive-167922</code>) is excluded. Every stage features its own community world theme, traps, smashable honey crates, Ward force-field checkpoints, and unique story beats.
+      </div>
+      ${wings}`;
   }
 
   function renderLoadoutModal() {
@@ -4958,12 +5074,12 @@
       const owned = state.unlockedSuits.includes(su.id);
       const equipped = state.equippedSuit === su.id;
       const previewOpen = previewSuitIds.has(su.id);
-      const unlockTag = su.unlock === "starter" ? "Starter" : (su.unlock === "loot_drop" ? "Boss Loot Drop" : `${su.priceHive} HIVE in Shop`);
+      const unlockTag = su.unlock === "starter" ? "Starter Suit" : (su.unlock === "loot_drop" ? "Boss Loot Drop" : `HIVE Shop (${su.priceHive} HIVE)`);
       return `
         <div class="card ${equipped ? "selected" : ""}">
           <div>
             <div class="card-title">${su.name}</div>
-            <div class="card-meta">HP ${su.maxHp} · Speed ${su.speed} · ${owned ? "Unlocked" : unlockTag}</div>
+            <div class="card-meta">HP ${su.maxHp} · Speed ${su.speed} · Jump ${su.jump} · ${unlockTag}</div>
             <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
             ${previewOpen ? `<canvas data-preview-suit="${su.id}" width="210" height="84" style="width:100%;height:84px;border-radius:8px;margin-top:8px;border:1px solid var(--border);"></canvas>` : ""}
           </div>
@@ -4971,7 +5087,7 @@
             ${!owned ? `<button class="accent" onclick="window.__sb.toggleSuitPreview('${su.id}')">${previewOpen ? "Hide Preview" : "👁️ Preview"}</button>` : ""}
             ${owned
               ? `<button class="${equipped ? "primary" : ""}" onclick="window.__sb.equipSuit('${su.id}')">${equipped ? "Equipped ✓" : "Equip Suit"}</button>`
-              : `<button onclick="openModal('shop')">Get in HIVE Shop</button>`}
+              : `<button onclick="openModal('shop')">Get in Shop</button>`}
           </div>
         </div>`;
     }).join("");
@@ -4989,8 +5105,8 @@
           </div>
           ${owned
             ? `<div style="display:flex;gap:6px;">
-                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.equipCd(0, '${cd.id}')">${s0 ? "Slot 1 ✓" : "Equip Slot 1"}</button>
-                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.equipCd(1, '${cd.id}')">${s1 ? "Slot 2 ✓" : "Equip Slot 2"}</button>
+                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.equipCooldown(0, '${cd.id}')">${s0 ? "Slot 1 [K/X] ✓" : "Equip Slot 1"}</button>
+                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.equipCooldown(1, '${cd.id}')">${s1 ? "Slot 2 [L/C] ✓" : "Equip Slot 2"}</button>
               </div>`
             : `<button onclick="openModal('shop')">Buy in Shop</button>`}
         </div>`;
@@ -4998,680 +5114,567 @@
 
     const consCards = CONSUMABLES.map(c => {
       const qty = state.consumableStock[c.id] || 0;
+      const honeyBtn = c.honeyCost
+        ? `<button ${state.honey < c.honeyCost ? "disabled" : ""} onclick="window.__sb.buyConsumableWithHoney('${c.id}')">Buy (${c.honeyCost} 🍯)</button>`
+        : "";
       return `
         <div class="card">
           <div>
-            <div class="card-title">${c.name} (Stock: ${qty})</div>
-            <div class="card-desc">${c.desc}</div>
+            <div class="card-title">${c.name} — Stock: ${qty}</div>
+            <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
           </div>
-          <button onclick="useConsumable('${c.id}'); renderModalContent('loadout');">Use Now</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="primary" ${qty <= 0 ? "disabled" : ""} onclick="window.__sb.useConsumableFromModal('${c.id}')">Use Now</button>
+            ${honeyBtn}
+          </div>
         </div>`;
     }).join("");
 
     return `
-      <div><strong>Beatrice Suits</strong></div>
+      <div><strong>Beatrice's Suits</strong></div>
       <div class="grid-cards">${suitCards}</div>
-      <div><strong>Special Cooldown Abilities (Equip up to 2: [K/X] &amp; [L/C])</strong></div>
+      <div><strong>Special Cooldown Abilities (Equip up to 2: Slot 1 = K/X, Slot 2 = L/C)</strong></div>
       <div class="grid-cards">${cdCards}</div>
-      <div><strong>Consumables</strong></div>
+      <div><strong>Consumables (Keys 1–5)</strong></div>
       <div class="grid-cards">${consCards}</div>`;
   }
 
   function renderShopModal() {
-    const canBuyLifeWithHoney = state.honey >= 50 && state.lives < MAX_LIVES;
-    const lifeCapNote = state.lives >= MAX_LIVES ? ` (Max ${MAX_LIVES} Lives Reached)` : "";
-
-    const extraLifeCard = `
-      <div class="card promo-card">
-        <div>
-          <div class="card-title">❤️ Extra Life (+1 Life)</div>
-          <div class="card-meta">${EXTRA_LIFE_HIVE_PRICE} HIVE or 50 Honey · Current: ${state.lives}/${MAX_LIVES}</div>
-          <div class="card-desc">Adds +1 spare life immediately (capped at ${MAX_LIVES} lives).</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="primary" ${state.lives >= MAX_LIVES ? "disabled" : ""} onclick="window.__sb.buyExtraLifeHive()">Buy ${EXTRA_LIFE_HIVE_PRICE} HIVE</button>
-          <button ${!canBuyLifeWithHoney ? "disabled" : ""} onclick="window.__sb.buyExtraLifeHoney()">50 Honey${lifeCapNote}</button>
-        </div>
-      </div>`;
-
     const bundleCards = STARTER_BUNDLES.map(b => `
       <div class="card promo-card">
         <div>
           <div class="card-title">🎁 ${b.name}</div>
-          <div class="card-meta">Starter Bundle · ${b.priceHive} HIVE</div>
-          <div class="card-desc">${b.desc}</div>
+          <div class="card-meta">${b.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div>
+          <div class="card-desc" style="margin-top:4px;">${b.desc}</div>
         </div>
-        <button class="primary" onclick="window.__sb.buyBundle('${b.id}', '${b.priceHive}')">Buy ${b.priceHive} HIVE</button>
+        <button class="primary" onclick="window.__sb.buyItemWithHive('bundle', '${b.id}', '${b.priceHive}', '${b.name}')">Buy (${b.priceHive} HIVE)</button>
       </div>`).join("");
 
-    const shopSuits = SUITS.filter(s => s.unlock === "shop").map(su => {
-      const owned = state.unlockedSuits.includes(su.id);
-      const previewOpen = previewSuitIds.has(su.id);
+    const extraLifeCard = `
+      <div class="card promo-card">
+        <div>
+          <div class="card-title">❤️ Extra Life (+1 Life, Max ${MAX_LIVES})</div>
+          <div class="card-meta">Current Lives: ${state.lives}/${MAX_LIVES} · ${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT}</div>
+          <div class="card-desc" style="margin-top:4px;">Adds +1 extra life immediately (capped at ${MAX_LIVES}) and saves your run.</div>
+        </div>
+        <button class="primary" ${state.lives >= MAX_LIVES ? "disabled" : ""} onclick="window.__sb.buyItemWithHive('extra_life', 'extra_life', '${EXTRA_LIFE_HIVE_PRICE}', 'Extra Life (+1 ❤️)')">
+          ${state.lives >= MAX_LIVES ? `Max Lives (${MAX_LIVES}/${MAX_LIVES})` : `Buy +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)`}
+        </button>
+      </div>`;
+
+    const shopSuits = SUITS.filter(s => s.unlock === "shop").map(s => {
+      const owned = state.unlockedSuits.includes(s.id);
+      const previewOpen = previewSuitIds.has(s.id);
       return `
-        <div class="card">
+        <div class="card ${owned ? "selected" : ""}">
           <div>
-            <div class="card-title">${su.name}</div>
-            <div class="card-meta">HP ${su.maxHp} · Speed ${su.speed} · ${su.priceHive} HIVE</div>
-            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
-            ${previewOpen ? `<canvas data-preview-suit="${su.id}" width="210" height="84" style="width:100%;height:84px;border-radius:8px;margin-top:8px;border:1px solid var(--border);"></canvas>` : ""}
+            <div class="card-title">${s.name}</div>
+            <div class="card-meta">${s.priceHive} HIVE · HP ${s.maxHp} · Speed ${s.speed}</div>
+            <div class="card-desc" style="margin-top:4px;">${s.desc}</div>
+            ${previewOpen ? `<canvas data-preview-suit="${s.id}" width="210" height="84" style="width:100%;height:84px;border-radius:8px;margin-top:8px;border:1px solid var(--border);"></canvas>` : ""}
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            ${!owned ? `<button class="accent" onclick="window.__sb.toggleSuitPreview('${su.id}')">${previewOpen ? "Hide Preview" : "👁️ Preview"}</button>` : ""}
-            <button class="${owned ? "" : "primary"}" ${owned ? "disabled" : ""} onclick="window.__sb.buySuit('${su.id}', '${su.priceHive}')">
-              ${owned ? "Owned ✓" : `Buy ${su.priceHive} HIVE`}
-            </button>
+            <button class="accent" onclick="window.__sb.toggleSuitPreview('${s.id}')">${previewOpen ? "Hide Preview" : "👁️ Preview"}</button>
+            ${owned
+              ? `<button onclick="window.__sb.equipSuit('${s.id}')">Owned (Equip)</button>`
+              : `<button class="primary" onclick="window.__sb.buyItemWithHive('suit', '${s.id}', '${s.priceHive}', '${s.name}')">Buy (${s.priceHive} HIVE)</button>`}
           </div>
         </div>`;
     }).join("");
 
-    const cdShop = COOLDOWN_POWERUPS.map(cd => {
+    const shopCds = COOLDOWN_POWERUPS.map(cd => {
       const owned = state.ownedCooldowns.includes(cd.id);
       return `
-        <div class="card">
+        <div class="card ${owned ? "selected" : ""}">
           <div>
             <div class="card-title">${cd.name} (${cd.cd}s CD)</div>
             <div class="card-meta">${cd.cat} · ${cd.priceHive} HIVE</div>
-            <div class="card-desc">${cd.desc}</div>
+            <div class="card-desc" style="margin-top:4px;">${cd.desc}</div>
           </div>
-          <button class="${owned ? "" : "primary"}" ${owned ? "disabled" : ""} onclick="window.__sb.buyCooldown('${cd.id}', '${cd.priceHive}')">
-            ${owned ? "Owned ✓" : `Buy ${cd.priceHive} HIVE`}
-          </button>
+          ${owned
+            ? `<button onclick="openModal('loadout')">Owned (Equip in Loadout)</button>`
+            : `<button class="primary" onclick="window.__sb.buyItemWithHive('cd', '${cd.id}', '${cd.priceHive}', '${cd.name}')">Buy (${cd.priceHive} HIVE)</button>`}
         </div>`;
     }).join("");
 
-    const consShop = CONSUMABLES.map(c => {
-      const canHoney = Boolean(c.honeyCost && state.honey >= c.honeyCost);
-      return `
-        <div class="card">
-          <div>
-            <div class="card-title">${c.name} (Stock: ${state.consumableStock[c.id] || 0})</div>
-            <div class="card-meta">${c.priceHive} HIVE${c.honeyCost ? ` or ${c.honeyCost} Honey` : ""}</div>
-            <div class="card-desc">${c.desc}</div>
-          </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="primary" onclick="window.__sb.buyConsumableHive('${c.id}', '${c.priceHive}')">Buy ${c.priceHive} HIVE</button>
-            ${c.honeyCost ? `<button ${!canHoney ? "disabled" : ""} onclick="window.__sb.buyConsumableHoney('${c.id}', ${c.honeyCost})">${c.honeyCost} Honey</button>` : ""}
-          </div>
-        </div>`;
-    }).join("");
+    const shopCons = CONSUMABLES.map(c => `
+      <div class="card">
+        <div>
+          <div class="card-title">${c.name} (Stock: ${state.consumableStock[c.id] || 0})</div>
+          <div class="card-meta">${c.priceHive} HIVE${c.honeyCost ? ` or ${c.honeyCost} Honey` : ""}</div>
+          <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="primary" onclick="window.__sb.buyItemWithHive('consumable', '${c.id}', '${c.priceHive}', '${c.name}')">Buy (${c.priceHive} HIVE)</button>
+          ${c.honeyCost ? `<button ${state.honey < c.honeyCost ? "disabled" : ""} onclick="window.__sb.buyConsumableWithHoney('${c.id}')">Buy (${c.honeyCost} 🍯)</button>` : ""}
+        </div>
+      </div>`).join("");
 
     return `
       <div class="notice-box">
-        Every HIVE payment transfers directly to <strong>@${PAYMENT_RECIPIENT}</strong> via Hive Keychain and logs a verifiable memo on Hive. You can also spend earned <strong>🍯 Honey</strong> on Royal Jelly Vials (${VIAL_HONEY_COST} Honey) and Extra Lives (50 Honey, up to ${MAX_LIVES}).
+        <strong>Direct HIVE Transfers → @${PAYMENT_RECIPIENT}:</strong> Every HIVE purchase uses Hive Keychain (<code>requestTransfer</code>) with a unique order memo and unlocks immediately upon approval. Royal Jelly Vials can also be bought with <strong>${VIAL_HONEY_COST} Honey</strong>.
       </div>
       <div><strong>Extra Lives &amp; Starter Bundles</strong></div>
       <div class="grid-cards">${extraLifeCard}${bundleCards}</div>
-      <div><strong>Exclusive Suits (HIVE Shop)</strong></div>
+      <div><strong>Exclusive HIVE Suits</strong></div>
       <div class="grid-cards">${shopSuits}</div>
       <div><strong>Special Cooldown Abilities</strong></div>
-      <div class="grid-cards">${cdShop}</div>
+      <div class="grid-cards">${shopCds}</div>
       <div><strong>Consumables</strong></div>
-      <div class="grid-cards">${consShop}</div>`;
+      <div class="grid-cards">${shopCons}</div>`;
   }
 
   function renderGameOverModal() {
-    const canBuyLifeWithHoney = state.honey >= 50 && state.lives < MAX_LIVES;
-    const canBuyVialWithHoney = state.honey >= VIAL_HONEY_COST;
-    const recommendedSuit = SUITS.find(s => s.id === "comb_guard") || SUITS[0];
-    const recommendedCd = COOLDOWN_POWERUPS.find(c => c.id === "nectar_dash") || COOLDOWN_POWERUPS[0];
-    const previewOpen = previewSuitIds.has(recommendedSuit.id);
+    const vialStock = state.consumableStock.royal_vial || 0;
+    const shieldStock = state.consumableStock.honey_shield || 0;
+    const pulseStock = state.consumableStock.mite_pulse || 0;
 
     return `
       <div class="warn-box">
-        <strong>Out of Lives!</strong> Beatrice lost all her lives on Stage ${world.stage.id} (${escapeHtml(world.stage.worldTitle)}). Grab an <strong>Extra Life</strong> or stock up on gear below to jump right back in!
+        <strong>All Lives Lost (0/${MAX_LIVES} Lives):</strong> Beatrice ran out of lives in <strong>${escapeHtml(world.stage.worldTitle)}</strong> (Stage ${world.stage.id}). You can pick up an <strong>Extra Life</strong> in the Hive Shop or restart from Stage 1 with <strong>${STARTING_LIVES} fresh lives</strong>.
       </div>
       <div class="grid-cards">
         <div class="card promo-card">
           <div>
-            <div class="card-title">❤️ Extra Life (+1 Life &amp; Continue)</div>
-            <div class="card-meta">${EXTRA_LIFE_HIVE_PRICE} HIVE or 50 Honey · Max ${MAX_LIVES} Lives</div>
-            <div class="card-desc">Restores +1 life and resumes Beatrice at your stage checkpoint right away.</div>
+            <div class="card-title">❤️ Extra Life (+1 Life)</div>
+            <div class="card-meta">${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT} · Max ${MAX_LIVES}</div>
+            <div class="card-desc" style="margin-top:4px;">Adds +1 extra life right now so you can continue your run without starting over.</div>
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="primary" onclick="window.__sb.buyExtraLifeHive(true)">Buy ${EXTRA_LIFE_HIVE_PRICE} HIVE &amp; Continue</button>
-            <button ${!canBuyLifeWithHoney ? "disabled" : ""} onclick="window.__sb.buyExtraLifeHoney(true)">50 Honey &amp; Continue</button>
-          </div>
+          <button class="primary" onclick="window.__sb.buyItemWithHive('extra_life', 'extra_life', '${EXTRA_LIFE_HIVE_PRICE}', 'Extra Life (+1 ❤️)')">Buy +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
         </div>
-
+        <div class="card promo-card">
+          <div>
+            <div class="card-title">🎁 Wing 1 Rookie Kit</div>
+            <div class="card-meta">1.250 HIVE → @${PAYMENT_RECIPIENT}</div>
+            <div class="card-desc" style="margin-top:4px;">Unlocks Nectar Dash + 2x Honeycomb Shield + 1x Royal Jelly Vial for safer movement &amp; recovery.</div>
+          </div>
+          <button class="primary" onclick="window.__sb.buyItemWithHive('bundle', 'bundle_rookie', '1.250', 'Wing 1 Rookie Kit')">Buy Kit (1.250 HIVE)</button>
+        </div>
         <div class="card">
           <div>
-            <div class="card-title">🧪 Royal Jelly Vial (+45 HP)</div>
-            <div class="card-meta">0.080 HIVE or ${VIAL_HONEY_COST} Honey · Stock: ${state.consumableStock.royal_vial || 0}</div>
-            <div class="card-desc">Quickly heals Beatrice mid-stage when pressed with [1] or 🧪.</div>
+            <div class="card-title">🧪 Consumables Ready</div>
+            <div class="card-meta">Vials: ${vialStock} · Shields: ${shieldStock} · Pulses: ${pulseStock}</div>
+            <div class="card-desc" style="margin-top:4px;">Royal Jelly Vials restore +45 HP (15 🍯 or 0.080 HIVE); Shields absorb hits; Pulses clear nearby pests.</div>
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="primary" onclick="window.__sb.buyConsumableHive('royal_vial', '0.080')">Buy 0.080 HIVE</button>
-            <button ${!canBuyVialWithHoney ? "disabled" : ""} onclick="window.__sb.buyConsumableHoney('royal_vial', ${VIAL_HONEY_COST})">${VIAL_HONEY_COST} Honey</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div>
-            <div class="card-title">🛡️ ${recommendedSuit.name}</div>
-            <div class="card-meta">HP ${recommendedSuit.maxHp} · ${recommendedSuit.priceHive || "Starter"} HIVE</div>
-            <div class="card-desc">${recommendedSuit.desc}</div>
-            ${previewOpen ? `<canvas data-preview-suit="${recommendedSuit.id}" width="210" height="84" style="width:100%;height:84px;border-radius:8px;margin-top:8px;border:1px solid var(--border);"></canvas>` : ""}
-          </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="accent" onclick="window.__sb.toggleSuitPreview('${recommendedSuit.id}')">${previewOpen ? "Hide Preview" : "👁️ Preview"}</button>
-            <button class="primary" ${state.unlockedSuits.includes(recommendedSuit.id) ? "disabled" : ""} onclick="window.__sb.buySuit('${recommendedSuit.id}', '${recommendedSuit.priceHive}')">
-              ${state.unlockedSuits.includes(recommendedSuit.id) ? "Owned ✓" : `Buy ${recommendedSuit.priceHive} HIVE`}
-            </button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div>
-            <div class="card-title">⚡ ${recommendedCd.name} (${recommendedCd.cd}s CD)</div>
-            <div class="card-meta">${recommendedCd.cat} · ${recommendedCd.priceHive} HIVE</div>
-            <div class="card-desc">${recommendedCd.desc}</div>
-          </div>
-          <button class="primary" ${state.ownedCooldowns.includes(recommendedCd.id) ? "disabled" : ""} onclick="window.__sb.buyCooldown('${recommendedCd.id}', '${recommendedCd.priceHive}')">
-            ${state.ownedCooldowns.includes(recommendedCd.id) ? "Owned ✓" : `Buy ${recommendedCd.priceHive} HIVE`}
-          </button>
+          <button class="accent" onclick="openModal('shop')">Open Full Hive Shop</button>
         </div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between;align-items:center;">
-        <button onclick="openModal('shop')">Open Full HIVE Shop</button>
-        <button class="accent" onclick="closeModal(); buildStage(1, true, true);">↺ Restart Campaign (5 Lives)</button>
+      <div class="prestage-bar">
+        <button onclick="openModal('loadout')">🛡️ Check Suits &amp; Loadout</button>
+        <button class="primary" onclick="closeModal(); buildStage(1, true, true);">🔄 Restart Stage 1 (${STARTING_LIVES} Lives)</button>
       </div>`;
   }
 
   function renderSquadModal() {
     const stake = Number(state.stakedElixir || 0);
-    const eligible = stake >= 100 || isVipTester();
-    const squadChips = state.knownSquadmates.map(handle => {
-      const active = state.selectedSquad.includes(handle);
-      return `<button class="${active ? "primary" : ""}" onclick="window.__sb.toggleSquadmate('${handle}')">@${handle} ${active ? "✓" : ""}</button>`;
+    const vip = isVipTester();
+    const eligible = vip || (!state.isGuest && Boolean(state.username) && stake >= 100);
+    const squadChips = state.knownSquadmates.map(m => {
+      const sel = state.selectedSquad.includes(m);
+      return `<button class="${sel ? "primary" : ""}" onclick="window.__sb.toggleSquadMember('${escapeAttr(m)}')">@${escapeHtml(m)} ${sel ? "✓" : ""}</button>`;
     }).join("");
 
     return `
       <div class="notice-box">
-        <strong>@nectarbytes Summon Requirement:</strong> Stake at least <strong>100 ELIXIR</strong> on Hive Engine to summon <strong>@nectarbytes</strong> for <strong>20 seconds</strong> per stage (press <strong>R</strong> or tap <strong>SUM</strong>). Current stake: <strong>${stake} ELIXIR</strong> (${eligible ? "Eligible ✓" : "Below 100 threshold"}).
+        <strong>@nectarbytes Summon Requirement:</strong> Connect Hive Keychain and hold <strong>100+ staked ELIXIR</strong> on Hive Engine. Once per stage, press <strong>R</strong> (or tap <strong>SUM</strong>) to summon <strong>@nectarbytes</strong> for <strong>20 seconds</strong>!${vip ? " <em>(@bulliontools VIP test mode active.)</em>" : ""}
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <button class="accent" onclick="window.__sb.refreshElixirStake()">🔄 Refresh ELIXIR Stake</button>
-        <button class="primary" ${world.player.stageSummonUsed ? "disabled" : ""} onclick="closeModal(); summonNectarbytes();">
-          ${world.player.stageSummonUsed ? "Already Summoned This Stage" : "⚡ Summon @nectarbytes Now (20s)"}
-        </button>
+      <div class="card">
+        <div>
+          <div class="card-title">Summon Status: ${eligible ? "ELIGIBLE (100+ Staked ELIXIR)" : `Locked (${stake}/100 Staked ELIXIR)`}</div>
+          <div class="card-meta">Account: ${state.isGuest || !state.username ? "Guest Mode" : `@${state.username}`} · Stage Summon Used: ${world.player.stageSummonUsed ? "Yes" : "No"}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="accent" onclick="window.__sb.refreshElixirStake()">🔄 Refresh ELIXIR Stake</button>
+          <button class="primary" ${world.player.stageSummonUsed ? "disabled" : ""} onclick="closeModal(); window.__sb.summonNectarbytes();">⚡ Summon @nectarbytes (20s)</button>
+        </div>
       </div>
-      <div><strong>Add @username Companion</strong></div>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="input-squad-handle" placeholder="Enter Hive @username (e.g. alicebee)" />
-        <button onclick="window.__sb.addSquadmate()">Add</button>
-      </div>
-      <div><strong>Squad Roster (up to 3)</strong></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">${squadChips}</div>`;
+      <div>
+        <strong>Companion Squad Roster (@username)</strong>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">${squadChips}</div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <input type="text" id="new-squad-user" placeholder="Add @username squadmate (e.g. blocktrades)" />
+          <button onclick="window.__sb.addSquadMember()">Add</button>
+        </div>
+      </div>`;
   }
 
   function renderSnapsModal() {
-    const items = state.snapsFeed.map(m => `
+    const items = state.snapsFeed.map(it => `
       <div class="feed-item">
-        <span class="feed-author">@${escapeHtml(m.author)}</span> · <span style="color:var(--muted);font-size:0.72rem;">${escapeHtml(m.time)}</span>
-        <div style="margin-top:3px;">${escapeHtml(m.text)}</div>
+        <span class="feed-author">@${escapeHtml(it.author)}</span> <span class="card-meta">· ${escapeHtml(it.time)}</span>
+        <div style="margin-top:3px;">${escapeHtml(it.text)}</div>
       </div>`).join("");
 
     return `
       <div class="notice-box">
-        <strong>Hive Snaps:</strong> Post quick updates in-game anytime, and broadcast stage/boss/rescue milestones to Hive via Keychain when logged in.
+        <strong>Hive Snaps:</strong> Post updates in-game anytime, and optionally broadcast to Hive via Keychain (<code>custom_json</code>).
       </div>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="input-snap-text" placeholder="Share a Hive Snap or victory note..." />
-        <button class="primary" onclick="window.__sb.postSnap()">Post Snap</button>
-      </div>
-      <div class="feed-list">${items}</div>`;
+      <div class="feed-list">${items}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" id="snap-input" placeholder="Share a Hive Snap or stage update..." />
+        <button class="primary" onclick="window.__sb.postSnap(false)">Post Snap</button>
+        <button class="accent" onclick="window.__sb.postSnap(true)">Post &amp; Broadcast (Keychain)</button>
+      </div>`;
   }
 
   function renderKeychainModal() {
+    const loggedIn = !state.isGuest && Boolean(state.username);
+    const saveJson = JSON.stringify(serializeSavePayload(), null, 2);
     return `
-      <div class="notice-box">
-        <strong>Account Status:</strong> ${state.isGuest ? "Guest Mode (local progress saved)" : `Logged in as <strong>@${escapeHtml(state.username)}</strong>`}<br/>
-        <strong>Difficulty Tier:</strong> ${escapeHtml(getDifficultyLabel())} (${getDifficultyMult().toFixed(2)}x enemy/boss scaling)<br/>
-        New to Hive? Get a free account via <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;">Ecency</a> and install <a href="https://hive-keychain.com" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;">Hive Keychain</a>.
+      <div class="${loggedIn ? "notice-box" : "warn-box"}">
+        ${loggedIn
+          ? `<strong>Connected as @${escapeHtml(state.username)}</strong> via Hive Keychain · Staked ELIXIR: <strong>${Number(state.stakedElixir || 0)}</strong>`
+          : `<strong>Guest Mode Active:</strong> Progress saves locally in your browser. Don't have a Hive account yet? Get a free account via <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#fff;text-decoration:underline;">Ecency</a> and install <a href="https://hive-keychain.com" target="_blank" rel="noopener noreferrer" style="color:#fff;text-decoration:underline;">Hive Keychain</a>.`}
       </div>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="input-hive-username" value="${escapeHtml(state.username || "")}" placeholder="Hive @username (e.g. bulliontools)" />
-        <button class="primary" onclick="window.__sb.connectKeychain()">Connect Keychain</button>
-        <button onclick="window.__sb.useGuestMode()">Guest Mode</button>
+      <div class="card">
+        <div class="card-title">Hive Keychain Login</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          <input type="text" id="kc-username-input" value="${escapeAttr(state.username || "")}" placeholder="Enter Hive username (without @)" style="max-width:260px;" />
+          <button class="keychain-btn" onclick="window.__sb.loginWithKeychain()">🔑 Sign In with Keychain</button>
+          ${loggedIn ? `<button onclick="window.__sb.logoutToGuest()">Switch to Guest</button>` : ""}
+        </div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="accent" onclick="window.__sb.saveToKeychain()">☁️ Save to Hive Keychain</button>
-        <button class="accent" onclick="window.__sb.loadFromKeychain()">📥 Load Save from Hive Keychain</button>
-        <button onclick="window.__sb.exportSaveJson()">Copy Save JSON</button>
-        <button class="danger" onclick="window.__sb.resetProgress()">Reset Local Progress</button>
+      <div class="card">
+        <div class="card-title">Save Backup, File Export / Import &amp; Reset</div>
+        <div class="card-desc">Export a <code>.json</code> save file, copy/paste save JSON, or import a save file to restore progress across devices.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <button class="primary" onclick="window.__sb.downloadSaveFile()">💾 Download Save (.json)</button>
+          <button class="accent" onclick="document.getElementById('save-file-input').click()">📂 Load Save File (.json)</button>
+          <input type="file" id="save-file-input" accept="application/json,.json" style="display:none;" onchange="window.__sb.handleSaveFileUpload(event)" />
+          <button onclick="window.__sb.copySaveJson()">📋 Copy Save JSON</button>
+          <button onclick="window.__sb.importSaveJson()">📥 Apply Pasted JSON</button>
+          <button class="danger" onclick="window.__sb.resetProgress()">Reset Save</button>
+        </div>
+        <textarea id="save-json-area" rows="5" style="width:100%;margin-top:8px;background:#0d121d;color:#e2e8f0;border:1px solid var(--border);border-radius:8px;padding:8px;font-family:monospace;font-size:0.74rem;">${escapeHtml(saveJson)}</textarea>
       </div>`;
   }
 
   function escapeHtml(str) {
-    return String(str || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+    return String(str ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
+  function escapeAttr(str) {
+    return String(str ?? "").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   function hasKeychain() {
-    return Boolean(window.hive_keychain && typeof window.hive_keychain.requestTransfer === "function");
+    return Boolean(window.hive_keychain && typeof window.hive_keychain.requestSignBuffer === "function");
   }
 
-  function requestHiveTransfer(amountHive, memo, onSuccess) {
-    if (state.isGuest || !state.username) {
-      showToast("Connect Hive Keychain first to complete HIVE payments.");
+  function quickKeychainLogin() {
+    if (!state.isGuest && state.username) {
       openModal("keychain");
       return;
     }
-    const formattedAmount = Number(amountHive).toFixed(3);
     if (!hasKeychain()) {
-      showToast(`Hive Keychain not detected — install extension to send ${formattedAmount} HIVE to @${PAYMENT_RECIPIENT}.`);
+      showToast("Hive Keychain extension not detected — opening setup.");
+      openModal("keychain");
       return;
     }
-    window.hive_keychain.requestTransfer(
-      state.username,
-      PAYMENT_RECIPIENT,
-      formattedAmount,
-      memo,
-      "HIVE",
-      (resp) => {
-        if (resp && resp.success) {
-          onSuccess(resp);
-        } else {
-          showToast(resp?.message || "Hive Keychain transfer cancelled or failed.");
-        }
-      },
-      true
-    );
+    const typed = (document.getElementById("kc-username-input")?.value || state.username || "").trim().replace(/^@/, "").toLowerCase();
+    if (!typed) {
+      openModal("keychain");
+      setTimeout(() => document.getElementById("kc-username-input")?.focus(), 50);
+      return;
+    }
+    loginWithKeychain(typed);
   }
 
-  window.__sb = {
-    toggleAudio: () => AudioEngine.toggle(),
-    quickKeychainLogin: () => {
-      if (!state.isGuest && state.username) {
-        openModal("keychain");
+  function loginWithKeychain(explicitUser = null) {
+    const raw = explicitUser !== null ? explicitUser : (document.getElementById("kc-username-input")?.value || "");
+    const username = raw.trim().replace(/^@/, "").toLowerCase();
+    if (!username) {
+      showToast("Enter your Hive username first.");
+      return;
+    }
+    if (!hasKeychain()) {
+      showToast("Hive Keychain not detected. Install Keychain or continue in Guest Mode.");
+      return;
+    }
+    const challenge = `${GAME_NAME} Login:${username}:${Date.now()}`;
+    window.hive_keychain.requestSignBuffer(username, challenge, "Posting", (resp) => {
+      if (resp && resp.success) {
+        state.username = username;
+        state.isGuest = false;
+        if (!state.knownSquadmates.includes(username)) state.knownSquadmates.unshift(username);
+        saveState(`Signed in as @${username}!`);
+        refreshElixirStake();
+        if (activeModalTab === "keychain") renderModalContent("keychain");
+      } else {
+        showToast(resp?.message || "Keychain signature cancelled.");
+      }
+    });
+  }
+
+  function logoutToGuest() {
+    state.isGuest = true;
+    saveState("Switched to Guest Mode (local save active).");
+    if (activeModalTab === "keychain") renderModalContent("keychain");
+  }
+
+  function buyItemWithHive(kind, itemId, priceHive, label) {
+    if (state.isGuest || !state.username) {
+      showToast("Sign in with Hive Keychain first to buy with HIVE.");
+      openModal("keychain");
+      return;
+    }
+    if (!hasKeychain()) {
+      showToast("Hive Keychain extension required for HIVE payments.");
+      return;
+    }
+    const orderId = `sb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const memo = `${GAME_NAME}|${kind}|${itemId}|${orderId}`;
+    const amountStr = Number(priceHive).toFixed(3);
+
+    window.hive_keychain.requestTransfer(state.username, PAYMENT_RECIPIENT, amountStr, memo, "HIVE", (resp) => {
+      if (resp && resp.success) {
+        if (state.redeemedOrders.includes(orderId)) return;
+        state.redeemedOrders.push(orderId);
+        grantPurchasedItem(kind, itemId, label);
+      } else {
+        showToast(resp?.message || "HIVE transfer cancelled.");
+      }
+    });
+  }
+
+  function grantPurchasedItem(kind, itemId, label) {
+    if (kind === "extra_life") {
+      if (state.lives >= MAX_LIVES) {
+        showToast(`Lives already at maximum (${MAX_LIVES}/${MAX_LIVES})!`);
         return;
       }
-      if (hasKeychain()) {
-        const typed = (document.getElementById("input-hive-username")?.value || "").trim().replace(/^@/, "").toLowerCase();
-        if (typed) {
-          window.hive_keychain.requestSignBuffer(
-            typed,
-            `${GAME_NAME} login:${typed}:${Date.now()}`,
-            "Posting",
-            (resp) => {
-              if (resp && resp.success) {
-                state.username = typed;
-                state.isGuest = false;
-                applyVipTesterPerks();
-                saveState(`Connected as @${typed} via Hive Keychain!`);
-                refreshElixirStake();
-                if (activeModalTab) renderModalContent(activeModalTab);
-              } else {
-                openModal("keychain");
-              }
-            }
-          );
-          return;
-        }
+      addLives(1, `Purchased ${label}`);
+      if (world.player.hp <= 0) {
+        resumeBeatriceFromCheckpoint();
+        if (activeModalTab === "gameover") closeModal();
       }
-      openModal("keychain");
-    },
-    maybeStartStageIntro: () => {
-      if (world.stage && state.lives > 0 && !cutsceneActive && !isModalOpen()) {
-        startCutscene(buildStageCutscene(world.stage));
-      }
-    },
-    startHigherDifficultyRun,
-    advanceCutscene,
-    skipCutscene: () => finishCutscene(),
-    toggleSuitPreview: (suitId) => {
-      if (previewSuitIds.has(suitId)) previewSuitIds.delete(suitId);
-      else previewSuitIds.add(suitId);
+      saveState();
       if (activeModalTab) renderModalContent(activeModalTab);
-    },
-    togglePreStagePicker: (checked) => {
-      state.showPreStagePicker = Boolean(checked);
-      saveState(state.showPreStagePicker ? "Pre-stage intro & gear picker enabled" : "Pre-stage intro & gear picker disabled");
-    },
-    pickPreStageSuit: (id) => {
-      if (!state.unlockedSuits.includes(id)) return;
-      state.equippedSuit = id;
-      const su = getSuit(id);
+      return;
+    }
+    if (kind === "suit") {
+      if (!state.unlockedSuits.includes(itemId)) state.unlockedSuits.push(itemId);
+      state.equippedSuit = itemId;
+      const su = getSuit(itemId);
       world.player.maxHp = su.maxHp;
       world.player.hp = su.maxHp;
-      saveState(`Selected ${su.name}`);
-      renderModalContent("prestage");
-    },
-    setPreStageCd: (slot, id) => {
-      if (!state.ownedCooldowns.includes(id)) return;
-      const other = slot === 0 ? 1 : 0;
-      if (state.equippedCooldowns[other] === id) state.equippedCooldowns[other] = null;
-      state.equippedCooldowns[slot] = id;
-      saveState(`Equipped ${getCooldownDef(id).name} to Special ${slot + 1}`);
-      renderModalContent("prestage");
-    },
-    quickHoneyBuyPreStage: (id) => {
-      const c = CONSUMABLES.find(x => x.id === id);
-      if (!c || !c.honeyCost || state.honey < c.honeyCost) return;
-      state.honey -= c.honeyCost;
-      state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
-      saveState(`+1 ${c.name} (${c.honeyCost} Honey)`);
-      renderModalContent("prestage");
-    },
-    equipSuit: (id) => {
-      if (!state.unlockedSuits.includes(id)) return;
-      state.equippedSuit = id;
-      const su = getSuit(id);
-      world.player.maxHp = su.maxHp;
-      world.player.hp = Math.min(su.maxHp, Math.max(world.player.hp, Math.round(su.maxHp * 0.6)));
-      saveState(`Equipped ${su.name}`);
-      renderModalContent("loadout");
-    },
-    equipCd: (slot, id) => {
-      if (!state.ownedCooldowns.includes(id)) return;
-      const other = slot === 0 ? 1 : 0;
-      if (state.equippedCooldowns[other] === id) state.equippedCooldowns[other] = null;
-      state.equippedCooldowns[slot] = id;
-      saveState(`Equipped ${getCooldownDef(id).name} to Slot ${slot + 1}`);
-      renderModalContent("loadout");
-    },
-    buyExtraLifeHive: (continueAfter = false) => {
-      if (state.lives >= MAX_LIVES) {
-        showToast(`Already at max lives (${MAX_LIVES}/${MAX_LIVES})!`);
-        return;
-      }
-      requestHiveTransfer(EXTRA_LIFE_HIVE_PRICE, `${GAME_NAME}:extra_life:+1`, () => {
-        addLives(1, "Purchased +1 Extra Life");
-        saveState();
-        if (continueAfter) {
-          closeModal();
-          resumeBeatriceFromCheckpoint();
-        } else if (activeModalTab) {
-          renderModalContent(activeModalTab);
-        }
-      });
-    },
-    buyExtraLifeHoney: (continueAfter = false) => {
-      if (state.lives >= MAX_LIVES) {
-        showToast(`Already at max lives (${MAX_LIVES}/${MAX_LIVES})!`);
-        return;
-      }
-      if (state.honey < 50) {
-        showToast("Need 50 Honey for an Extra Life.");
-        return;
-      }
-      state.honey -= 50;
-      addLives(1, "Redeemed 50 Honey for +1 Extra Life");
-      saveState();
-      if (continueAfter) {
-        closeModal();
-        resumeBeatriceFromCheckpoint();
-      } else if (activeModalTab) {
-        renderModalContent(activeModalTab);
-      }
-    },
-    buyBundle: (id, price) => {
-      const b = STARTER_BUNDLES.find(x => x.id === id);
-      if (!b) return;
-      requestHiveTransfer(price, `${GAME_NAME}:bundle:${id}`, () => {
+      saveState(`Unlocked & equipped ${label}!`);
+    } else if (kind === "cd") {
+      if (!state.ownedCooldowns.includes(itemId)) state.ownedCooldowns.push(itemId);
+      if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = itemId;
+      else if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = itemId;
+      saveState(`Unlocked ${label}!`);
+    } else if (kind === "consumable") {
+      state.consumableStock[itemId] = (state.consumableStock[itemId] || 0) + 1;
+      saveState(`Purchased +1 ${label}!`);
+    } else if (kind === "bundle") {
+      const b = STARTER_BUNDLES.find(x => x.id === itemId);
+      if (b) {
         if (b.cdGrant && !state.ownedCooldowns.includes(b.cdGrant)) {
           state.ownedCooldowns.push(b.cdGrant);
           if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = b.cdGrant;
           else if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = b.cdGrant;
         }
-        Object.entries(b.consumables || {}).forEach(([k, v]) => {
-          state.consumableStock[k] = (state.consumableStock[k] || 0) + v;
+        Object.entries(b.consumables || {}).forEach(([cid, qty]) => {
+          state.consumableStock[cid] = (state.consumableStock[cid] || 0) + qty;
         });
-        saveState(`Purchased ${b.name}!`);
-        renderModalContent("shop");
-      });
-    },
-    buySuit: (id, price) => {
-      requestHiveTransfer(price, `${GAME_NAME}:suit:${id}`, () => {
-        if (!state.unlockedSuits.includes(id)) state.unlockedSuits.push(id);
-        state.equippedSuit = id;
-        saveState(`Unlocked & equipped ${getSuit(id).name}!`);
-        renderModalContent("shop");
-      });
-    },
-    buyCooldown: (id, price) => {
-      requestHiveTransfer(price, `${GAME_NAME}:cd:${id}`, () => {
-        if (!state.ownedCooldowns.includes(id)) state.ownedCooldowns.push(id);
-        if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = id;
-        else if (!state.equippedCooldowns[1]) state.equippedCooldowns[1] = id;
-        saveState(`Purchased ${getCooldownDef(id).name}!`);
-        renderModalContent("shop");
-      });
-    },
-    buyConsumableHive: (id, price) => {
-      const c = CONSUMABLES.find(x => x.id === id);
-      requestHiveTransfer(price, `${GAME_NAME}:cons:${id}`, () => {
-        state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
-        saveState(`+1 ${c ? c.name : id}`);
-        if (activeModalTab) renderModalContent(activeModalTab);
-      });
-    },
-    buyConsumableHoney: (id, honeyCost) => {
-      const c = CONSUMABLES.find(x => x.id === id);
-      if (!c || state.honey < honeyCost) return;
-      state.honey -= honeyCost;
-      state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
-      saveState(`+1 ${c.name} (${honeyCost} Honey)`);
-      if (activeModalTab) renderModalContent(activeModalTab);
-    },
-    refreshElixirStake,
-    addSquadmate: () => {
-      const inp = document.getElementById("input-squad-handle");
-      const clean = (inp?.value || "").trim().replace(/^@/, "").toLowerCase();
-      if (!clean) return;
-      if (!state.knownSquadmates.includes(clean)) state.knownSquadmates.push(clean);
-      if (!state.selectedSquad.includes(clean) && state.selectedSquad.length < 3) state.selectedSquad.push(clean);
-      if (inp) inp.value = "";
-      saveState(`Added @${clean} to squad`);
-      renderModalContent("squad");
-    },
-    toggleSquadmate: (handle) => {
-      if (state.selectedSquad.includes(handle)) {
-        state.selectedSquad = state.selectedSquad.filter(h => h !== handle);
-      } else if (state.selectedSquad.length < 3) {
-        state.selectedSquad.push(handle);
-      } else {
-        showToast("Max 3 companions in active squad.");
-        return;
       }
-      saveState();
-      renderModalContent("squad");
-    },
-    postSnap: () => {
-      const inp = document.getElementById("input-snap-text");
-      const txt = (inp?.value || "").trim();
-      if (!txt) return;
-      const author = state.isGuest || !state.username ? "guest_bee" : state.username;
-      state.snapsFeed.unshift({ author, text: txt, time: "Just now" });
-      if (inp) inp.value = "";
-
-      if (!state.isGuest && state.username && hasKeychain() && typeof window.hive_keychain.requestPost === "function") {
-        const permlink = `swarmbreaker-snap-${Date.now()}`;
-        window.hive_keychain.requestPost(
-          state.username,
-          `${GAME_NAME} Snap — Stage ${world.stage.id}`,
-          `${txt}\n\n*Posted via ${GAME_NAME} (${world.stage.worldTitle} · ${getDifficultyLabel()})*`,
-          "hive-178315",
-          "",
-          JSON.stringify({ app: GAME_NAME.toLowerCase(), stage: world.stage.id, difficultyTier: state.difficultyTier }),
-          permlink,
-          "",
-          () => {}
-        );
-      }
-      saveState("Posted to Hive Snaps!");
-      renderModalContent("snaps");
-    },
-    connectKeychain: () => {
-      const raw = (document.getElementById("input-hive-username")?.value || "").trim().replace(/^@/, "").toLowerCase();
-      if (!raw) {
-        showToast("Enter a Hive @username first.");
-        return;
-      }
-      if (!hasKeychain()) {
-        state.username = raw;
-        state.isGuest = false;
-        applyVipTesterPerks();
-        saveState(`Set @${raw} (install Hive Keychain extension for signing)`);
-        renderModalContent("keychain");
-        return;
-      }
-      window.hive_keychain.requestSignBuffer(
-        raw,
-        `${GAME_NAME} login:${raw}:${Date.now()}`,
-        "Posting",
-        (resp) => {
-          if (resp && resp.success) {
-            state.username = raw;
-            state.isGuest = false;
-            applyVipTesterPerks();
-            saveState(`Connected as @${raw} via Hive Keychain!`);
-            refreshElixirStake();
-          } else {
-            showToast(resp?.message || "Keychain signature rejected.");
-          }
-          renderModalContent("keychain");
-        }
-      );
-    },
-    useGuestMode: () => {
-      state.isGuest = true;
-      saveState("Switched to Guest Mode (local save active)");
-      renderModalContent("keychain");
-    },
-    saveToKeychain: () => {
-      if (state.isGuest || !state.username) {
-        showToast("Log in with Hive Keychain first to save to your account.");
-        openModal("keychain");
-        return;
-      }
-      if (!hasKeychain()) {
-        showToast("Hive Keychain extension not detected.");
-        return;
-      }
-      const payloadStr = JSON.stringify(serializeSavePayload());
-      if (typeof window.hive_keychain.requestCustomJson === "function") {
-        window.hive_keychain.requestCustomJson(
-          state.username,
-          `${GAME_NAME.toLowerCase()}_save_v15`,
-          "Posting",
-          payloadStr,
-          `Save ${GAME_NAME} Progress (@${state.username})`,
-          (resp) => {
-            if (resp && resp.success) {
-              saveState(`Saved game progress to Hive Keychain for @${state.username}!`);
-            } else {
-              showToast(resp?.message || "Hive Keychain save was cancelled.");
-            }
-          }
-        );
-      } else if (typeof window.hive_keychain.requestSignBuffer === "function") {
-        window.hive_keychain.requestSignBuffer(
-          state.username,
-          payloadStr,
-          "Posting",
-          (resp) => {
-            if (resp && resp.success) {
-              saveState(`Signed & saved game progress for @${state.username}!`);
-            } else {
-              showToast(resp?.message || "Hive Keychain sign cancelled.");
-            }
-          }
-        );
-      } else {
-        showToast("Keychain custom_json / signBuffer unavailable.");
-      }
-    },
-    loadFromKeychain: async () => {
-      if (state.isGuest || !state.username) {
-        showToast("Log in with Hive Keychain first to load your account save.");
-        openModal("keychain");
-        return;
-      }
-      const acct = state.username;
-      let loaded = false;
-      for (const rpc of HIVE_RPCS) {
-        try {
-          const res = await fetch(rpc, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "condenser_api.get_account_history",
-              params: [acct, -1, 100]
-            })
-          });
-          const data = await res.json();
-          const history = Array.isArray(data?.result) ? data.result.slice().reverse() : [];
-          for (const entry of history) {
-            const op = entry?.[1]?.op;
-            if (!Array.isArray(op) || op[0] !== "custom_json") continue;
-            const opData = op[1] || {};
-            if (opData.id !== `${GAME_NAME.toLowerCase()}_save_v15`) continue;
-            const parsed = JSON.parse(opData.json || "{}");
-            if (parsed && parsed.game === GAME_NAME) {
-              loaded = applyLoadedSaveData(parsed);
-              if (loaded) break;
-            }
-          }
-          if (loaded) break;
-        } catch {}
-      }
-      if (loaded) {
-        saveState(`Loaded @${acct}'s Hive Keychain save with purchases & progress intact!`);
-        if (activeModalTab) renderModalContent(activeModalTab);
-      } else {
-        showToast(`No ${GAME_NAME} save found on @${acct}'s recent Hive history.`);
-      }
-    },
-    exportSaveJson: () => {
-      const raw = JSON.stringify(serializeSavePayload(), null, 2);
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(raw).then(() => showToast("Save JSON copied to clipboard!")).catch(() => showToast("Clipboard unavailable."));
-      } else {
-        showToast("Clipboard unavailable in this browser.");
-      }
-    },
-    resetProgress: () => {
-      if (nextStageTimer) {
-        clearTimeout(nextStageTimer);
-        nextStageTimer = null;
-      }
-      const keepUser = state.username;
-      const keepGuest = state.isGuest;
-      localStorage.removeItem(STORAGE_KEY);
-      state = defaultState();
-      state.username = keepUser;
-      state.isGuest = keepGuest;
-      applyVipTesterPerks();
-      saveState("Local progress reset.");
-      buildStage(1, false, true);
+      saveState(`Bundle unlocked: ${label}!`);
     }
-  };
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function buyConsumableWithHoney(id) {
+    const def = CONSUMABLES.find(c => c.id === id);
+    if (!def || !def.honeyCost) return;
+    if (state.honey < def.honeyCost) {
+      showToast(`Need ${def.honeyCost} Honey.`);
+      return;
+    }
+    state.honey -= def.honeyCost;
+    state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
+    AudioEngine.playSfx("pickup");
+    saveState(`Bought +1 ${def.name} for ${def.honeyCost} Honey!`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function equipSuit(id) {
+    if (!state.unlockedSuits.includes(id)) return;
+    state.equippedSuit = id;
+    const su = getSuit(id);
+    world.player.maxHp = su.maxHp;
+    world.player.hp = Math.min(su.maxHp, Math.max(world.player.hp, Math.round(su.maxHp * 0.6)));
+    saveState(`Equipped ${su.name}`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function equipCooldown(slot, id) {
+    if (!state.ownedCooldowns.includes(id)) return;
+    const otherSlot = slot === 0 ? 1 : 0;
+    if (state.equippedCooldowns[otherSlot] === id) {
+      state.equippedCooldowns[otherSlot] = state.equippedCooldowns[slot];
+    }
+    state.equippedCooldowns[slot] = id;
+    saveState(`Equipped ${getCooldownDef(id)?.name} in Slot ${slot + 1}`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function toggleSquadMember(name) {
+    const idx = state.selectedSquad.indexOf(name);
+    if (idx >= 0) {
+      state.selectedSquad.splice(idx, 1);
+    } else {
+      if (state.selectedSquad.length >= 3) state.selectedSquad.shift();
+      state.selectedSquad.push(name);
+    }
+    saveState();
+    if (activeModalTab === "squad") renderModalContent("squad");
+  }
+
+  function addSquadMember() {
+    const inp = document.getElementById("new-squad-user");
+    const clean = (inp?.value || "").trim().replace(/^@/, "").toLowerCase();
+    if (!clean) return;
+    if (!state.knownSquadmates.includes(clean)) state.knownSquadmates.push(clean);
+    if (state.selectedSquad.length < 3 && !state.selectedSquad.includes(clean)) state.selectedSquad.push(clean);
+    inp.value = "";
+    saveState(`Added @${clean} to squad roster`);
+    if (activeModalTab === "squad") renderModalContent("squad");
+  }
+
+  function postSnap(broadcast) {
+    const inp = document.getElementById("snap-input");
+    const text = (inp?.value || "").trim();
+    if (!text) return;
+    const author = !state.isGuest && state.username ? state.username : "guest_bee";
+    state.snapsFeed.unshift({ author, text, time: "Just now" });
+    if (state.snapsFeed.length > 30) state.snapsFeed.length = 30;
+    inp.value = "";
+    saveState("Posted to Hive Snaps!");
+    if (activeModalTab === "snaps") renderModalContent("snaps");
+
+    if (broadcast) {
+      if (state.isGuest || !state.username || !hasKeychain()) {
+        showToast("Saved locally. Connect Hive Keychain to broadcast on-chain.");
+        return;
+      }
+      const payload = JSON.stringify({ app: "swarmbreaker", stage: world.stage.id, snap: text });
+      window.hive_keychain.requestCustomJson(state.username, "swarmbreaker_snap", "Posting", payload, "Swarmbreaker Hive Snap", (resp) => {
+        showToast(resp?.success ? "Broadcasted Hive Snap on-chain!" : (resp?.message || "Broadcast cancelled."));
+      });
+    }
+  }
+
+  function downloadSaveFile() {
+    const jsonStr = JSON.stringify(serializeSavePayload(), null, 2);
+    const area = document.getElementById("save-json-area");
+    if (area) area.value = jsonStr;
+    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const who = !state.isGuest && state.username ? state.username : "guest";
+    a.href = url;
+    a.download = `swarmbreaker-save-${who}-stage${state.currentStageId || 1}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("Downloaded Swarmbreaker save file (.json)!");
+  }
+
+  function handleSaveFileUpload(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || ""));
+        if (applyLoadedSaveData(parsed)) {
+          showToast("Save file loaded successfully!");
+          if (activeModalTab === "keychain") renderModalContent("keychain");
+        } else {
+          showToast("Invalid save file format.");
+        }
+      } catch {
+        showToast("Could not parse save file JSON.");
+      }
+      event.target.value = "";
+    };
+    reader.readAsText(file);
+  }
+
+  function copySaveJson() {
+    const txt = JSON.stringify(serializeSavePayload(), null, 2);
+    const area = document.getElementById("save-json-area");
+    if (area) area.value = txt;
+    navigator.clipboard?.writeText(txt).catch(() => {});
+    showToast("Copied save JSON to clipboard.");
+  }
+
+  function importSaveJson() {
+    const raw = document.getElementById("save-json-area")?.value || "";
+    try {
+      const parsed = JSON.parse(raw);
+      if (applyLoadedSaveData(parsed)) {
+        showToast("Imported save data!");
+        if (activeModalTab === "keychain") renderModalContent("keychain");
+      } else {
+        showToast("Invalid save JSON.");
+      }
+    } catch {
+      showToast("Invalid JSON format.");
+    }
+  }
+
+  function resetProgress() {
+    state = defaultState();
+    saveState("Progress reset to fresh Guest save.");
+    buildStage(1, false, false);
+    if (activeModalTab === "keychain") renderModalContent("keychain");
+  }
 
   window.openModal = openModal;
   window.closeModal = closeModal;
   window.buildStage = buildStage;
   window.togglePause = togglePause;
-  window.useConsumable = useConsumable;
+  window.__sb = {
+    toggleAudio: AudioEngine.toggle,
+    quickKeychainLogin,
+    loginWithKeychain,
+    logoutToGuest,
+    buyItemWithHive,
+    buyConsumableWithHoney,
+    useConsumableFromModal: (id) => { useConsumable(id); if (activeModalTab) renderModalContent(activeModalTab); },
+    equipSuit,
+    equipCooldown,
+    toggleSuitPreview: (id) => {
+      if (previewSuitIds.has(id)) previewSuitIds.delete(id);
+      else previewSuitIds.add(id);
+      if (activeModalTab) renderModalContent(activeModalTab);
+    },
+    pickPreStageSuit: (id) => { equipSuit(id); },
+    setPreStageCd: (slot, id) => { equipCooldown(slot, id); },
+    quickHoneyBuyPreStage: (id) => { buyConsumableWithHoney(id); },
+    togglePreStagePicker: (checked) => { state.showPreStagePicker = Boolean(checked); saveState(); },
+    maybeStartStageIntro: () => {
+      if (!paused && !isModalOpen() && state.lives > 0) {
+        startCutscene(buildStageCutscene(world.stage));
+      }
+    },
+    advanceCutscene,
+    skipCutscene: finishCutscene,
+    startHigherDifficultyRun,
+    toggleSquadMember,
+    addSquadMember,
+    postSnap,
+    refreshElixirStake,
+    summonNectarbytes,
+    downloadSaveFile,
+    handleSaveFileUpload,
+    copySaveJson,
+    importSaveJson,
+    resetProgress
+  };
 
-  document.getElementById("modal-backdrop").addEventListener("click", (e) => {
-    if (e.target.id === "modal-backdrop") closeModal();
-  });
-
-  function syncViewportLayout() {
-    const touchEl = document.getElementById("touch-controls");
-    const isMobileLike = window.matchMedia("(hover: none) and (pointer: coarse), (max-width: 900px)").matches;
-    if (touchEl) {
-      touchEl.classList.toggle("active", isMobileLike);
-    }
-  }
-
-  window.addEventListener("resize", syncViewportLayout);
-  window.addEventListener("orientationchange", syncViewportLayout);
-
-  syncViewportLayout();
-  AudioEngine.updateAudioBtn();
   buildStage(state.currentStageId || 1, false, false);
   updateHud();
   requestAnimationFrame(loop);
