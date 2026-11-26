@@ -4924,34 +4924,45 @@
     }
 
     function fetchHiveEngineBalance(username, symbol, callback) {
+      var cleanUser = stripLeadingAt(username);
+      var cleanSymbol = String(symbol || '').trim().toUpperCase();
+      if (!cleanUser || !cleanSymbol) {
+        callback('0');
+        return;
+      }
+
       var payload = JSON.stringify({
         jsonrpc: '2.0',
         method: 'find',
         params: {
           contract: 'tokens',
           table: 'balances',
-          query: { account: username, symbol: symbol }
+          query: { account: cleanUser, symbol: cleanSymbol }
         },
         id: 1
       });
 
-      fetch('[https://api.hive-engine.com/rpc/contracts](https://api.hive-engine.com/rpc/contracts)', {
+      fetch('https://api.hive-engine.com/rpc/contracts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload
       })
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        if (data && data.result && data.result.length > 0) {
-          callback(data.result[0].balance || '0');
-        } else {
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          if (data && Array.isArray(data.result) && data.result.length > 0) {
+            callback(data.result[0].balance || '0');
+          } else {
+            callback('0');
+          }
+        })
+        .catch(function () {
           callback('0');
-        }
-      })
-      .catch(function() {
-        callback('0');
-      });
+        });
     }
+
 
     function setMode(m) {
       appState.mode = m;
