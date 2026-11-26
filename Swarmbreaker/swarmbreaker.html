@@ -707,6 +707,11 @@
       box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.4);
     }
 
+    .card.promo-card {
+      border-color: rgba(244, 114, 182, 0.55);
+      background: linear-gradient(180deg, rgba(30, 41, 68, 0.96), rgba(20, 27, 46, 0.98));
+    }
+
     .card-title { font-weight: 700; font-size: 0.88rem; }
     .card-meta { font-size: 0.74rem; color: var(--muted); }
     .card-desc { font-size: 0.78rem; color: #e2e8f0; line-height: 1.35; }
@@ -1436,6 +1441,22 @@
     return gained;
   }
 
+  function resumeBeatriceFromCheckpoint() {
+    const p = world.player;
+    const suit = getSuit(state.equippedSuit);
+    p.maxHp = suit.maxHp;
+    p.hp = suit.maxHp;
+    p.shield = 0;
+    p.vx = 0;
+    p.vy = 0;
+    p.x = Math.max(20, Math.min(world.worldWidth - p.w - 20, p.checkpoint?.x ?? 90));
+    p.y = Math.min(FLOOR_Y - p.h, p.checkpoint?.y ?? (FLOOR_Y - p.h));
+    p.onGround = true;
+    p.invuln = 1.35;
+    clearAllInputs();
+    updateHud();
+  }
+
   function showToast(msg) {
     const el = document.getElementById("toast");
     el.textContent = msg;
@@ -1639,7 +1660,7 @@
       titleEl.textContent = "Hive Keychain Login, Guest Onboarding & Save Management";
       bodyEl.innerHTML = renderKeychainModal();
     } else if (tabName === "gameover") {
-      titleEl.textContent = "0 Lives Left — Buy More or Start Over From Stage 1";
+      titleEl.textContent = "Beatrice Out of Lives — Hive Shop & Gear Spotlight";
       bodyEl.innerHTML = renderGameOverModal();
     }
   }
@@ -3370,7 +3391,8 @@
     AudioEngine.playSfx("hit");
 
     if (state.lives <= 0) {
-      saveState("0 lives remaining — buy more lives or start over from Stage 1!");
+      p.hp = 0;
+      saveState("0 lives remaining — check the Hive Shop offer & power-up prompts!");
       openModal("gameover");
       return;
     }
@@ -4602,44 +4624,48 @@
     const p = world.player;
     const suit = getSuit(state.equippedSuit);
 
-    document.getElementById("hud-stage-label").textContent =
-      `Wing ${st.wing} · Stage ${st.id}/38: ${st.worldTitle}`;
-    document.getElementById("hud-account").textContent =
-      state.isGuest || !state.username ? "Guest" : (isVipTester() ? `@${state.username} (VIP)` : `@${state.username}`);
-    document.getElementById("hud-lives").textContent = `❤️ ${state.lives}/${MAX_LIVES}`;
-    document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
-    document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
-    document.getElementById("hud-elixir").textContent =
-      `⚡ ELIXIR: ${Number(state.stakedElixir || 0)}/100 Stake`;
+    document.getElementById("hud-stage-label").textContent = `Wing ${st.wing} · Stage ${st.id}/38: ${st.name}`;
+    const accEl = document.getElementById("hud-account");
+    if (state.isGuest || !state.username) {
+      accEl.textContent = "Guest Mode";
+      accEl.className = "pill ok";
+    } else {
+      accEl.textContent = isVipTester() ? `@${state.username} (TEST VIP)` : `@${state.username}`;
+      accEl.className = "pill gold";
+    }
 
     const loginBtn = document.getElementById("btn-keychain-login");
     if (loginBtn) {
-      loginBtn.textContent = state.isGuest || !state.username
-        ? "🔑 Login"
-        : (isVipTester() ? `👑 @${state.username}` : `🔑 @${state.username}`);
+      loginBtn.textContent = (!state.isGuest && state.username)
+        ? (isVipTester() ? `👑 @${state.username}` : `🔑 @${state.username}`)
+        : "🔑 Keychain Login";
     }
 
-    const pauseBtn = document.getElementById("btn-desktop-pause");
-    if (pauseBtn) pauseBtn.textContent = paused ? "Resume (P)" : "Pause (P)";
-    const mobPauseBtn = document.getElementById("btn-mobile-pause");
-    if (mobPauseBtn) mobPauseBtn.textContent = paused ? "▶" : "⏸";
+    const banner = document.getElementById("guest-banner");
+    if (banner) {
+      banner.classList.toggle("visible", Boolean(state.isGuest || !state.username));
+    }
 
-    const pauseOverlay = document.getElementById("pause-overlay-cta");
-    if (pauseOverlay) pauseOverlay.classList.toggle("visible", paused && !isModalOpen());
+    const livesEl = document.getElementById("hud-lives");
+    if (livesEl) {
+      livesEl.textContent = `❤️ ${state.lives}/${MAX_LIVES}`;
+      livesEl.className = state.lives <= 1 ? "pill danger" : "pill ok";
+    }
 
-    document.getElementById("guest-banner").classList.toggle("visible", Boolean(state.isGuest || !state.username));
+    document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
+    document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
+    document.getElementById("hud-elixir").textContent = `⚡ ELIXIR: ${Number(state.stakedElixir || 0)}/100 Stake`;
 
-    const hpPct = Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100));
-    document.getElementById("hud-hp-text").textContent =
-      `HP ${Math.max(0, Math.round(p.hp))} / ${p.maxHp}${p.shield > 0 ? ` (+${Math.round(p.shield)}🛡️)` : ""}`;
-    document.getElementById("hud-hp-bar").style.width = `${hpPct}%`;
+    const hpNow = Math.max(0, Math.round(p.hp));
+    document.getElementById("hud-hp-text").textContent = `HP ${hpNow} / ${p.maxHp}${p.shield > 0 ? ` (+${p.shield})` : ""}`;
+    document.getElementById("hud-hp-bar").style.width = `${Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100))}%`;
 
     const bossBox = document.getElementById("hud-boss-box");
     if (world.boss) {
       bossBox.style.display = "block";
-      const bPct = Math.max(0, Math.min(100, (world.boss.hp / world.boss.maxHp) * 100));
-      document.getElementById("hud-boss-name").textContent = `${world.boss.name} · ${Math.ceil(bPct)}%`;
-      document.getElementById("hud-boss-bar").style.width = `${bPct}%`;
+      const pct = Math.max(0, Math.min(100, (world.boss.hp / world.boss.maxHp) * 100));
+      document.getElementById("hud-boss-name").textContent = `${world.boss.name} · ${Math.round(pct)}%`;
+      document.getElementById("hud-boss-bar").style.width = `${pct}%`;
     } else {
       bossBox.style.display = "none";
     }
@@ -4647,91 +4673,83 @@
     const sumBox = document.getElementById("hud-summon-box");
     if (world.summon.active) {
       sumBox.style.display = "block";
-      const sPct = Math.max(0, Math.min(100, (world.summon.timer / world.summon.maxTimer) * 100));
+      const pct = Math.max(0, Math.min(100, (world.summon.timer / world.summon.maxTimer) * 100));
       document.getElementById("hud-summon-text").textContent = `@nectarbytes · ${world.summon.timer.toFixed(1)}s`;
-      document.getElementById("hud-summon-bar").style.width = `${sPct}%`;
+      document.getElementById("hud-summon-bar").style.width = `${pct}%`;
     } else {
       sumBox.style.display = "none";
     }
 
-    const cd0Def = getCooldownDef(state.equippedCooldowns[0]);
-    const cd1Def = getCooldownDef(state.equippedCooldowns[1]);
-    const cd0Label = cd0Def
-      ? (p.cdTimers[0] > 0 ? `${cd0Def.name} (${p.cdTimers[0].toFixed(1)}s)` : `${cd0Def.name} [RDY]`)
-      : "Empty";
-    const cd1Label = cd1Def
-      ? (p.cdTimers[1] > 0 ? `${cd1Def.name} (${p.cdTimers[1].toFixed(1)}s)` : `${cd1Def.name} [RDY]`)
-      : "Empty";
-
-    const vialCount = state.consumableStock.royal_vial || 0;
-    const shieldCount = state.consumableStock.honey_shield || 0;
-    const pulseCount = state.consumableStock.mite_pulse || 0;
-    const magnetCount = state.consumableStock.magnet_charm || 0;
-    const beaconCount = state.consumableStock.checkpoint_beacon || 0;
-    const activeWards = world.barriers.filter(b => !b.broken).length;
+    const c0 = getCooldownDef(state.equippedCooldowns[0]);
+    const c1 = getCooldownDef(state.equippedCooldowns[1]);
+    const t0 = p.cdTimers[0] > 0 ? `${p.cdTimers[0].toFixed(1)}s` : "RDY";
+    const t1 = p.cdTimers[1] > 0 ? `${p.cdTimers[1].toFixed(1)}s` : "RDY";
+    const sumStatus = world.summon.active
+      ? `ACTIVE (${world.summon.timer.toFixed(1)}s)`
+      : (p.stageSummonUsed ? "Used this stage" : (Number(state.stakedElixir || 0) >= 100 || isVipTester() ? "READY [R]" : "Need 100+ Stake"));
 
     document.getElementById("hud-abilities").textContent =
-      `Spec1[K/X]: ${cd0Label} · Spec2[L/C]: ${cd1Label} · [1]Vial:${vialCount} [2]Shield:${shieldCount} [3]Pulse:${pulseCount} [4]Magnet:${magnetCount} [5]Beacon:${beaconCount}${activeWards > 0 ? ` · Ward Locks:${activeWards}` : ""} · [R]Summon:${p.stageSummonUsed ? "Used" : "Ready"}`;
+      `[K/X] S1 ${c0 ? c0.name : "None"} (${t0}) · [L/C] S2 ${c1 ? c1.name : "None"} (${t1}) · [1] Vial:${state.consumableStock.royal_vial || 0} · [2] Shield:${state.consumableStock.honey_shield || 0} · [R] @nectarbytes: ${sumStatus}`;
 
-    const btn1 = document.getElementById("btn-cd1");
-    const btn2 = document.getElementById("btn-cd2");
-    const btnHeal = document.getElementById("btn-heal");
-    if (btn1) btn1.innerHTML = p.cdTimers[0] > 0 ? `S1<br/>${p.cdTimers[0].toFixed(1)}s` : `S1<br/>RDY`;
-    if (btn2) btn2.innerHTML = p.cdTimers[1] > 0 ? `S2<br/>${p.cdTimers[1].toFixed(1)}s` : `S2<br/>RDY`;
-    if (btnHeal) btnHeal.textContent = `🧪 ${vialCount}`;
-  }
+    const b1 = document.getElementById("btn-cd1");
+    const b2 = document.getElementById("btn-cd2");
+    const bHeal = document.getElementById("btn-heal");
+    if (b1) b1.innerHTML = `${c0 ? c0.name.split(" ")[0] : "S1"}<br/>${p.cdTimers[0] > 0 ? p.cdTimers[0].toFixed(1) + "s" : "RDY"}`;
+    if (b2) b2.innerHTML = `${c1 ? c1.name.split(" ")[0] : "S2"}<br/>${p.cdTimers[1] > 0 ? p.cdTimers[1].toFixed(1) + "s" : "RDY"}`;
+    if (bHeal) bHeal.textContent = `🧪 ${state.consumableStock.royal_vial || 0}`;
 
-  function renderGameOverModal() {
-    return `
-      <div class="warn-box">
-        <strong>0 Lives Remaining!</strong> Beatrice ran out of lives (${MAX_LIVES} max). You can purchase extra lives with HIVE (<strong>${EXTRA_LIFE_HIVE_PRICE} HIVE</strong> each) or start fresh from <strong>Stage 1</strong>.
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="primary" onclick="window.__sb.buyExtraLivesWithHive(1)">❤️ Buy +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
-        <button class="accent" onclick="window.__sb.buyExtraLivesWithHive(3)">❤️❤️❤️ Buy +3 Lives (${(parseFloat(EXTRA_LIFE_HIVE_PRICE) * 3).toFixed(3)} HIVE)</button>
-        <button class="danger" onclick="window.__sb.startFreshFromStageOne()">↺ Start Over From Stage 1</button>
-      </div>`;
+    const pauseBtnDesktop = document.getElementById("btn-desktop-pause");
+    const pauseBtnMobile = document.getElementById("btn-mobile-pause");
+    const pauseCta = document.getElementById("pause-overlay-cta");
+    if (pauseBtnDesktop) pauseBtnDesktop.textContent = paused ? "Resume (P)" : "Pause (P)";
+    if (pauseBtnMobile) pauseBtnMobile.textContent = paused ? "▶" : "⏸";
+    if (pauseCta) pauseCta.classList.toggle("visible", paused && !isModalOpen());
   }
 
   function renderStagesModal() {
-    const cards = STAGES.map(st => {
-      const cleared = state.completedStages.includes(st.id);
-      const current = st.id === state.currentStageId;
-      const badge = st.climax === "queen" ? "👑 FINAL MEGA BOSS" : (st.climax === "boss" ? "⚔️ BOSS + LOOT CHEST" : "🐝 PRINCESS RESCUE");
-      return `
-        <div class="card ${current ? "selected" : ""}">
-          <div>
-            <div class="card-title">Stage ${st.id}: ${st.worldTitle}</div>
-            <div class="card-meta">Wing ${st.wing} · ${st.name} · ${badge} ${cleared ? "· Cleared ✓" : ""}</div>
-            <div class="card-desc" style="margin-top:4px;">${st.note}</div>
-          </div>
-          <button class="${current ? "primary" : ""}" onclick="window.__sb.selectStage(${st.id})">
-            ${current ? "Play Current Stage" : "Jump to Stage"}
-          </button>
-        </div>`;
-    }).join("");
-    return `<div class="notice-box">All 38 community stages are selectable anytime for testing and exploration.</div><div class="grid-cards">${cards}</div>`;
+    return `
+      <div class="notice-box">
+        <strong>4 Wings · 38 Worlds (LeoFinance Excluded):</strong> Stages 1–36 feature Princess rescues and Stage Boss Loot Chests; Stage 37 is the Outer Sanctum Gates bonus run; Stage 38 (Town Square — Queen's Sanctum) is the Mega Boss finale for Queen Nectaria.
+      </div>
+      <div class="grid-cards">
+        ${STAGES.map(s => {
+          const cleared = state.completedStages.includes(s.id);
+          const current = world.stage.id === s.id;
+          const badge = s.climax === "queen" ? "👑 Mega Boss" : (s.climax === "boss" ? "⚔️ Boss Loot" : "👸 Princess");
+          return `
+            <div class="card ${current ? "selected" : ""}">
+              <div>
+                <div class="card-title">Stage ${s.id}: ${escapeHtml(s.name)}</div>
+                <div class="card-meta">Wing ${s.wing} · ${escapeHtml(s.worldTitle)} · ${badge}</div>
+                <div class="card-desc" style="margin-top:4px;">${escapeHtml(s.note)}</div>
+              </div>
+              <button class="${current ? "primary" : ""}" onclick="closeModal(); window.__sb.selectStage(${s.id});">
+                ${cleared ? "Replay Stage" : "Enter Stage"}
+              </button>
+            </div>`;
+        }).join("")}
+      </div>`;
   }
 
   function renderLoadoutModal() {
-    const suitCards = SUITS.map(su => {
+    const suitHtml = SUITS.map(su => {
       const owned = state.unlockedSuits.includes(su.id);
       const equipped = state.equippedSuit === su.id;
-      const unlockText = su.unlock === "starter" ? "Starter Suit" : (su.unlock === "loot_drop" ? "Boss Loot Drop" : `HIVE Shop (${su.priceHive} HIVE)`);
+      const unlockText = su.unlock === "starter" ? "Starter Suit" : (su.unlock === "loot_drop" ? "Boss Loot Chest Drop" : `HIVE Shop (${su.priceHive} HIVE)`);
       return `
         <div class="card ${equipped ? "selected" : ""}">
           <div>
             <div class="card-title">${su.name}</div>
-            <div class="card-meta">HP ${su.maxHp} · Speed ${su.speed} · Jump ${su.jump} · ${unlockText}</div>
+            <div class="card-meta">${owned ? "Unlocked" : unlockText} · HP ${su.maxHp} · Speed ${su.speed}</div>
             <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
           </div>
           ${owned
             ? `<button class="${equipped ? "primary" : ""}" onclick="window.__sb.equipSuit('${su.id}')">${equipped ? "Equipped ✓" : "Equip Suit"}</button>`
-            : `<button onclick="openModal('shop')">Unlock in Shop</button>`}
+            : `<button onclick="openModal('shop')">Get in HIVE Shop</button>`}
         </div>`;
     }).join("");
 
-    const cdCards = COOLDOWN_POWERUPS.map(cd => {
+    const cdHtml = COOLDOWN_POWERUPS.map(cd => {
       const owned = state.ownedCooldowns.includes(cd.id);
       const s0 = state.equippedCooldowns[0] === cd.id;
       const s1 = state.equippedCooldowns[1] === cd.id;
@@ -4744,18 +4762,15 @@
           </div>
           ${owned
             ? `<div style="display:flex;gap:6px;">
-                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.equipCd(0, '${cd.id}')">${s0 ? "Slot 1 [K/X] ✓" : "Slot 1 [K/X]"}</button>
-                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.equipCd(1, '${cd.id}')">${s1 ? "Slot 2 [L/C] ✓" : "Slot 2 [L/C]"}</button>
+                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.equipCooldown(0, '${cd.id}')">${s0 ? "Slot 1 ✓" : "Equip Slot 1"}</button>
+                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.equipCooldown(1, '${cd.id}')">${s1 ? "Slot 2 ✓" : "Equip Slot 2"}</button>
               </div>`
-            : `<button onclick="openModal('shop')">Buy in Shop</button>`}
+            : `<button onclick="openModal('shop')">Buy (${cd.priceHive} HIVE)</button>`}
         </div>`;
     }).join("");
 
-    const consCards = CONSUMABLES.map(c => {
+    const consHtml = CONSUMABLES.map(c => {
       const qty = state.consumableStock[c.id] || 0;
-      const honeyBtn = c.honeyCost
-        ? `<button onclick="window.__sb.buyConsumableWithHoney('${c.id}')">Buy 1 (${c.honeyCost} 🍯)</button>`
-        : `<button onclick="openModal('shop')">Buy in Shop (${c.priceHive} HIVE)</button>`;
       return `
         <div class="card">
           <div>
@@ -4764,121 +4779,388 @@
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="primary" onclick="window.__sb.useConsumable('${c.id}')">Use Now</button>
-            ${honeyBtn}
+            ${c.honeyCost ? `<button onclick="window.__sb.buyConsumableWithHoney('${c.id}')">Buy (${c.honeyCost} Honey)</button>` : ""}
           </div>
         </div>`;
     }).join("");
 
-    return `<div><strong>Suits</strong></div><div class="grid-cards">${suitCards}</div><div><strong>Special Cooldown Loadout</strong></div><div class="grid-cards">${cdCards}</div><div><strong>Consumables</strong></div><div class="grid-cards">${consCards}</div>`;
+    return `
+      <div><strong>Suits (Starter, Boss Loot Drops &amp; HIVE Shop Exclusives)</strong></div>
+      <div class="grid-cards">${suitHtml}</div>
+      <div><strong>Cooldown Power-Ups (Equip up to 2: Slot 1 = K/X, Slot 2 = L/C)</strong></div>
+      <div class="grid-cards">${cdHtml}</div>
+      <div><strong>Consumables (Hotkeys 1–5)</strong></div>
+      <div class="grid-cards">${consHtml}</div>`;
   }
 
   function renderShopModal() {
-    const shopSuits = SUITS.filter(s => s.unlock === "shop").map(s => {
-      const owned = state.unlockedSuits.includes(s.id);
-      return `<div class="card"><div><div class="card-title">${s.name}</div><div class="card-meta">Price: ${s.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div><div class="card-desc">${s.desc}</div></div>${owned ? `<button disabled>Owned ✓</button>` : `<button class="primary" onclick="window.__sb.buyHiveItem('suit', '${s.id}', '${s.priceHive}', '${escapeHtml(s.name)}')">Pay ${s.priceHive} HIVE</button>`}</div>`;
-    }).join("");
-
-    const shopCds = COOLDOWN_POWERUPS.map(cd => {
-      const owned = state.ownedCooldowns.includes(cd.id);
-      return `<div class="card"><div><div class="card-title">${cd.name} (${cd.cd}s CD)</div><div class="card-meta">${cd.cat} · ${cd.priceHive} HIVE</div><div class="card-desc">${cd.desc}</div></div>${owned ? `<button disabled>Owned ✓</button>` : `<button class="primary" onclick="window.__sb.buyHiveItem('cd', '${cd.id}', '${cd.priceHive}', '${escapeHtml(cd.name)}')">Pay ${cd.priceHive} HIVE</button>`}</div>`;
-    }).join("");
-
-    const shopBundles = STARTER_BUNDLES.map(b => `<div class="card"><div><div class="card-title">${b.name}</div><div class="card-meta">${b.priceHive} HIVE</div><div class="card-desc">${b.desc}</div></div><button class="primary" onclick="window.__sb.buyHiveItem('bundle', '${b.id}', '${b.priceHive}', '${escapeHtml(b.name)}')">Pay ${b.priceHive} HIVE</button></div>`).join("");
-
-    const shopCons = CONSUMABLES.map(c => {
-      const qty = state.consumableStock[c.id] || 0;
-      const honeyBtn = c.honeyCost ? `<button onclick="window.__sb.buyConsumableWithHoney('${c.id}')">Buy (${c.honeyCost} 🍯)</button>` : "";
-      return `<div class="card"><div><div class="card-title">${c.name} (In Bag: ${qty})</div><div class="card-meta">${c.priceHive} HIVE${c.honeyCost ? ` or ${c.honeyCost} Honey` : ""}</div><div class="card-desc">${c.desc}</div></div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="primary" onclick="window.__sb.buyHiveItem('consumable', '${c.id}', '${c.priceHive}', '${escapeHtml(c.name)}')">${c.priceHive} HIVE</button>${honeyBtn}</div></div>`;
-    }).join("");
-
-    const extraLifeCard = `
+    const canResumeCheckpoint = state.lives > 0 && world.player.hp <= 0;
+    const bundleCards = STARTER_BUNDLES.map(b => `
       <div class="card">
         <div>
-          <div class="card-title">Extra Life (+1 ❤️, Max ${MAX_LIVES})</div>
-          <div class="card-meta">${EXTRA_LIFE_HIVE_PRICE} HIVE → @${PAYMENT_RECIPIENT} · Current: ${state.lives}/${MAX_LIVES}</div>
-          <div class="card-desc">Adds +1 ❤️ life up to the ${MAX_LIVES}-life cap (or buy +3 lives below).</div>
+          <div class="card-title">${b.name}</div>
+          <div class="card-meta">${b.priceHive} HIVE → @${PAYMENT_RECIPIENT}</div>
+          <div class="card-desc" style="margin-top:4px;">${b.desc}</div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="primary" ${state.lives >= MAX_LIVES ? "disabled" : ""} onclick="window.__sb.buyExtraLivesWithHive(1)">+1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
-          <button onclick="window.__sb.buyExtraLivesWithHive(3)">+3 Lives (${(parseFloat(EXTRA_LIFE_HIVE_PRICE) * 3).toFixed(3)} HIVE)</button>
-        </div>
-      </div>`;
+        <button class="primary" onclick="window.__sb.buyBundle('${b.id}')">Buy (${b.priceHive} HIVE)</button>
+      </div>`).join("");
 
-    return `<div class="notice-box">HIVE payments send directly to <strong>@${PAYMENT_RECIPIENT}</strong> via <strong>Hive Keychain</strong>. Guest mode can spend Honey on Royal Jelly Vials (${VIAL_HONEY_COST} 🍯).</div><div><strong>Lives &amp; HIVE Shop Suits</strong></div><div class="grid-cards">${extraLifeCard}${shopSuits}</div><div><strong>Starter &amp; Toolkit Bundles</strong></div><div class="grid-cards">${shopBundles}</div><div><strong>Cooldown Power-Ups</strong></div><div class="grid-cards">${shopCds}</div><div><strong>Consumables</strong></div><div class="grid-cards">${shopCons}</div>`;
+    const shopSuits = SUITS.filter(s => s.unlock === "shop").map(su => {
+      const owned = state.unlockedSuits.includes(su.id);
+      return `
+        <div class="card">
+          <div>
+            <div class="card-title">${su.name}</div>
+            <div class="card-meta">${su.priceHive} HIVE · HP ${su.maxHp} · Speed ${su.speed}</div>
+            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
+          </div>
+          ${owned
+            ? `<button onclick="window.__sb.equipSuit('${su.id}')">Owned — Equip</button>`
+            : `<button class="primary" onclick="window.__sb.buySuit('${su.id}')">Buy (${su.priceHive} HIVE)</button>`}
+        </div>`;
+    }).join("");
+
+    const cdCards = COOLDOWN_POWERUPS.map(cd => {
+      const owned = state.ownedCooldowns.includes(cd.id);
+      return `
+        <div class="card">
+          <div>
+            <div class="card-title">${cd.name} (${cd.cd}s CD)</div>
+            <div class="card-meta">${cd.cat} · ${cd.priceHive} HIVE</div>
+            <div class="card-desc" style="margin-top:4px;">${cd.desc}</div>
+          </div>
+          ${owned
+            ? `<button onclick="window.__sb.equipCooldown(0, '${cd.id}')">Owned — Slot 1</button>`
+            : `<button class="accent" onclick="window.__sb.buyCooldown('${cd.id}')">Buy (${cd.priceHive} HIVE)</button>`}
+        </div>`;
+    }).join("");
+
+    const consCards = CONSUMABLES.map(c => {
+      const qty = state.consumableStock[c.id] || 0;
+      return `
+        <div class="card">
+          <div>
+            <div class="card-title">${c.name} (Stock: ${qty})</div>
+            <div class="card-meta">${c.priceHive} HIVE${c.honeyCost ? ` or ${c.honeyCost} Honey` : ""}</div>
+            <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="primary" onclick="window.__sb.buyConsumableHive('${c.id}')">Buy (${c.priceHive} HIVE)</button>
+            ${c.honeyCost ? `<button onclick="window.__sb.buyConsumableWithHoney('${c.id}')">Buy (${c.honeyCost} 🍯)</button>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    return `
+      <div class="notice-box">
+        <strong>Lives &amp; HIVE Transfers:</strong> Lives cap at <strong>${MAX_LIVES}</strong> (currently <strong>${state.lives}/${MAX_LIVES}</strong>). HIVE purchases send a direct Keychain transfer to <strong>@${PAYMENT_RECIPIENT}</strong> with a unique memo.
+      </div>
+      <div class="card promo-card">
+        <div class="card-title">❤️ Extra Lives Refill (${state.lives}/${MAX_LIVES} Lives · 🍯 ${state.honey} Honey)</div>
+        <div class="card-desc">Top up lives with HIVE or spend ${VIAL_HONEY_COST} Honey on a Royal Jelly Vial (+45 HP).</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+          <button class="primary" onclick="window.__sb.buyExtraLivesWithHive(1)">+1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
+          <button class="accent" onclick="window.__sb.buyExtraLivesWithHive(3)">+3 Lives (${(parseFloat(EXTRA_LIFE_HIVE_PRICE) * 3).toFixed(3)} HIVE)</button>
+          <button onclick="window.__sb.buyConsumableWithHoney('royal_vial')">+1 Royal Jelly Vial (${VIAL_HONEY_COST} 🍯)</button>
+          ${canResumeCheckpoint ? `<button class="primary" onclick="closeModal(); window.__sb.resumeFromShop();">▶ Resume Stage</button>` : ""}
+        </div>
+      </div>
+      <div><strong>Starter Bundles</strong></div>
+      <div class="grid-cards">${bundleCards}</div>
+      <div><strong>HIVE Shop Exclusive Suits</strong></div>
+      <div class="grid-cards">${shopSuits}</div>
+      <div><strong>Cooldown Power-Ups</strong></div>
+      <div class="grid-cards">${cdCards}</div>
+      <div><strong>Consumables</strong></div>
+      <div class="grid-cards">${consCards}</div>`;
+  }
+
+  function renderGameOverModal() {
+    const ownedSuits = SUITS.filter(s => state.unlockedSuits.includes(s.id));
+    const ownedCds = COOLDOWN_POWERUPS.filter(c => state.ownedCooldowns.includes(c.id));
+    const shopSuits = SUITS.filter(s => s.unlock === "shop" && !state.unlockedSuits.includes(s.id));
+    const shopCds = COOLDOWN_POWERUPS.filter(c => !state.ownedCooldowns.includes(c.id)).slice(0, 2);
+    const vialStock = state.consumableStock.royal_vial || 0;
+
+    const suitQuickHtml = ownedSuits.map(su => {
+      const active = state.equippedSuit === su.id;
+      return `<button class="${active ? "primary" : ""}" onclick="window.__sb.gameoverEquipSuit('${su.id}')">${active ? `${su.name} ✓` : `Equip ${su.name}`}</button>`;
+    }).join(" ");
+
+    const cdQuickHtml = ownedCds.map(cd => {
+      const s0 = state.equippedCooldowns[0] === cd.id;
+      return `<button class="${s0 ? "primary" : ""}" onclick="window.__sb.gameoverEquipCd(0, '${cd.id}')">${s0 ? `${cd.name} (S1) ✓` : `Set S1: ${cd.name}`}</button>`;
+    }).join(" ");
+
+    const promoHtml = [
+      ...shopSuits.map(s => `
+        <div class="card promo-card">
+          <div>
+            <div class="card-title">🛡️ ${s.name}</div>
+            <div class="card-meta">Suit · ${s.priceHive} HIVE</div>
+            <div class="card-desc" style="margin-top:4px;">${s.desc}</div>
+          </div>
+          <button class="primary" onclick="window.__sb.buySuit('${s.id}')">Buy Suit (${s.priceHive} HIVE)</button>
+        </div>`),
+      ...shopCds.map(c => `
+        <div class="card promo-card">
+          <div>
+            <div class="card-title">⚡ ${c.name} (${c.cd}s CD)</div>
+            <div class="card-meta">${c.cat} Power-Up · ${c.priceHive} HIVE</div>
+            <div class="card-desc" style="margin-top:4px;">${c.desc}</div>
+          </div>
+          <button class="accent" onclick="window.__sb.buyCooldown('${c.id}')">Buy Power-Up (${c.priceHive} HIVE)</button>
+        </div>`)
+    ].join("");
+
+    return `
+      <div class="warn-box">
+        <strong>0 Lives Left for Beatrice!</strong> Refill lives to resume right at your checkpoint in <strong>${escapeHtml(world.stage.worldTitle)}</strong>, gear up with suits and special power-ups, or start over from Stage 1.
+      </div>
+      <div class="card promo-card">
+        <div class="card-title">🍯 Hive Shop Spotlight — Refill Lives (${state.lives}/${MAX_LIVES} · 🍯 ${state.honey} Honey)</div>
+        <div class="card-desc">Buying +1 or +3 lives immediately closes this screen and resumes Beatrice at her stage checkpoint with full HP.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          <button class="primary" onclick="window.__sb.buyExtraLivesWithHive(1)">❤️ +1 Life (${EXTRA_LIFE_HIVE_PRICE} HIVE)</button>
+          <button class="accent" onclick="window.__sb.buyExtraLivesWithHive(3)">❤️❤️❤️ +3 Lives (${(parseFloat(EXTRA_LIFE_HIVE_PRICE) * 3).toFixed(3)} HIVE)</button>
+          <button onclick="window.__sb.buyConsumableWithHoney('royal_vial')">🧪 +1 Royal Vial (${VIAL_HONEY_COST} 🍯 · Stock: ${vialStock})</button>
+          <button onclick="openModal('shop')">🛒 Full HIVE Shop</button>
+          <button class="danger" onclick="window.__sb.startFreshFromStageOne()">↺ Start Over From Stage 1</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🛡️ Quick-Swap Owned Suits &amp; Special Power-Ups</div>
+        <div class="card-meta">Owned Suits</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">${suitQuickHtml || "<span>None</span>"}</div>
+        <div class="card-meta">Owned Power-Ups (Special Slot 1 [K/X])</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">${cdQuickHtml || "<span>None</span>"}</div>
+      </div>
+      ${promoHtml ? `<div><strong>Recommended Suits &amp; Power-Ups</strong></div><div class="grid-cards">${promoHtml}</div>` : ""}`;
   }
 
   function renderSquadModal() {
-    const staked = Number(state.stakedElixir || 0);
-    const vip = isVipTester();
-    const canSummon = !state.isGuest && Boolean(state.username) && (vip || staked >= 100);
-    const squadChips = state.knownSquadmates.map(name => {
-      const active = state.selectedSquad.includes(name);
-      return `<button class="${active ? "primary" : ""}" onclick="window.__sb.toggleSquadmate('${escapeHtml(name)}')">@${escapeHtml(name)} ${active ? "✓" : ""}</button>`;
-    }).join(" ");
+    const stake = Number(state.stakedElixir || 0);
+    const canSummon = !state.isGuest && state.username && (stake >= 100 || isVipTester());
+    const squadCards = state.knownSquadmates.map(handle => {
+      const selected = state.selectedSquad.includes(handle);
+      return `
+        <div class="card ${selected ? "selected" : ""}">
+          <div>
+            <div class="card-title">@${escapeHtml(handle)}</div>
+            <div class="card-meta">${selected ? "Active Companion" : "Roster Member"}</div>
+          </div>
+          <button class="${selected ? "primary" : ""}" onclick="window.__sb.toggleSquadmate('${escapeJs(handle)}')">
+            ${selected ? "Selected ✓" : "Select"}
+          </button>
+        </div>`;
+    }).join("");
 
-    return `<div class="notice-box"><strong>@nectarbytes Summon Requirement:</strong> Connected @username + <strong>100+ staked ELIXIR</strong>${vip ? ` (<strong>@${TEST_VIP_ACCOUNT} VIP override active</strong>)` : ""}. Lasts <strong>20 seconds</strong> once per stage.</div><div class="card"><div class="card-title">Staked ELIXIR Status</div><div class="card-desc">Account: <strong>${state.isGuest || !state.username ? "Guest" : `@${escapeHtml(state.username)}`}</strong> · Staked ELIXIR: <strong>${staked}</strong></div><div style="display:flex;gap:8px;flex-wrap:wrap;"><button onclick="window.__sb.refreshElixir()">Refresh ELIXIR Stake</button><button class="primary" ${canSummon && !world.player.stageSummonUsed ? "" : "disabled"} onclick="closeModal(); window.__sb.summonNectarbytes();">${world.player.stageSummonUsed ? "Already Used This Stage" : "Summon @nectarbytes (20s)"}</button></div></div><div class="card"><div class="card-title">@username Squad Roster</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">${squadChips}</div><div style="display:flex;gap:8px;margin-top:8px;"><input type="text" id="input-squad-name" placeholder="Add @username (e.g. hivefriend)" /><button onclick="window.__sb.addSquadmate()">Add</button></div></div>`;
+    return `
+      <div class="notice-box">
+        <strong>@nectarbytes Summon Requirement:</strong> Requires Hive Keychain login and <strong>at least 100 staked ELIXIR</strong> on Hive Engine. Summons <strong>@nectarbytes</strong> for <strong>20 seconds</strong> (once per stage) with twin pistols, a two-sword top-spin, and a mega beam rifle on bosses!
+      </div>
+      <div class="card">
+        <div class="card-title">Current ELIXIR Stake: ${stake} / 100${isVipTester() ? " (@bulliontools VIP)" : ""}</div>
+        <div class="card-desc">Status: ${canSummon ? "Unlocked — press R or tap SUM in a stage!" : "Locked — login with Keychain and stake 100+ ELIXIR."}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          <button onclick="window.__sb.refreshElixirStake()">🔄 Refresh ELIXIR Stake</button>
+          <button class="primary" ${canSummon ? "" : "disabled"} onclick="closeModal(); window.__sb.summonNectarbytes();">⚡ Summon @nectarbytes Now</button>
+        </div>
+      </div>
+      <div><strong>Add @username Squadmate</strong></div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="new-squad-handle" placeholder="Enter Hive username (without @)" />
+        <button class="primary" onclick="window.__sb.addSquadmate()">Add</button>
+      </div>
+      <div class="grid-cards">${squadCards}</div>`;
   }
 
   function renderSnapsModal() {
-    const items = state.snapsFeed.map(item => `<div class="feed-item"><span class="feed-author">@${escapeHtml(item.author)}</span> <span class="card-meta">(${escapeHtml(item.time)})</span><div style="margin-top:4px;">${escapeHtml(item.text)}</div></div>`).join("");
-    return `<div class="notice-box">Post quick Hive Snaps updates or share stage milestones.</div><div style="display:flex;gap:8px;"><input type="text" id="input-snap-text" placeholder="Share a stage update or Hive Snap..." /><button class="primary" onclick="window.__sb.postSnap()">Post Snap</button></div><div class="feed-list">${items}</div>`;
+    const items = state.snapsFeed.map(item => `
+      <div class="feed-item">
+        <span class="feed-author">@${escapeHtml(item.author)}</span> <span class="card-meta">· ${escapeHtml(item.time)}</span>
+        <div style="margin-top:3px;">${escapeHtml(item.text)}</div>
+      </div>`).join("");
+
+    return `
+      <div class="notice-box">
+        <strong>Hive Snaps:</strong> Post quick updates and milestones in-game or broadcast to Hive via Keychain.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" id="snap-input" placeholder="Share a Hive Snap or stage milestone..." style="flex:1;min-width:220px;" />
+        <button class="primary" onclick="window.__sb.postSnap(false)">Post Snap</button>
+        <button class="accent" onclick="window.__sb.postSnap(true)">Broadcast on Hive</button>
+      </div>
+      <div class="feed-list">${items}</div>`;
   }
 
   function renderKeychainModal() {
-    return `<div class="notice-box"><strong>New to Hive?</strong> Get <strong>Hive Keychain</strong> and create a free account via <strong>Ecency</strong>.</div><div class="card"><div class="card-title">Hive Keychain Login</div><div style="display:flex;gap:8px;margin-top:6px;"><input type="text" id="input-hive-username" value="${escapeHtml(state.username || "")}" placeholder="Enter Hive @username (e.g. bulliontools)" /><button class="primary" onclick="window.__sb.loginKeychain()">Login with Keychain</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;"><button onclick="window.__sb.continueGuest()">Continue as Guest</button><button onclick="window.__sb.loginTestAccount('${TEST_VIP_ACCOUNT}')">Quick Test: @${TEST_VIP_ACCOUNT} (All Unlocked)</button><button class="danger" onclick="window.__sb.resetSave()">Reset Local Save</button></div></div>`;
+    return `
+      <div class="notice-box">
+        <strong>Hive Keychain &amp; Guest Mode:</strong> Play immediately in Guest Mode with local saves, or sign in with <strong>Hive Keychain</strong> for @username identity, HIVE shop transfers, and @nectarbytes summon verification. Need a free Hive account? Sign up via <a href="https://ecency.com/signup" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;text-decoration:underline;">Ecency</a>.
+      </div>
+      <div class="card">
+        <div class="card-title">Current Session: ${(!state.isGuest && state.username) ? `@${escapeHtml(state.username)}` : "Guest Mode"}</div>
+        <div class="card-meta">Lives: ${state.lives}/${MAX_LIVES} · Honey: ${state.honey} · Staked ELIXIR: ${Number(state.stakedElixir || 0)}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <input type="text" id="keychain-username-input" value="${escapeHtml(state.username || "")}" placeholder="Hive username (e.g. bulliontools)" style="max-width:260px;" />
+          <button class="primary" onclick="window.__sb.loginWithKeychainInput()">🔑 Sign In with Keychain</button>
+          <button onclick="window.__sb.switchToGuest()">Continue as Guest</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Save Data Controls</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+          <button class="danger" onclick="window.__sb.resetProgress()">↺ Reset Local Progress</button>
+        </div>
+      </div>`;
   }
 
-  function escapeHtml(str) {
-    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  async function requestKeychainLogin(username) {
+    const clean = String(username || "").trim().replace(/^@/, "").toLowerCase();
+    if (!clean) {
+      showToast("Enter a Hive username first.");
+      return false;
+    }
+    if (!window.hive_keychain) {
+      showToast("Hive Keychain extension not detected — staying in Guest Mode.");
+      return false;
+    }
+    return new Promise((resolve) => {
+      const memo = `${GAME_NAME} login:${clean}:${Date.now()}`;
+      window.hive_keychain.requestSignBuffer(clean, memo, "Posting", (resp) => {
+        if (resp && resp.success) {
+          state.username = clean;
+          state.isGuest = false;
+          applyVipTesterPerks();
+          saveState(`Signed in as @${clean}`);
+          refreshElixirStake().then(() => {
+            if (activeModalTab) renderModalContent(activeModalTab);
+          });
+          resolve(true);
+        } else {
+          showToast(resp?.message || "Keychain login cancelled.");
+          resolve(false);
+        }
+      });
+    });
   }
 
-  function requestKeychainTransfer(amountHive, memo, onSuccess) {
-    const amt = parseFloat(amountHive).toFixed(3);
+  async function requestHivePayment(amountStr, itemLabel, onSuccess) {
+    if (isVipTester()) {
+      onSuccess(`VIP-TEST-${Date.now()}`);
+      return;
+    }
     if (state.isGuest || !state.username) {
-      showToast("Connect Hive Keychain first to pay with HIVE.");
+      showToast("Login with Hive Keychain first to send HIVE.");
       openModal("keychain");
       return;
     }
-    if (window.hive_keychain && typeof window.hive_keychain.requestTransfer === "function") {
-      window.hive_keychain.requestTransfer(state.username, PAYMENT_RECIPIENT, amt, memo, "HIVE", (resp) => {
-        if (resp && resp.success) {
-          onSuccess(resp.result?.id || `tx_${Date.now()}`);
-        } else {
-          showToast(resp?.message || "Keychain transfer cancelled.");
-        }
-      });
-    } else {
-      const ok = confirm(`Hive Keychain extension not detected.\nSimulate test transfer of ${amt} HIVE from @${state.username} to @${PAYMENT_RECIPIENT}?\nMemo: ${memo}`);
-      if (ok) onSuccess(`sim_${Date.now()}`);
+    if (!window.hive_keychain) {
+      showToast("Hive Keychain extension not found.");
+      return;
     }
+    const orderId = `sb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const memo = `${GAME_NAME}|${itemLabel}|order:${orderId}`;
+    window.hive_keychain.requestTransfer(
+      state.username,
+      PAYMENT_RECIPIENT,
+      Number(amountStr).toFixed(3),
+      memo,
+      "HIVE",
+      (resp) => {
+        if (resp && resp.success) {
+          const txId = resp.result?.id || orderId;
+          state.redeemedOrders.push(txId);
+          onSuccess(txId);
+        } else {
+          showToast(resp?.message || "HIVE transfer cancelled.");
+        }
+      },
+      true
+    );
+  }
+
+  function grantBoughtSuit(id, labelPrefix = "") {
+    if (!state.unlockedSuits.includes(id)) state.unlockedSuits.push(id);
+    state.equippedSuit = id;
+    const su = getSuit(id);
+    world.player.maxHp = su.maxHp;
+    world.player.hp = su.maxHp;
+    saveState(`${labelPrefix}Unlocked & equipped ${su.name}!`);
+    if (activeModalTab) renderModalContent(activeModalTab);
+  }
+
+  function grantBoughtCooldown(id, labelPrefix = "") {
+    if (!state.ownedCooldowns.includes(id)) state.ownedCooldowns.push(id);
+    if (!state.equippedCooldowns[0]) state.equippedCooldowns[0] = id;
+    else if (!state.equippedCooldowns[1] && state.equippedCooldowns[0] !== id) state.equippedCooldowns[1] = id;
+    saveState(`${labelPrefix}Unlocked ${getCooldownDef(id).name}!`);
+    if (activeModalTab) renderModalContent(activeModalTab);
   }
 
   window.__sb = {
+    quickKeychainLogin: async () => {
+      if (!state.isGuest && state.username) {
+        openModal("keychain");
+        return;
+      }
+      const typed = document.getElementById("keychain-username-input")?.value || state.username || "";
+      if (typed.trim()) {
+        await requestKeychainLogin(typed);
+      } else {
+        openModal("keychain");
+      }
+    },
+    loginWithKeychainInput: async () => {
+      const val = document.getElementById("keychain-username-input")?.value || "";
+      await requestKeychainLogin(val);
+    },
+    switchToGuest: () => {
+      state.isGuest = true;
+      saveState("Switched to Guest Mode (local save)");
+      if (activeModalTab) renderModalContent(activeModalTab);
+    },
+    resetProgress: () => {
+      localStorage.removeItem(STORAGE_KEY);
+      state = defaultState();
+      buildStage(1, true, false);
+      saveState("Progress reset to Stage 1.");
+      if (activeModalTab) renderModalContent(activeModalTab);
+    },
+    startFreshFromStageOne: () => {
+      closeModal();
+      state.lives = STARTING_LIVES;
+      state.currentStageId = 1;
+      buildStage(1, true, false);
+      saveState("Started fresh from Stage 1!");
+    },
+    resumeFromShop: () => {
+      resumeBeatriceFromCheckpoint();
+      saveState("Resumed stage from checkpoint!");
+    },
     toggleAudio: () => AudioEngine.toggle(),
-    advanceCutscene,
-    skipCutscene: finishCutscene,
+    selectStage: (id) => buildStage(id, false, true),
     maybeStartStageIntro: () => {
-      if (!cutsceneActive && !paused && !isModalOpen() && world.stage) {
+      if (state.lives > 0 && !isModalOpen()) {
         startCutscene(buildStageCutscene(world.stage));
       }
     },
-    togglePreStagePicker: (checked) => {
-      state.showPreStagePicker = Boolean(checked);
-      saveState();
-    },
+    advanceCutscene,
+    skipCutscene: finishCutscene,
     pickPreStageSuit: (id) => {
       if (!state.unlockedSuits.includes(id)) return;
       state.equippedSuit = id;
       const su = getSuit(id);
       world.player.maxHp = su.maxHp;
-      world.player.hp = Math.min(su.maxHp, Math.max(world.player.hp, su.maxHp));
+      world.player.hp = su.maxHp;
       saveState(`Selected ${su.name}`);
       renderModalContent("prestage");
     },
     setPreStageCd: (slot, id) => {
       if (!state.ownedCooldowns.includes(id)) return;
       state.equippedCooldowns[slot] = id;
-      saveState(`Equipped ${getCooldownDef(id).name} to Special ${slot + 1}`);
+      saveState(`Set ${getCooldownDef(id).name} to Special ${slot + 1}`);
       renderModalContent("prestage");
     },
     quickHoneyBuyPreStage: (id) => {
@@ -4889,64 +5171,43 @@
       saveState(`Bought +1 ${c.name}`);
       renderModalContent("prestage");
     },
-    selectStage: (id) => {
-      closeModal();
-      buildStage(id, false, false);
-    },
-    startFreshFromStageOne: () => {
-      state.lives = STARTING_LIVES;
-      state.bonusLifeAwardedStages = [];
-      state.completedStages = [];
-      state.queenRescued = false;
-      closeModal();
-      buildStage(1, true, false);
-      showToast(`Started fresh from Stage 1 with ${STARTING_LIVES} lives!`);
-    },
-    buyExtraLivesWithHive: (count) => {
-      const qty = Math.max(1, Math.floor(count));
-      const room = MAX_LIVES - state.lives;
-      if (room <= 0) {
-        showToast(`Lives already at max (${MAX_LIVES}/${MAX_LIVES})!`);
-        return;
-      }
-      const actualGrant = Math.min(qty, room);
-      const totalHive = (parseFloat(EXTRA_LIFE_HIVE_PRICE) * qty).toFixed(3);
-      requestKeychainTransfer(totalHive, `${GAME_NAME}|lives|+${actualGrant}|${Date.now()}`, (txId) => {
-        if (state.redeemedOrders.includes(txId)) return;
-        state.redeemedOrders.push(txId);
-        addLives(actualGrant, `Purchased +${actualGrant} Life`);
-        saveState();
-        if (activeModalTab === "gameover") {
-          closeModal();
-          world.player.x = world.player.checkpoint.x;
-          world.player.y = world.player.checkpoint.y;
-          world.player.vx = 0;
-          world.player.vy = 0;
-          world.player.hp = world.player.maxHp;
-          world.player.invuln = 1.25;
-        } else if (activeModalTab) {
-          renderModalContent(activeModalTab);
-        }
-      });
+    togglePreStagePicker: (val) => {
+      state.showPreStagePicker = Boolean(val);
+      saveState();
     },
     equipSuit: (id) => {
       if (!state.unlockedSuits.includes(id)) return;
       state.equippedSuit = id;
       const su = getSuit(id);
       world.player.maxHp = su.maxHp;
-      world.player.hp = Math.min(su.maxHp, Math.max(world.player.hp, su.maxHp));
+      world.player.hp = su.maxHp;
       saveState(`Equipped ${su.name}`);
-      renderModalContent("loadout");
+      if (activeModalTab) renderModalContent(activeModalTab);
     },
-    equipCd: (slot, id) => {
+    equipCooldown: (slot, id) => {
+      if (!state.ownedCooldowns.includes(id)) return;
+      state.equippedCooldowns[slot] = id;
+      saveState(`Equipped ${getCooldownDef(id).name} to Slot ${slot + 1}`);
+      if (activeModalTab) renderModalContent(activeModalTab);
+    },
+    gameoverEquipSuit: (id) => {
+      if (!state.unlockedSuits.includes(id)) return;
+      state.equippedSuit = id;
+      const su = getSuit(id);
+      world.player.maxHp = su.maxHp;
+      world.player.hp = su.maxHp;
+      saveState(`Equipped ${su.name}`);
+      renderModalContent("gameover");
+    },
+    gameoverEquipCd: (slot, id) => {
       if (!state.ownedCooldowns.includes(id)) return;
       state.equippedCooldowns[slot] = id;
       saveState(`Equipped ${getCooldownDef(id).name} to Special ${slot + 1}`);
-      renderModalContent("loadout");
+      renderModalContent("gameover");
     },
     useConsumable: (id) => {
       useConsumable(id);
-      if (activeModalTab === "loadout") renderModalContent("loadout");
+      if (activeModalTab) renderModalContent(activeModalTab);
     },
     buyConsumableWithHoney: (id) => {
       const c = CONSUMABLES.find(x => x.id === id);
@@ -4955,130 +5216,135 @@
         showToast(`Need ${c.honeyCost} Honey (have ${state.honey}).`);
         return;
       }
+      const wasZeroLives = state.lives <= 0;
       state.honey -= c.honeyCost;
       state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
-      saveState(`Bought +1 ${c.name} for ${c.honeyCost} Honey`);
+      if (id === "royal_vial" && wasZeroLives) {
+        addLives(1, "Royal Jelly Vial revived Beatrice");
+        closeModal();
+        resumeBeatriceFromCheckpoint();
+        saveState("Revived Beatrice with a Royal Jelly Vial!");
+        return;
+      }
+      saveState(`Bought +1 ${c.name}`);
       if (activeModalTab) renderModalContent(activeModalTab);
     },
-    buyHiveItem: (kind, id, priceHive, label) => {
-      requestKeychainTransfer(priceHive, `${GAME_NAME}|${kind}|${id}|${Date.now()}`, (txId) => {
-        if (state.redeemedOrders.includes(txId)) return;
-        state.redeemedOrders.push(txId);
-        if (kind === "suit" && !state.unlockedSuits.includes(id)) state.unlockedSuits.push(id);
-        if (kind === "cd" && !state.ownedCooldowns.includes(id)) state.ownedCooldowns.push(id);
-        if (kind === "consumable") state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
-        if (kind === "bundle") {
-          const b = STARTER_BUNDLES.find(x => x.id === id);
-          if (b) {
-            if (b.cdGrant && !state.ownedCooldowns.includes(b.cdGrant)) state.ownedCooldowns.push(b.cdGrant);
-            Object.entries(b.consumables || {}).forEach(([ck, amt]) => {
-              state.consumableStock[ck] = (state.consumableStock[ck] || 0) + amt;
-            });
-          }
+    buyExtraLivesWithHive: (count) => {
+      if (state.lives >= MAX_LIVES) {
+        showToast(`Beatrice already has max lives (${MAX_LIVES}/${MAX_LIVES})!`);
+        return;
+      }
+      const totalHive = (parseFloat(EXTRA_LIFE_HIVE_PRICE) * count).toFixed(3);
+      requestHivePayment(totalHive, `extra_lives_${count}`, () => {
+        const wasGameOver = activeModalTab === "gameover" || world.player.hp <= 0;
+        addLives(count, `Purchased +${count} life${count > 1 ? "s" : ""}`);
+        if (wasGameOver) {
+          closeModal();
+          resumeBeatriceFromCheckpoint();
+          saveState(`+${count} life${count > 1 ? "s" : ""} added — resuming stage!`);
+        } else {
+          saveState();
+          if (activeModalTab) renderModalContent(activeModalTab);
         }
-        saveState(`Unlocked ${label}!`);
-        renderModalContent("shop");
       });
     },
-    summonNectarbytes,
-    refreshElixir: async () => {
-      await refreshElixirStake();
-      if (activeModalTab === "squad") renderModalContent("squad");
+    buyBundle: (id) => {
+      const b = STARTER_BUNDLES.find(x => x.id === id);
+      if (!b) return;
+      requestHivePayment(b.priceHive, b.id, () => {
+        if (b.cdGrant && !state.ownedCooldowns.includes(b.cdGrant)) state.ownedCooldowns.push(b.cdGrant);
+        for (const [k, v] of Object.entries(b.consumables || {})) {
+          state.consumableStock[k] = (state.consumableStock[k] || 0) + v;
+        }
+        saveState(`Unlocked ${b.name}!`);
+        if (activeModalTab) renderModalContent(activeModalTab);
+      });
     },
-    toggleSquadmate: (name) => {
-      if (state.selectedSquad.includes(name)) state.selectedSquad = state.selectedSquad.filter(x => x !== name);
-      else if (state.selectedSquad.length < 3) state.selectedSquad.push(name);
-      else { showToast("Max 3 squadmates selected."); return; }
+    buySuit: (id) => {
+      const su = SUITS.find(x => x.id === id);
+      if (!su || !su.priceHive) return;
+      requestHivePayment(su.priceHive, `suit_${id}`, () => grantBoughtSuit(id));
+    },
+    buyCooldown: (id) => {
+      const cd = COOLDOWN_POWERUPS.find(x => x.id === id);
+      if (!cd) return;
+      requestHivePayment(cd.priceHive, `cd_${id}`, () => grantBoughtCooldown(id));
+    },
+    buyConsumableHive: (id) => {
+      const c = CONSUMABLES.find(x => x.id === id);
+      if (!c) return;
+      requestHivePayment(c.priceHive, `cons_${id}`, () => {
+        state.consumableStock[id] = (state.consumableStock[id] || 0) + 1;
+        saveState(`Bought +1 ${c.name}!`);
+        if (activeModalTab) renderModalContent(activeModalTab);
+      });
+    },
+    refreshElixirStake,
+    summonNectarbytes,
+    toggleSquadmate: (handle) => {
+      if (state.selectedSquad.includes(handle)) {
+        state.selectedSquad = state.selectedSquad.filter(h => h !== handle);
+      } else if (state.selectedSquad.length < 3) {
+        state.selectedSquad.push(handle);
+      } else {
+        showToast("Max 3 active companions in squad.");
+        return;
+      }
       saveState();
       renderModalContent("squad");
     },
     addSquadmate: () => {
-      const inp = document.getElementById("input-squad-name");
-      const clean = (inp?.value || "").trim().replace(/^@+/, "").toLowerCase();
+      const input = document.getElementById("new-squad-handle");
+      const clean = (input?.value || "").trim().replace(/^@/, "").toLowerCase();
       if (!clean) return;
       if (!state.knownSquadmates.includes(clean)) state.knownSquadmates.push(clean);
-      if (state.selectedSquad.length < 3 && !state.selectedSquad.includes(clean)) state.selectedSquad.push(clean);
+      if (input) input.value = "";
       saveState(`Added @${clean} to squad`);
       renderModalContent("squad");
     },
-    postSnap: () => {
-      const inp = document.getElementById("input-snap-text");
-      const txt = (inp?.value || "").trim();
+    postSnap: (broadcastOnHive) => {
+      const input = document.getElementById("snap-input");
+      const txt = (input?.value || "").trim();
       if (!txt) return;
-      const author = state.isGuest || !state.username ? "guest_bee" : state.username;
+      const author = (!state.isGuest && state.username) ? state.username : "guest_bee";
       state.snapsFeed.unshift({ author, text: txt, time: "Just now" });
-      saveState("Posted to Hive Snaps");
+      if (input) input.value = "";
+      if (broadcastOnHive) {
+        if (state.isGuest || !state.username || !window.hive_keychain) {
+          showToast("Saved locally — connect Hive Keychain to broadcast on-chain.");
+        } else {
+          const permlink = `swarmbreaker-snap-${Date.now()}`;
+          window.hive_keychain.requestPost(
+            state.username,
+            `${GAME_NAME} Snap`,
+            `${txt}\n\n*Posted via ${GAME_NAME}*`,
+            "hive-178315",
+            "",
+            JSON.stringify({ app: "swarmbreaker/1.0", tags: ["hive", "gaming", "swarmbreaker"] }),
+            permlink,
+            "",
+            (resp) => {
+              if (resp && resp.success) showToast("Broadcast to Hive!");
+              else showToast(resp?.message || "Hive post cancelled.");
+            }
+          );
+        }
+      }
+      saveState(broadcastOnHive ? undefined : "Posted to Hive Snaps");
       renderModalContent("snaps");
-    },
-    quickKeychainLogin: () => {
-      if (!state.isGuest && state.username) {
-        openModal("keychain");
-        return;
-      }
-      const typed = (document.getElementById("input-hive-username")?.value || "").trim().replace(/^@+/, "").toLowerCase();
-      const targetUser = typed || TEST_VIP_ACCOUNT;
-      window.__sb.loginTestAccount(targetUser);
-    },
-    loginTestAccount: async (acctName) => {
-      const clean = String(acctName || TEST_VIP_ACCOUNT).trim().replace(/^@+/, "").toLowerCase();
-      state.username = clean;
-      state.isGuest = false;
-      applyVipTesterPerks();
-      await refreshElixirStake();
-      saveState(isVipTester() ? `Logged in as @${clean} (All Suits, Power-Ups & 1000 ELIXIR unlocked)` : `Logged in as @${clean}`);
-      if (activeModalTab === "keychain") renderModalContent("keychain");
-    },
-    loginKeychain: async () => {
-      const inp = document.getElementById("input-hive-username");
-      const user = (inp?.value || "").trim().replace(/^@+/, "").toLowerCase();
-      if (!user) { showToast("Please enter a Hive @username."); return; }
-      if (window.hive_keychain && typeof window.hive_keychain.requestSignBuffer === "function") {
-        window.hive_keychain.requestSignBuffer(user, `${GAME_NAME} Login:${Date.now()}`, "Posting", async (resp) => {
-          if (resp && resp.success) {
-            state.username = user; state.isGuest = false;
-            applyVipTesterPerks();
-            await refreshElixirStake();
-            saveState(`Logged in as @${user}`);
-            renderModalContent("keychain");
-          } else showToast(resp?.message || "Keychain login cancelled.");
-        });
-      } else {
-        state.username = user; state.isGuest = false;
-        applyVipTesterPerks();
-        await refreshElixirStake();
-        saveState(`Connected @${user}`);
-        renderModalContent("keychain");
-      }
-    },
-    continueGuest: () => {
-      state.isGuest = true;
-      saveState("Continuing in Guest Mode");
-      renderModalContent("keychain");
-    },
-    resetSave: () => {
-      localStorage.removeItem(STORAGE_KEY);
-      state = defaultState();
-      buildStage(1, false, false);
-      showToast("Local save reset.");
-      renderModalContent("keychain");
     }
   };
 
-  function bindFirstUserAudioGesture() {
-    const unlockAudio = () => {
-      AudioEngine.ensureCtx();
-      if (AudioEngine.isEnabled()) {
-        AudioEngine.startBgm();
-      }
-    };
-    window.addEventListener("pointerdown", unlockAudio, { once: true, passive: true });
-    window.addEventListener("keydown", unlockAudio, { once: true, passive: true });
-    window.addEventListener("touchstart", unlockAudio, { once: true, passive: true });
+  function escapeHtml(str) {
+    return String(str ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
+  function escapeJs(str) {
+    return String(str ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   }
 
   AudioEngine.updateAudioBtn();
-  bindFirstUserAudioGesture();
   buildStage(state.currentStageId || 1, false, false);
+  updateHud();
   requestAnimationFrame(loop);
 })();
 </script>
