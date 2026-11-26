@@ -228,6 +228,22 @@
       object-fit: contain;
     }
 
+    #pause-overlay-cta {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 15;
+      pointer-events: auto;
+    }
+
+    #pause-overlay-cta.visible {
+      display: flex;
+    }
+
     #canvas-overlay-hud {
       position: absolute;
       inset: 8px 10px;
@@ -313,12 +329,14 @@
       gap: 6px;
       z-index: 20;
       flex-shrink: 0;
+      touch-action: none;
     }
 
     .touch-pad {
       display: flex;
       gap: 5px;
       align-items: center;
+      touch-action: none;
     }
 
     .touch-btn {
@@ -336,6 +354,12 @@
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
       touch-action: none;
       flex-shrink: 0;
+    }
+
+    .touch-btn.pressed {
+      background: rgba(56, 189, 248, 0.34);
+      border-color: #fde047;
+      transform: scale(0.95);
     }
 
     .touch-btn.heal-btn {
@@ -463,7 +487,7 @@
 
     .modal {
       width: 100%;
-      max-width: 920px;
+      max-width: 940px;
       max-height: 88vh;
       background: var(--panel);
       border: 1px solid var(--border);
@@ -576,6 +600,16 @@
       line-height: 1.4;
       color: #fde68a;
     }
+
+    .prestage-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-top: 6px;
+      border-top: 1px solid var(--border);
+    }
   </style>
 </head>
 <body>
@@ -599,7 +633,7 @@
     <div class="hud-actions">
       <button class="keychain-btn" id="btn-keychain-login" onclick="window.__sb.quickKeychainLogin()">🔑 Login</button>
       <button class="primary mobile-only-btn" onclick="openModal('mobile_menu')">☰ Menu</button>
-      <button class="danger mobile-only-btn" onclick="togglePause(true)">⏸</button>
+      <button class="danger mobile-only-btn" id="btn-mobile-pause" onclick="togglePause()">⏸</button>
       <button class="desktop-only-btn" id="btn-audio-toggle" onclick="window.__sb.toggleAudio()">🎛️ 80s Synth: ON</button>
       <button class="primary desktop-only-btn" onclick="openModal('stages')">Stages (38)</button>
       <button class="desktop-only-btn" onclick="openModal('loadout')">Suits & Loadout</button>
@@ -607,7 +641,7 @@
       <button class="desktop-only-btn" onclick="openModal('squad')">Squad & Summon</button>
       <button class="accent desktop-only-btn" onclick="openModal('snaps')">Hive Snaps</button>
       <button class="desktop-only-btn" onclick="openModal('keychain')">Save / Setup</button>
-      <button class="danger desktop-only-btn" onclick="togglePause(true)">Pause (P)</button>
+      <button class="danger desktop-only-btn" id="btn-desktop-pause" onclick="togglePause()">Pause (P)</button>
     </div>
   </header>
 
@@ -625,6 +659,13 @@
     <div id="canvas-viewport">
       <div id="game-frame">
         <canvas id="game-canvas" width="1280" height="720"></canvas>
+
+        <div id="pause-overlay-cta">
+          <div style="margin-top:96px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+            <button class="primary" onclick="togglePause(false)">▶ Resume Game</button>
+            <button onclick="openModal('prestage')">🛡️ Change Suit / Power-Ups</button>
+          </div>
+        </div>
 
         <div id="canvas-overlay-hud">
           <div class="hud-row">
@@ -933,6 +974,7 @@
   const nectarbytesSprite = createKeyedSprite("nectarbytes.jpg", 30, 64);
   const princessSprite = createKeyedSprite("princess_bee.jpg", 30, 64);
   const queenNectariaSprite = createKeyedSprite("queen_nectaria.jpg", 30, 64);
+  const lootChestSprite = createKeyedSprite("loot_chest.jpg", 30, 64);
   const waspSprite = createKeyedSprite("wasp_enemy.jpg", 30, 64);
   const beetleSprite = createKeyedSprite("beetle_enemy.jpg", 30, 64);
   const miteSprite = createKeyedSprite("mite_enemy.jpg", 30, 64);
@@ -1017,12 +1059,12 @@
   ].filter(s => s.communityId !== EXCLUDED_COMMUNITY);
 
   const SUITS = [
-    { id: "worker", name: "Worker Bee Standard", unlock: "starter", speed: 270, jump: 565, maxHp: 100, knockbackResist: 0.12, attackType: "single", color: "#fbbf24", trim: "#d97706", desc: "Balanced speed, hop physics, and a steady single-stinger shot." },
-    { id: "scout", name: "Scout / Wing-Sprinter", unlock: "loot_drop", speed: 355, jump: 600, maxHp: 105, knockbackResist: 0.15, attackType: "rapid", color: "#38bdf8", trim: "#0284c7", desc: "Boss loot drop: Fast horizontal speed, nimble air control, and rapid low-recoil stingers." },
-    { id: "pollen", name: "Pollen / Scatter Suit", unlock: "loot_drop", speed: 275, jump: 565, maxHp: 115, knockbackResist: 0.25, attackType: "spread", color: "#a3e635", trim: "#4d7c0f", desc: "Boss loot drop: Wide 3-way fan/scatter pollen shot built for clustered mites and pests." },
-    { id: "nectar", name: "Nectar / Arc-Shot Suit", unlock: "loot_drop", speed: 270, jump: 575, maxHp: 115, knockbackResist: 0.22, attackType: "arc", color: "#f472b6", trim: "#be185d", desc: "Boss loot drop: Long-range arcing nectar shots to reach elevated ledges and distant pests." },
-    { id: "comb_guard", name: "Comb-Guard / Heavy Juggernaut", unlock: "shop", priceHive: "6.500", speed: 235, jump: 545, maxHp: 155, knockbackResist: 0.75, attackType: "heavy", color: "#fb923c", trim: "#9a3412", desc: "HIVE Shop exclusive: Heavy plating, high knockback resistance, and staggering blasts." },
-    { id: "royal_guard", name: "Royal / Queen's Guard Suit", unlock: "shop", priceHive: "10.000", speed: 325, jump: 605, maxHp: 145, knockbackResist: 0.58, attackType: "pierce", color: "#c084fc", trim: "#7e22ce", desc: "HIVE Shop exclusive: High agility, strong durability, and high-velocity piercing stingers." }
+    { id: "worker", name: "Worker Bee Standard", unlock: "starter", speed: 270, jump: 565, maxHp: 100, knockbackResist: 0.12, attackType: "single", range: 360, color: "#fbbf24", trim: "#d97706", desc: "Balanced speed, hop physics, and a 360px single-stinger shot." },
+    { id: "scout", name: "Scout / Wing-Sprinter", unlock: "loot_drop", speed: 355, jump: 600, maxHp: 105, knockbackResist: 0.15, attackType: "rapid", range: 320, color: "#38bdf8", trim: "#0284c7", desc: "Boss loot drop: Fast speed, nimble air control, and 320px rapid stingers." },
+    { id: "pollen", name: "Pollen / Scatter Suit", unlock: "loot_drop", speed: 275, jump: 565, maxHp: 115, knockbackResist: 0.25, attackType: "spread", range: 260, color: "#a3e635", trim: "#4d7c0f", desc: "Boss loot drop: Wide 3-way scatter pollen shot with a 260px close-mid range." },
+    { id: "nectar", name: "Nectar / Arc-Shot Suit", unlock: "loot_drop", speed: 270, jump: 575, maxHp: 115, knockbackResist: 0.22, attackType: "arc", range: 480, color: "#f472b6", trim: "#be185d", desc: "Boss loot drop: Arcing nectar shots up to 480px range for elevated ledges." },
+    { id: "comb_guard", name: "Comb-Guard / Heavy Juggernaut", unlock: "shop", priceHive: "6.500", speed: 235, jump: 545, maxHp: 155, knockbackResist: 0.75, attackType: "heavy", range: 290, color: "#fb923c", trim: "#9a3412", desc: "HIVE Shop exclusive: Heavy plating, knockback resistance, and 290px blasts." },
+    { id: "royal_guard", name: "Royal / Queen's Guard Suit", unlock: "shop", priceHive: "10.000", speed: 325, jump: 605, maxHp: 145, knockbackResist: 0.58, attackType: "pierce", range: 430, color: "#c084fc", trim: "#7e22ce", desc: "HIVE Shop exclusive: High agility, strong durability, and 430px piercing stingers." }
   ];
 
   const COOLDOWN_POWERUPS = [
@@ -1030,10 +1072,10 @@
     { id: "wing_glide", cat: "Mobility", name: "Wing-Flutter Glide", cd: 2.5, priceHive: "1.500", desc: "Slows descent during a mid-air glide burst." },
     { id: "spring_hop", cat: "Mobility", name: "Spring-Pollen Hop", cd: 3.5, priceHive: "1.750", desc: "Extra vertical bounce to reach high platforms." },
     { id: "comb_anchor", cat: "Mobility", name: "Comb-Step Anchor", cd: 5.0, priceHive: "1.900", desc: "Spawns a temporary honey foothold beneath Beatrice." },
-    { id: "stinger_volley", cat: "Offense", name: "Royal Stinger Volley", cd: 4.0, priceHive: "2.000", desc: "Fires a 5-stinger burst to shred pest groups." },
-    { id: "propolis_snare", cat: "Offense", name: "Propolis Snare Shot", cd: 4.5, priceHive: "1.850", desc: "Sticky resin glob that slows enemies on impact." },
-    { id: "pollen_bomb", cat: "Offense", name: "Pollen Bomb", cd: 5.5, priceHive: "2.250", desc: "Arcing splash-damage bomb for grouped pests." },
-    { id: "drone_swarm", cat: "Offense", name: "Drone Swarm", cd: 9.0, priceHive: "3.200", desc: "Summons helper drones that zap nearby enemies." }
+    { id: "stinger_volley", cat: "Offense", name: "Royal Stinger Volley", cd: 4.0, priceHive: "2.000", desc: "Fires a 5-stinger burst (340px range) to shred pest groups." },
+    { id: "propolis_snare", cat: "Offense", name: "Propolis Snare Shot", cd: 4.5, priceHive: "1.850", desc: "Sticky resin glob (310px range) that slows enemies on impact." },
+    { id: "pollen_bomb", cat: "Offense", name: "Pollen Bomb", cd: 5.5, priceHive: "2.250", desc: "Arcing splash-damage bomb (330px range) for grouped pests." },
+    { id: "drone_swarm", cat: "Offense", name: "Drone Swarm", cd: 9.0, priceHive: "3.200", desc: "Summons helper drones (350px range) that zap nearby enemies." }
   ];
 
   const CONSUMABLES = [
@@ -1051,7 +1093,7 @@
     { id: "bundle_launch", name: "Full Toolkit Taster (Launch Deal)", priceHive: "1.750", cdGrant: "spring_hop", consumables: { honey_shield: 2, royal_vial: 2, checkpoint_beacon: 1 }, desc: "Spring-Pollen Hop + 2x Shield + 2x Royal Jelly Vial + 1x Beacon." }
   ];
 
-  const STORAGE_KEY = "swarmbreaker_save_v11";
+  const STORAGE_KEY = "swarmbreaker_save_v13";
 
   function isVipTester() {
     return !state.isGuest && String(state.username || "").toLowerCase() === TEST_VIP_ACCOUNT;
@@ -1090,6 +1132,7 @@
       selectedSquad: ["alicebee", "honeyscout"],
       stakedElixir: 0,
       redeemedOrders: [],
+      showPreStagePicker: true,
       snapsFeed: [
         { author: "nectarbytes", text: "Welcome to Swarmbreaker! Stake 100+ ELIXIR to summon @nectarbytes for 20s per stage.", time: "Hive" },
         { author: "queen_nectaria", text: "Princess Bees await rescue across 38 community stages—battle spaced-out bosses and the Queen's Royal Warden Mega Boss!", time: "Hive" }
@@ -1103,20 +1146,51 @@
   let hudSyncAccum = 0;
 
   const keys = {};
+  const activeTouchBindings = new Map();
+  const activePointerBindings = new Map();
+  const boundTouchControls = [];
 
   function normalizeKeyName(rawKey) {
     if (rawKey === " " || rawKey === "Spacebar") return "space";
     return String(rawKey || "").toLowerCase();
   }
 
+  function releaseJumpInput() {
+    keys["w"] = false;
+    keys["arrowup"] = false;
+    keys["space"] = false;
+    if (world && world.player) {
+      world.player.jumpHeld = false;
+      world.player.jumpConsumed = false;
+      world.player.jumpHoldTimer = 0;
+    }
+  }
+
+  function releaseTouchBinding(binding) {
+    if (!binding) return;
+    if (binding.el) binding.el.classList.remove("pressed");
+    if (binding.keyName) {
+      keys[binding.keyName] = false;
+      if (binding.keyName === "arrowup") releaseJumpInput();
+    }
+  }
+
   function clearAllInputs() {
     for (const k of Object.keys(keys)) {
       keys[k] = false;
     }
-    if (world && world.player) {
-      world.player.jumpHeld = false;
-      world.player.jumpConsumed = false;
+    for (const binding of activeTouchBindings.values()) {
+      releaseTouchBinding(binding);
     }
+    activeTouchBindings.clear();
+    for (const binding of activePointerBindings.values()) {
+      releaseTouchBinding(binding);
+    }
+    activePointerBindings.clear();
+    for (const ctrl of boundTouchControls) {
+      ctrl.el.classList.remove("pressed");
+    }
+    releaseJumpInput();
   }
 
   window.addEventListener("blur", clearAllInputs);
@@ -1188,13 +1262,81 @@
       </div>
       <div class="menu-grid">
         <button class="primary" onclick="openModal('stages')">🗺️ Stages (38)</button>
+        <button class="accent" onclick="openModal('prestage')">⚔️ Pre-Stage Gear</button>
         <button onclick="openModal('loadout')">🛡️ Suits & Loadout</button>
         <button onclick="openModal('shop')">🍯 HIVE Shop</button>
         <button onclick="openModal('squad')">⚡ Squad & Summon</button>
         <button class="accent" onclick="openModal('snaps')">💬 Hive Snaps</button>
         <button onclick="openModal('keychain')">🔑 Save / Setup</button>
         <button onclick="window.__sb.toggleAudio(); openModal('mobile_menu');">${AudioEngine.isEnabled() ? "🎛️ 80s Synth: ON" : "🔇 Audio: OFF"}</button>
-        <button class="danger" onclick="closeModal(); togglePause(true);">⏸ Pause Game</button>
+        <button class="danger" onclick="closeModal(); togglePause(${!paused});">${paused ? "▶ Resume Game" : "⏸ Pause Game"}</button>
+      </div>`;
+  }
+
+  function renderPreStageModal() {
+    const st = world.stage || STAGES[0];
+    const suitCards = SUITS.map(su => {
+      const owned = state.unlockedSuits.includes(su.id);
+      const equipped = state.equippedSuit === su.id;
+      const unlockTag = su.unlock === "starter" ? "Starter" : (su.unlock === "loot_drop" ? "Boss Loot" : `${su.priceHive} HIVE`);
+      return `
+        <div class="card ${equipped ? "selected" : ""}">
+          <div>
+            <div class="card-title">${su.name}</div>
+            <div class="card-meta">${owned ? `Range ${su.range}px · HP ${su.maxHp} · Spd ${su.speed}` : `Locked (${unlockTag})`}</div>
+            <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
+          </div>
+          ${owned
+            ? `<button class="${equipped ? "primary" : ""}" onclick="window.__sb.pickPreStageSuit('${su.id}')">${equipped ? "Selected ✓" : "Select Suit"}</button>`
+            : `<button onclick="openModal('shop')">Unlock in Shop</button>`}
+        </div>`;
+    }).join("");
+
+    const cdCards = COOLDOWN_POWERUPS.map(cd => {
+      const owned = state.ownedCooldowns.includes(cd.id);
+      const s0 = state.equippedCooldowns[0] === cd.id;
+      const s1 = state.equippedCooldowns[1] === cd.id;
+      return `
+        <div class="card ${(s0 || s1) ? "selected" : ""}">
+          <div>
+            <div class="card-title">${cd.name} (${cd.cd}s)</div>
+            <div class="card-meta">${cd.cat} · ${owned ? "Owned" : `${cd.priceHive} HIVE`}</div>
+            <div class="card-desc" style="margin-top:4px;">${cd.desc}</div>
+          </div>
+          ${owned
+            ? `<div style="display:flex;gap:6px;">
+                <button class="${s0 ? "primary" : ""}" onclick="window.__sb.setPreStageCd(0, '${cd.id}')">${s0 ? "Slot 1 ✓" : "Slot 1"}</button>
+                <button class="${s1 ? "primary" : ""}" onclick="window.__sb.setPreStageCd(1, '${cd.id}')">${s1 ? "Slot 2 ✓" : "Slot 2"}</button>
+              </div>`
+            : `<button onclick="openModal('shop')">Buy in Shop</button>`}
+        </div>`;
+    }).join("");
+
+    const consChips = CONSUMABLES.map(c => {
+      const qty = state.consumableStock[c.id] || 0;
+      const quickBuy = c.honeyCost && state.honey >= c.honeyCost
+        ? `<button onclick="window.__sb.quickHoneyBuyPreStage('${c.id}')">+1 (${c.honeyCost}🍯)</button>`
+        : "";
+      return `<div class="card"><div><div class="card-title">${c.name}: ${qty}</div><div class="card-desc">${c.desc}</div></div>${quickBuy}</div>`;
+    }).join("");
+
+    return `
+      <div class="notice-box">
+        <strong>Stage ${st.id}: ${st.name}</strong> (Wing ${st.wing}) — ${st.note}<br/>
+        Choose your <strong>Suit</strong> and <strong>Slot 1 / Slot 2 Power-Ups</strong> before launching the stage.
+      </div>
+      <div><strong>1. Select Beatrice's Suit</strong></div>
+      <div class="grid-cards">${suitCards}</div>
+      <div><strong>2. Select Cooldown Power-Ups (Slot 1 [K/X] & Slot 2 [L/C])</strong></div>
+      <div class="grid-cards">${cdCards}</div>
+      <div><strong>3. Stage Consumables Stock</strong></div>
+      <div class="grid-cards">${consChips}</div>
+      <div class="prestage-bar">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;cursor:pointer;">
+          <input type="checkbox" ${state.showPreStagePicker ? "checked" : ""} onchange="window.__sb.togglePreStagePicker(this.checked)" />
+          Show this loadout screen before every stage
+        </label>
+        <button class="primary" onclick="closeModal()">▶ Start Stage ${st.id}</button>
       </div>`;
   }
 
@@ -1205,6 +1347,9 @@
     if (tabName === "mobile_menu") {
       titleEl.textContent = "Swarmbreaker Menu";
       bodyEl.innerHTML = renderMobileMenuModal();
+    } else if (tabName === "prestage") {
+      titleEl.textContent = `Pre-Stage Loadout — Stage ${world.stage.id}: ${world.stage.name}`;
+      bodyEl.innerHTML = renderPreStageModal();
     } else if (tabName === "stages") {
       titleEl.textContent = "38 Community Stages (4 Wings · LeoFinance Excluded)";
       bodyEl.innerHTML = renderStagesModal();
@@ -1235,6 +1380,7 @@
     const backdrop = document.getElementById("modal-backdrop");
     backdrop.classList.add("open");
     renderModalContent(tabName);
+    updateHud();
   }
 
   const canvas = document.getElementById("game-canvas");
@@ -1275,7 +1421,7 @@
     pickups: [],
     particles: [],
     afterimages: [],
-    goal: { x: 2420, y: FLOOR_Y - 64, w: 58, h: 64, type: "princess", locked: false },
+    goal: { x: 2420, y: FLOOR_Y - 64, w: 58, h: 64, type: "princess", locked: false, opened: false },
     boss: null,
     stageCleared: false
   };
@@ -1301,6 +1447,28 @@
     world.afterimages.push({
       x, y, facing, scaleX, scaleY, tilt, color: drawColor,
       life: 0.22, maxLife: 0.22
+    });
+  }
+
+  function spawnProjectile(opts) {
+    world.projectiles.push({
+      x: opts.x,
+      y: opts.y,
+      originX: opts.x,
+      originY: opts.y,
+      traveled: 0,
+      maxRange: opts.maxRange ?? Infinity,
+      vx: opts.vx,
+      vy: opts.vy,
+      grav: opts.grav || 0,
+      dmg: opts.dmg,
+      r: opts.r,
+      color: opts.color,
+      fromPlayer: Boolean(opts.fromPlayer),
+      knock: opts.knock || 0,
+      pierce: opts.pierce || 0,
+      snare: Boolean(opts.snare),
+      splash: opts.splash || 0
     });
   }
 
@@ -1371,8 +1539,9 @@
     return { worldWidth, groundSegments, platforms, pits };
   }
 
-  function buildStage(stageId, restoreLivesIfZero = false) {
+  function buildStage(stageId, restoreLivesIfZero = false, promptPreStage = false) {
     applyVipTesterPerks();
+    clearAllInputs();
     if (state.lives <= 0 && !restoreLivesIfZero) {
       state.currentStageId = 1;
     }
@@ -1481,10 +1650,10 @@
         patternIdx: 0,
         isQueenGuard: isMega
       };
-      world.goal = { x: goalX, y: FLOOR_Y - 64, w: 58, h: 64, type: st.climax, locked: true };
+      world.goal = { x: goalX, y: FLOOR_Y - 64, w: 64, h: 64, type: st.climax, locked: true, opened: false };
     } else {
       world.boss = null;
-      world.goal = { x: goalX, y: FLOOR_Y - 64, w: 58, h: 64, type: "princess", locked: false };
+      world.goal = { x: goalX, y: FLOOR_Y - 64, w: 58, h: 64, type: "princess", locked: false, opened: false };
     }
 
     world.pickups = [
@@ -1497,6 +1666,9 @@
     ];
 
     saveState();
+    if (promptPreStage && state.showPreStagePicker && state.lives > 0) {
+      openModal("prestage");
+    }
   }
 
   function getSuit(id) { return SUITS.find(s => s.id === id) || SUITS[0]; }
@@ -1509,10 +1681,13 @@
     if (k === "p" || k === "escape") {
       clearAllInputs();
       if (isModalOpen()) closeModal();
-      else if (!isModalOpen()) togglePause();
+      else togglePause();
       return;
     }
-    if (paused || isModalOpen()) return;
+    if (paused || isModalOpen()) {
+      clearAllInputs();
+      return;
+    }
     keys[k] = true;
     if (k === "j" || k === "z") firePrimary();
     if (k === "k" || k === "x") triggerCooldownSlot(0);
@@ -1528,9 +1703,95 @@
   window.addEventListener("keyup", (e) => {
     const k = normalizeKeyName(e.key);
     keys[k] = false;
+    if (e.key === "Shift") {
+      keys["shift"] = false;
+      keys["shiftleft"] = false;
+      keys["shiftright"] = false;
+    }
     if (k === "w" || k === "arrowup" || k === "space") {
-      world.player.jumpHeld = false;
-      world.player.jumpConsumed = false;
+      releaseJumpInput();
+    }
+  });
+
+  function syncActiveTouchesToControls(touchList) {
+    const activeIds = new Set();
+    for (let i = 0; i < touchList.length; i++) {
+      const t = touchList[i];
+      activeIds.add(t.identifier);
+      const prev = activeTouchBindings.get(t.identifier);
+      const targetEl = document.elementFromPoint(t.clientX, t.clientY)?.closest?.(".touch-btn") || null;
+
+      if (prev && prev.el !== targetEl) {
+        releaseTouchBinding(prev);
+        activeTouchBindings.delete(t.identifier);
+      }
+
+      if (targetEl) {
+        const ctrl = boundTouchControls.find(c => c.el === targetEl);
+        if (ctrl && (!prev || prev.el !== targetEl)) {
+          const binding = { el: ctrl.el, keyName: ctrl.keyName };
+          activeTouchBindings.set(t.identifier, binding);
+          ctrl.el.classList.add("pressed");
+          if (ctrl.keyName) keys[ctrl.keyName] = true;
+          if (ctrl.onPressFn && !paused && !isModalOpen()) ctrl.onPressFn();
+        }
+      }
+    }
+
+    for (const [id, binding] of activeTouchBindings.entries()) {
+      if (!activeIds.has(id)) {
+        releaseTouchBinding(binding);
+        activeTouchBindings.delete(id);
+      }
+    }
+  }
+
+  window.addEventListener("touchmove", (e) => {
+    if (activeTouchBindings.size === 0) return;
+    if (paused || isModalOpen()) {
+      clearAllInputs();
+      return;
+    }
+    e.preventDefault();
+    syncActiveTouchesToControls(e.touches);
+  }, { passive: false });
+
+  window.addEventListener("touchend", (e) => {
+    if (activeTouchBindings.size === 0) return;
+    syncActiveTouchesToControls(e.touches);
+    if (e.touches.length === 0) {
+      clearAllInputs();
+    }
+  }, { passive: false });
+
+  window.addEventListener("touchcancel", (e) => {
+    if (activeTouchBindings.size === 0) return;
+    syncActiveTouchesToControls(e.touches);
+    if (e.touches.length === 0) {
+      clearAllInputs();
+    }
+  }, { passive: false });
+
+  window.addEventListener("pointerup", (e) => {
+    const binding = activePointerBindings.get(e.pointerId);
+    if (binding) {
+      releaseTouchBinding(binding);
+      activePointerBindings.delete(e.pointerId);
+    }
+  });
+
+  window.addEventListener("pointercancel", (e) => {
+    const binding = activePointerBindings.get(e.pointerId);
+    if (binding) {
+      releaseTouchBinding(binding);
+      activePointerBindings.delete(e.pointerId);
+    }
+  });
+
+  window.addEventListener("contextmenu", (e) => {
+    if (e.target && e.target.closest && e.target.closest("#touch-controls")) {
+      e.preventDefault();
+      clearAllInputs();
     }
   });
 
@@ -1538,17 +1799,8 @@
     const el = document.getElementById(id);
     if (!el) return;
     el.style.touchAction = "none";
-
-    const releaseKey = (e) => {
-      if (e) e.preventDefault();
-      if (keyName) {
-        keys[keyName] = false;
-        if (keyName === "arrowup") {
-          world.player.jumpHeld = false;
-          world.player.jumpConsumed = false;
-        }
-      }
-    };
+    const ctrl = { el, keyName, onPressFn };
+    boundTouchControls.push(ctrl);
 
     el.addEventListener("touchstart", (e) => {
       e.preventDefault();
@@ -1557,12 +1809,24 @@
         clearAllInputs();
         return;
       }
-      if (keyName) keys[keyName] = true;
-      if (onPressFn) onPressFn();
+      syncActiveTouchesToControls(e.touches);
     }, { passive: false });
 
-    el.addEventListener("touchend", releaseKey, { passive: false });
-    el.addEventListener("touchcancel", releaseKey, { passive: false });
+    el.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") return;
+      AudioEngine.ensureCtx();
+      if (paused || isModalOpen()) {
+        clearAllInputs();
+        return;
+      }
+      const existing = activePointerBindings.get(e.pointerId);
+      if (existing) releaseTouchBinding(existing);
+      const binding = { el, keyName };
+      activePointerBindings.set(e.pointerId, binding);
+      el.classList.add("pressed");
+      if (keyName) keys[keyName] = true;
+      if (onPressFn) onPressFn();
+    });
   }
 
   bindTouch("btn-left", "arrowleft");
@@ -1591,28 +1855,29 @@
     const dir = p.facing;
     const bx = p.x + p.w / 2 + dir * 24;
     const by = p.y + p.h * 0.48;
+    const maxRange = suit.range || 360;
 
     if (suit.attackType === "single") {
       p.fireCd = 0.24;
-      world.projectiles.push({ x: bx, y: by, vx: dir * 580, vy: 0, dmg: 16, r: 6, color: suit.color, fromPlayer: true });
+      spawnProjectile({ x: bx, y: by, vx: dir * 580, vy: 0, dmg: 16, r: 6, color: suit.color, fromPlayer: true, maxRange });
     } else if (suit.attackType === "rapid") {
       p.fireCd = 0.12;
-      world.projectiles.push({ x: bx, y: by + (Math.random() - 0.5) * 9, vx: dir * 680, vy: 0, dmg: 12, r: 5, color: suit.color, fromPlayer: true });
+      spawnProjectile({ x: bx, y: by + (Math.random() - 0.5) * 9, vx: dir * 680, vy: 0, dmg: 12, r: 5, color: suit.color, fromPlayer: true, maxRange });
     } else if (suit.attackType === "spread") {
       p.fireCd = 0.34;
       [-0.25, 0, 0.25].forEach(ang => {
-        world.projectiles.push({ x: bx, y: by, vx: Math.cos(ang) * dir * 550, vy: Math.sin(ang) * 550, dmg: 14, r: 6.5, color: suit.color, fromPlayer: true });
+        spawnProjectile({ x: bx, y: by, vx: Math.cos(ang) * dir * 550, vy: Math.sin(ang) * 550, dmg: 14, r: 6.5, color: suit.color, fromPlayer: true, maxRange });
       });
     } else if (suit.attackType === "arc") {
       p.fireCd = 0.30;
-      world.projectiles.push({ x: bx, y: by - 6, vx: dir * 520, vy: -250, grav: 460, dmg: 24, r: 8, color: suit.color, fromPlayer: true });
+      spawnProjectile({ x: bx, y: by - 6, vx: dir * 520, vy: -250, grav: 460, dmg: 24, r: 8, color: suit.color, fromPlayer: true, maxRange });
     } else if (suit.attackType === "heavy") {
       p.fireCd = 0.42;
-      world.projectiles.push({ x: bx, y: by, vx: dir * 480, vy: 0, dmg: 36, knock: 185, r: 10, color: suit.color, fromPlayer: true });
+      spawnProjectile({ x: bx, y: by, vx: dir * 480, vy: 0, dmg: 36, knock: 185, r: 10, color: suit.color, fromPlayer: true, maxRange });
     } else if (suit.attackType === "pierce") {
       p.fireCd = 0.22;
       [-5, 5].forEach(offY => {
-        world.projectiles.push({ x: bx, y: by + offY, vx: dir * 740, vy: 0, dmg: 22, pierce: 2, r: 7, color: suit.color, fromPlayer: true });
+        spawnProjectile({ x: bx, y: by + offY, vx: dir * 740, vy: 0, dmg: 22, pierce: 2, r: 7, color: suit.color, fromPlayer: true, maxRange });
       });
     }
   }
@@ -1658,20 +1923,20 @@
     } else if (itemId === "stinger_volley") {
       p.fireRecoil = 1.0;
       for (let i = -2; i <= 2; i++) {
-        world.projectiles.push({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: p.facing * 590, vy: i * 65, dmg: 18, r: 6, color: "#fbbf24", fromPlayer: true });
+        spawnProjectile({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: p.facing * 590, vy: i * 65, dmg: 18, r: 6, color: "#fbbf24", fromPlayer: true, maxRange: 340 });
       }
       showToast("Royal Stinger Volley!");
     } else if (itemId === "propolis_snare") {
       p.fireRecoil = 0.8;
-      world.projectiles.push({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: p.facing * 510, vy: -60, grav: 240, dmg: 15, snare: true, r: 8, color: "#84cc16", fromPlayer: true });
+      spawnProjectile({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: p.facing * 510, vy: -60, grav: 240, dmg: 15, snare: true, r: 8, color: "#84cc16", fromPlayer: true, maxRange: 310 });
       showToast("Propolis Snare Shot!");
     } else if (itemId === "pollen_bomb") {
       p.fireRecoil = 0.9;
-      world.projectiles.push({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: p.facing * 430, vy: -240, grav: 520, dmg: 45, splash: 95, r: 9, color: "#facc15", fromPlayer: true });
+      spawnProjectile({ x: p.x + p.w / 2, y: p.y + p.h / 2, vx: p.facing * 430, vy: -240, grav: 520, dmg: 45, splash: 95, r: 9, color: "#facc15", fromPlayer: true, maxRange: 330 });
       showToast("Pollen Bomb launched!");
     } else if (itemId === "drone_swarm") {
       for (let i = 0; i < 2; i++) {
-        world.projectiles.push({ x: p.x + (i === 0 ? -24 : p.w + 24), y: p.y - 24, vx: p.facing * 460, vy: (i === 0 ? -1 : 1) * 90, dmg: 28, r: 7, color: "#38bdf8", fromPlayer: true });
+        spawnProjectile({ x: p.x + (i === 0 ? -24 : p.w + 24), y: p.y - 24, vx: p.facing * 460, vy: (i === 0 ? -1 : 1) * 90, dmg: 28, r: 7, color: "#38bdf8", fromPlayer: true, maxRange: 350 });
       }
       showToast("Drone Swarm deployed!");
     }
@@ -1793,22 +2058,24 @@
   }
 
   function awardBossLootChest() {
+    world.goal.opened = true;
     const dropSuits = SUITS.filter(s => s.unlock === "loot_drop");
     const pickedSuit = dropSuits[Math.floor(Math.random() * dropSuits.length)];
     state.honey += 20;
     if (!state.unlockedSuits.includes(pickedSuit.id)) {
       state.unlockedSuits.push(pickedSuit.id);
-      saveState(`Loot Chest dropped NEW SUIT: ${pickedSuit.name} + 20 Honey!`);
+      saveState(`Loot Chest opened! Dropped NEW SUIT: ${pickedSuit.name} + 20 Honey!`);
     } else {
       const fallback = CONSUMABLES[Math.floor(Math.random() * CONSUMABLES.length)];
       state.consumableStock[fallback.id] = (state.consumableStock[fallback.id] || 0) + 1;
-      saveState(`Already owned ${pickedSuit.name} — Loot Chest dropped +1 ${fallback.name} + 20 Honey!`);
+      saveState(`Loot Chest opened! Already owned ${pickedSuit.name} — dropped +1 ${fallback.name} + 20 Honey!`);
     }
   }
 
   function completeStage() {
     if (world.stageCleared) return;
     world.stageCleared = true;
+    clearAllInputs();
     AudioEngine.playSfx("clear");
     const st = world.stage;
     const isFirstClear = !state.completedStages.includes(st.id);
@@ -1831,7 +2098,7 @@
     }
     const nextStage = STAGES.find(s => s.id === st.id + 1);
     if (nextStage) {
-      setTimeout(() => { if (!paused && !isModalOpen()) buildStage(nextStage.id); }, 1200);
+      setTimeout(() => { if (!paused && !isModalOpen()) buildStage(nextStage.id, false, true); }, 1200);
     } else {
       saveState();
     }
@@ -1848,6 +2115,8 @@
         hudSyncAccum = 0;
         updateHud();
       }
+    } else {
+      clearAllInputs();
     }
     render();
     requestAnimationFrame(loop);
@@ -1886,7 +2155,7 @@
     const dx = targetX - originX;
     const dy = targetY - originY;
     const len = Math.max(1, Math.hypot(dx, dy));
-    world.projectiles.push({
+    spawnProjectile({
       x: originX,
       y: originY,
       vx: (dx / len) * speed,
@@ -1918,13 +2187,15 @@
     world.summon.beamTimer = Math.max(0, world.summon.beamTimer - dt);
     world.summon.pistolRecoil = Math.max(0, world.summon.pistolRecoil - dt * 5);
 
-    const moveLeft = Boolean(keys["a"] || keys["arrowleft"]);
-    const moveRight = Boolean(keys["d"] || keys["arrowright"]);
-    const jumpPressed = Boolean(keys["w"] || keys["arrowup"] || keys["space"]);
+    const canReadInput = !paused && !isModalOpen();
+    const moveLeft = canReadInput && Boolean(keys["a"] || keys["arrowleft"]);
+    const moveRight = canReadInput && Boolean(keys["d"] || keys["arrowright"]);
+    const jumpPressed = canReadInput && Boolean(keys["w"] || keys["arrowup"] || keys["space"]);
 
     if (!jumpPressed) {
       p.jumpHeld = false;
       p.jumpConsumed = false;
+      p.jumpHoldTimer = 0;
     }
 
     const inputDir = (moveRight ? 1 : 0) - (moveLeft ? 1 : 0);
@@ -2032,7 +2303,7 @@
           if (world.boss && s.modeIndex === 2) {
             s.attackTimer = 0.85;
             s.beamTimer = 0.28;
-            world.projectiles.push({ x: s.x + 22, y: s.y + 20, vx: p.facing * 820, vy: 0, dmg: 48, pierce: 3, r: 14, color: "#e879f9", fromPlayer: true });
+            spawnProjectile({ x: s.x + 22, y: s.y + 20, vx: p.facing * 820, vy: 0, dmg: 48, pierce: 3, r: 14, color: "#e879f9", fromPlayer: true, maxRange: 540 });
           } else if (s.modeIndex === 1) {
             s.attackTimer = 0.65;
             damageAllNearby(s.x + 22, s.y + 22, 135, 30, 140);
@@ -2040,7 +2311,7 @@
           } else {
             s.attackTimer = 0.45;
             [-12, 12].forEach(offY => {
-              world.projectiles.push({ x: s.x + 22, y: s.y + 20 + offY, vx: p.facing * 680, vy: 0, dmg: 16, r: 6, color: "#38bdf8", fromPlayer: true });
+              spawnProjectile({ x: s.x + 22, y: s.y + 20 + offY, vx: p.facing * 680, vy: 0, dmg: 16, r: 6, color: "#38bdf8", fromPlayer: true, maxRange: 420 });
             });
           }
         }
@@ -2157,7 +2428,7 @@
           [-0.28, -0.1, 0.1, 0.28].forEach((spread, idx) => {
             if (!b.isQueenGuard && idx === 3) return;
             const baseAng = Math.atan2((p.y + p.h / 2) - by, (p.x + p.w / 2) - bx) + spread;
-            world.projectiles.push({
+            spawnProjectile({
               x: bx, y: by,
               vx: Math.cos(baseAng) * 320,
               vy: Math.sin(baseAng) * 320,
@@ -2171,7 +2442,7 @@
         } else {
           for (let k = -2; k <= 2; k++) {
             const ang = Math.PI + k * 0.22;
-            world.projectiles.push({
+            spawnProjectile({
               x: bx, y: by - 10,
               vx: Math.cos(ang) * 340,
               vy: Math.sin(ang) * 340 - 40,
@@ -2195,14 +2466,24 @@
         spawnParticles(b.x + b.w / 2, b.y + b.h / 2, "#f97316", 30);
         world.boss = null;
         world.goal.locked = false;
-        showToast(b.isQueenGuard ? "Queen's Royal Warden defeated! Rescue Queen Nectaria!" : "Boss defeated! Reach the goal to claim your Loot Chest!");
+        showToast(b.isQueenGuard ? "Queen's Royal Warden defeated! Open the Loot Chest & rescue Queen Nectaria!" : "Boss defeated! Reach the Loot Chest to claim your reward!");
       }
     }
 
     for (const pr of world.projectiles) {
       if (pr.grav) pr.vy += pr.grav * dt;
-      pr.x += pr.vx * dt;
-      pr.y += pr.vy * dt;
+      const dxStep = pr.vx * dt;
+      const dyStep = pr.vy * dt;
+      pr.x += dxStep;
+      pr.y += dyStep;
+      pr.traveled += Math.hypot(dxStep, dyStep);
+
+      if (pr.traveled >= pr.maxRange) {
+        if (pr.splash) damageAllNearby(pr.x, pr.y, pr.splash, pr.dmg * 0.7, 120);
+        pr.dead = true;
+        continue;
+      }
+
       if (pr.fromPlayer) {
         for (const en of world.enemies) {
           if (Math.hypot(pr.x - (en.x + en.w / 2), pr.y - (en.y + en.h / 2)) < pr.r + 24) {
@@ -2609,15 +2890,15 @@
     ctx.restore();
 
     if (paused) {
-      ctx.fillStyle = "rgba(6, 9, 17, 0.76)";
+      ctx.fillStyle = "rgba(6, 9, 17, 0.78)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#fbbf24";
-      ctx.font = "bold 36px sans-serif";
+      ctx.font = "bold 38px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("GAME PAUSED", canvas.width / 2, canvas.height / 2 - 18);
+      ctx.fillText("GAME PAUSED", canvas.width / 2, canvas.height / 2 - 22);
       ctx.fillStyle = "#e2e8f0";
       ctx.font = "16px sans-serif";
-      ctx.fillText("Press P or Esc to resume — 80s synth, timers, and summon countdown are frozen.", canvas.width / 2, canvas.height / 2 + 18);
+      ctx.fillText("80s synth, timers, and summon countdown are frozen. Click Resume or press P / Esc.", canvas.width / 2, canvas.height / 2 + 16);
       ctx.textAlign = "left";
     }
   }
@@ -3046,6 +3327,113 @@
     ctx.fillText("@nectarbytes", s.x - 16, s.y - 48 + floatY);
   }
 
+  function drawLootChestArtwork(g, bob) {
+    const cx = g.x + g.w / 2;
+    const cy = g.y + g.h / 2 + bob;
+    const pulse = 1 + Math.sin(world.time * 6) * 0.06;
+
+    const aura = ctx.createRadialGradient(cx, cy, 8, cx, cy, 62 * pulse);
+    if (g.locked) {
+      aura.addColorStop(0, "rgba(245, 158, 11, 0.22)");
+      aura.addColorStop(1, "rgba(245, 158, 11, 0)");
+    } else {
+      aura.addColorStop(0, "rgba(253, 224, 71, 0.65)");
+      aura.addColorStop(0.55, "rgba(245, 158, 11, 0.24)");
+      aura.addColorStop(1, "rgba(245, 158, 11, 0)");
+    }
+    ctx.fillStyle = aura;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 62 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (lootChestSprite.ready && lootChestSprite.canvas) {
+      const drawSize = 74;
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (g.locked) ctx.globalAlpha = 0.78;
+      ctx.drawImage(lootChestSprite.canvas, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
+      if (!g.locked) {
+        ctx.strokeStyle = "#fde047";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 40 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else {
+      const baseX = g.x + 4;
+      const baseY = g.y + 18 + bob;
+      const baseW = g.w - 8;
+      const baseH = g.h - 20;
+
+      const bodyGrad = ctx.createLinearGradient(baseX, baseY, baseX, baseY + baseH);
+      bodyGrad.addColorStop(0, "#b45309");
+      bodyGrad.addColorStop(0.6, "#78350f");
+      bodyGrad.addColorStop(1, "#451a03");
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.roundRect(baseX, baseY + 10, baseW, baseH - 10, 7);
+      ctx.fill();
+      ctx.strokeStyle = "#fde047";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
+      ctx.save();
+      ctx.translate(baseX, baseY + 12);
+      if (!g.locked) {
+        ctx.rotate(-0.42);
+        ctx.fillStyle = "#fef08a";
+        ctx.beginPath();
+        ctx.arc(baseW * 0.5, 4, 13, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const lidGrad = ctx.createLinearGradient(0, -14, 0, 4);
+      lidGrad.addColorStop(0, "#fbbf24");
+      lidGrad.addColorStop(1, "#92400e");
+      ctx.fillStyle = lidGrad;
+      ctx.beginPath();
+      ctx.roundRect(0, -14, baseW, 15, [8, 8, 3, 3]);
+      ctx.fill();
+      ctx.strokeStyle = "#fef08a";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(baseX + 3, baseY + 10, 5, baseH - 10);
+      ctx.fillRect(baseX + baseW - 8, baseY + 10, 5, baseH - 10);
+
+      const claspX = cx;
+      const claspY = baseY + 14;
+      ctx.fillStyle = g.locked ? "#ef4444" : "#22c55e";
+      ctx.beginPath();
+      ctx.roundRect(claspX - 7, claspY - 5, 14, 15, 4);
+      ctx.fill();
+      ctx.strokeStyle = "#fef9c3";
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = "#090d16";
+      ctx.beginPath();
+      ctx.arc(claspX, claspY + 1, 2.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(claspX - 1.1, claspY + 2, 2.2, 4.5);
+    }
+
+    if (!g.locked) {
+      const spX = cx + Math.cos(world.time * 5) * 24;
+      const spY = cy - 18 + Math.sin(world.time * 7) * 8;
+      ctx.fillStyle = "#fef9c3";
+      ctx.beginPath();
+      ctx.arc(spX, spY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = g.locked ? "#fcd34d" : "#fef08a";
+    ctx.font = "bold 12px sans-serif";
+    ctx.fillText(g.locked ? "Locked Chest" : "Loot Chest!", g.x - 6, g.y - 10 + bob);
+  }
+
   function drawGoalCharacter(g) {
     const bob = Math.sin(world.time * 4) * 3.5;
     const wingWave = Math.sin(world.time * 16) * 0.28;
@@ -3053,6 +3441,12 @@
     const cy = g.y + g.h / 2 + bob;
     const isQueen = g.type === "queen";
     const isPrincess = g.type === "princess";
+
+    if (g.type === "boss") {
+      drawLootChestArtwork(g, bob);
+      return;
+    }
+
     const royalSprite = isQueen
       ? (queenNectariaSprite.ready && queenNectariaSprite.canvas ? queenNectariaSprite : null)
       : isPrincess
@@ -3118,7 +3512,7 @@
 
     ctx.fillStyle = isQueen ? "#f5d0fe" : "#fef08a";
     ctx.font = "bold 12px sans-serif";
-    const label = isQueen ? "Queen Nectaria" : (g.type === "boss" ? "Loot Chest" : "Princess Bee");
+    const label = isQueen ? "Queen Nectaria" : "Princess Bee";
     ctx.fillText(label, g.x - 16, g.y - (isQueen ? 26 : 16) + bob);
   }
 
@@ -3146,11 +3540,28 @@
       state.isGuest || !state.username ? "Guest" : (isVipTester() ? `@${state.username} (VIP)` : `@${state.username}`);
     document.getElementById("hud-lives").textContent = `❤️ ${state.lives}/${MAX_LIVES}`;
     document.getElementById("hud-honey").textContent = `🍯 ${state.honey}`;
-    document.getElementById("hud-suit").textContent = `Suit: ${suit.name}`;
+    document.getElementById("hud-suit").textContent = `Suit: ${suit.name} (${suit.range}px)`;
 
     const kcBtn = document.getElementById("btn-keychain-login");
     if (kcBtn) {
       kcBtn.textContent = state.isGuest || !state.username ? "🔑 Login" : `🔑 @${state.username}`;
+    }
+
+    const dpBtn = document.getElementById("btn-desktop-pause");
+    if (dpBtn) {
+      dpBtn.textContent = paused ? "Resume (P)" : "Pause (P)";
+      dpBtn.className = paused ? "primary desktop-only-btn" : "danger desktop-only-btn";
+    }
+
+    const mpBtn = document.getElementById("btn-mobile-pause");
+    if (mpBtn) {
+      mpBtn.textContent = paused ? "▶" : "⏸";
+      mpBtn.className = paused ? "primary mobile-only-btn" : "danger mobile-only-btn";
+    }
+
+    const pauseCta = document.getElementById("pause-overlay-cta");
+    if (pauseCta) {
+      pauseCta.classList.toggle("visible", Boolean(paused && !isModalOpen()));
     }
 
     const stake = Number(state.stakedElixir || 0);
@@ -3175,7 +3586,7 @@
     } else {
       document.getElementById("hud-objective").textContent =
         st.climax === "queen" ? "Goal: Defeat Mega Boss & Rescue Queen"
-        : st.climax === "boss" ? `Goal: Defeat ${st.bossName}`
+        : st.climax === "boss" ? `Goal: Defeat ${st.bossName} & Open Loot Chest`
         : "Goal: Rescue Princess Bee";
     }
 
@@ -3207,7 +3618,7 @@
     const cd0 = state.equippedCooldowns[0] ? `${getCooldownDef(state.equippedCooldowns[0]).name} (${p.cdTimers[0].toFixed(1)}s)` : "Empty";
     const cd1 = state.equippedCooldowns[1] ? `${getCooldownDef(state.equippedCooldowns[1]).name} (${p.cdTimers[1].toFixed(1)}s)` : "Empty";
     document.getElementById("hud-abilities").textContent =
-      `CD1 [K]: ${cd0} · CD2 [L]: ${cd1} · Vials [1]: ${vialCount} · Shields [2]: ${state.consumableStock.honey_shield || 0} · Summon [R]: ${p.stageSummonUsed ? "Used" : "Ready"}`;
+      `Range: ${suit.range}px · CD1 [K]: ${cd0} · CD2 [L]: ${cd1} · Vials [1]: ${vialCount} · Shields [2]: ${state.consumableStock.honey_shield || 0} · Summon [R]: ${p.stageSummonUsed ? "Used" : "Ready"}`;
   }
 
   function hasKeychain() { return typeof window.hive_keychain !== "undefined"; }
@@ -3228,7 +3639,7 @@
       state.isGuest = false;
       applyVipTesterPerks();
       AudioEngine.playSfx("pickup");
-      saveState(`Logged in as @${username} (VIP Testing Mode — All Items Unlocked)`);
+      saveState(`Logged in as @${username} (VIP Testing Mode — All Suits & Power-Ups Unlocked)`);
       if (onSuccess) onSuccess();
       return;
     }
@@ -3248,7 +3659,7 @@
         applyVipTesterPerks();
         AudioEngine.playSfx("pickup");
         saveState(isVipTester()
-          ? `Logged in as @${username} (VIP Testing Mode — All Items Unlocked)`
+          ? `Logged in as @${username} (VIP Testing Mode — All Suits & Power-Ups Unlocked)`
           : `Logged in as @${username} via Hive Keychain!`);
         refreshElixirStake();
         if (onSuccess) onSuccess();
@@ -3338,7 +3749,7 @@
             <div class="card-meta">Wing ${s.wing} · ${s.communityId} · ${badge} ${done ? "· ✅ Cleared" : ""}</div>
             <div class="card-desc" style="margin-top:4px;">${s.note}</div>
           </div>
-          <button class="primary" onclick="window.__sb.selectStage(${s.id})">Play Stage ${s.id}</button>
+          <button class="primary" onclick="window.__sb.selectStage(${s.id})">Select & Play Stage ${s.id}</button>
         </div>`;
     }).join("")}</div>`;
   }
@@ -3352,7 +3763,7 @@
         <div class="card ${equipped ? "selected" : ""}">
           <div>
             <div class="card-title">${su.name}</div>
-            <div class="card-meta">${unlockTag} · Speed ${su.speed} · HP ${su.maxHp}</div>
+            <div class="card-meta">${unlockTag} · Range ${su.range}px · Speed ${su.speed} · HP ${su.maxHp}</div>
             <div class="card-desc" style="margin-top:4px;">${su.desc}</div>
           </div>
           ${owned ? `<button class="${equipped ? "primary" : ""}" onclick="window.__sb.equipSuit('${su.id}')">${equipped ? "Equipped" : "Equip Suit"}</button>` : `<button disabled>${unlockTag}</button>`}
@@ -3494,7 +3905,29 @@
       }
     },
     toggleAudio() { AudioEngine.toggle(); },
-    selectStage(id) { buildStage(id); closeModal(); },
+    selectStage(id) { buildStage(id, false, true); },
+    pickPreStageSuit(id) {
+      if (!state.unlockedSuits.includes(id)) return;
+      state.equippedSuit = id;
+      const suit = getSuit(id);
+      world.player.maxHp = suit.maxHp;
+      world.player.hp = suit.maxHp;
+      saveState(`Selected ${suit.name}`);
+      openModal("prestage");
+    },
+    setPreStageCd(slot, id) {
+      state.equippedCooldowns[slot] = id;
+      saveState(`Assigned ${getCooldownDef(id).name} to Slot ${slot + 1}`);
+      openModal("prestage");
+    },
+    quickHoneyBuyPreStage(consId) {
+      this.buyConsumableWithHoney(consId);
+      if (activeModalTab === "prestage") openModal("prestage");
+    },
+    togglePreStagePicker(checked) {
+      state.showPreStagePicker = Boolean(checked);
+      saveState(state.showPreStagePicker ? "Pre-stage loadout picker enabled." : "Pre-stage loadout picker disabled.");
+    },
     startOverFromBeginning() {
       const preservedUser = state.username;
       const preservedGuest = state.isGuest;
@@ -3509,8 +3942,7 @@
         lives: STARTING_LIVES,
         currentStageId: 1
       };
-      buildStage(1, true);
-      closeModal();
+      buildStage(1, true, true);
       saveState(`Started over from Stage 1 with ${STARTING_LIVES} lives!`);
     },
     equipSuit(id) {
@@ -3640,7 +4072,7 @@
     },
     resetSave() {
       state = defaultState();
-      buildStage(1);
+      buildStage(1, true, false);
       saveState("Local save reset to defaults.");
       openModal("keychain");
     }
@@ -3650,7 +4082,7 @@
   window.closeModal = closeModal;
   window.togglePause = togglePause;
 
-  buildStage(state.currentStageId || 1);
+  buildStage(state.currentStageId || 1, false, false);
   if (state.lives <= 0) {
     openModal("gameover");
   }
