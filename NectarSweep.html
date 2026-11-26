@@ -1646,6 +1646,162 @@ $("executeBtn").addEventListener("click", executeBatchSell);
 initTheme();
 updateWaiverUI();
 syncElixirSplitControl();
+
+(function enhanceTableSortAndSelection() {
+  const table = document.querySelector("#tokensTbody")?.closest("table");
+  const clearBtn = $("clearAllBtn");
+  if (!table || !clearBtn || typeof renderTable !== "function") return;
+
+  const selectAllBtn = document.createElement("button");
+  selectAllBtn.id = "quickSelectAllBtn";
+  selectAllBtn.type = "button";
+  selectAllBtn.textContent = "Select All";
+  selectAllBtn.disabled = true;
+
+  const unselectAllBtn = document.createElement("button");
+  unselectAllBtn.id = "quickUnselectAllBtn";
+  unselectAllBtn.type = "button";
+  unselectAllBtn.textContent = "Unselect All";
+  unselectAllBtn.disabled = true;
+
+  clearBtn.insertAdjacentElement("afterend", unselectAllBtn);
+  clearBtn.insertAdjacentElement("afterend", selectAllBtn);
+
+  const headers = Array.from(table.querySelectorAll("thead th"));
+  const columnKeys = [
+    null,
+    "symbol",
+    "balance",
+    "topBid",
+    "bidQty",
+    "sellPrice",
+    "estHive"
+  ];
+
+  let sortKey = "estHive";
+  let sortDir = "asc";
+
+  function getFilteredAndSortedRows() {
+    const maxDust = parseFloat($("maxDustInput").value);
+    return state.rows
+      .filter((r) => {
+        if (!isRowFillable(r)) return false;
+        const rawEst = (r.matchedQty ?? r.balance) * r.sellPrice;
+        return Number.isFinite(maxDust) ? rawEst <= maxDust : true;
+      })
+      .sort((a, b) => {
+        const valA = sortKey === "symbol"
+          ? String(a.symbol || "")
+          : sortKey === "estHive"
+            ? Number((a.matchedQty ?? a.balance) * a.sellPrice) || 0
+            : Number(a[sortKey]) || 0;
+        const valB = sortKey === "symbol"
+          ? String(b.symbol || "")
+          : sortKey === "estHive"
+            ? Number((b.matchedQty ?? b.balance) * b.sellPrice) || 0
+            : Number(b[sortKey]) || 0;
+
+        const cmp = sortKey === "symbol"
+          ? valA.localeCompare(valB, undefined, { sensitivity: "base" })
+          : valA - valB;
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+  }
+
+  function syncQuickSelectButtons(filteredRows = getFilteredAndSortedRows()) {
+    selectAllBtn.disabled = filteredRows.length === 0;
+    unselectAllBtn.disabled = state.rows.every((r) => !r.selected);
+  }
+
+  function updateHeaderIndicators() {
+    headers.forEach((th, idx) => {
+      const key = columnKeys[idx];
+      if (!th.dataset.baseLabel) th.dataset.baseLabel = th.textContent.trim();
+      if (!key) return;
+      th.style.cursor = "pointer";
+      th.style.userSelect = "none";
+      const indicator = sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+      th.textContent = `${th.dataset.baseLabel}${indicator}`;
+    });
+  }
+
+  headers.forEach((th, idx) => {
+    const key = columnKeys[idx];
+    if (!key) return;
+    th.addEventListener("click", () => {
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = key === "symbol" ? "asc" : "desc";
+      }
+      updateHeaderIndicators();
+      renderTable();
+    });
+  });
+
+  selectAllBtn.addEventListener("click", () => {
+    for (const r of getFilteredAndSortedRows()) {
+      r.selected = true;
+    }
+    recalculateTotals();
+  });
+
+  unselectAllBtn.addEventListener("click", () => {
+    for (const r of state.rows) {
+      r.selected = false;
+    }
+    recalculateTotals();
+  });
+
+  renderTable = function enhancedRenderTable() {
+    const tbody = $("tokensTbody");
+    const filtered = getFilteredAndSortedRows();
+
+    $("selectAllBtn").disabled = filtered.length === 0;
+    $("clearAllBtn").disabled = state.rows.every((r) => !r.selected);
+    syncQuickSelectButtons(filtered);
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color: var(--muted);">No fillable tokens match the current dust threshold and active buy orders.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map((r) => `
+      <tr>
+        <td><input type="checkbox" data-symbol="${r.symbol}" ${r.selected ? "checked" : ""} /></td>
+        <td><strong>${r.symbol}</strong></td>
+        <td class="num">${fmtPrec(r.balance, r.precision)}</td>
+        <td class="num">${fmt8(r.topBid)}</td>
+        <td class="num">${fmtPrec(r.bidQty, r.precision)}</td>
+        <td class="num">${fmt8(r.sellPrice)}</td>
+        <td class="num">${fmt8((r.matchedQty ?? r.balance) * r.sellPrice)}</td>
+      </tr>
+    `).join("");
+
+    tbody.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+      cb.addEventListener("change", (e) => {
+        const sym = e.target.getAttribute("data-symbol");
+        const target = state.rows.find((x) => x.symbol === sym);
+        if (target && isRowFillable(target)) {
+          target.selected = e.target.checked;
+          recalculateTotals();
+        }
+      });
+    });
+  };
+
+  if (typeof recalculateTotals === "function") {
+    const prevRecalc = recalculateTotals;
+    recalculateTotals = function wrappedRecalc() {
+      prevRecalc();
+      syncQuickSelectButtons();
+    };
+  }
+
+  updateHeaderIndicators();
+  syncQuickSelectButtons();
+})();
 </script>
 </body>
 </html>
