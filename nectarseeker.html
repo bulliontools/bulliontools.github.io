@@ -3004,7 +3004,7 @@
             var voteBadge = connectedUser ? renderVoteStatusBadge(post, connectedUser) : '';
             metaEl.innerHTML = '<div>by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + escapeHtml(post.author) + '\')">@' + escapeHtml(post.author) + '</strong>' + (age ? ' &middot; ' + escapeHtml(age) : '') + ' &middot; <span class="dapp-tag">' + escapeHtml(dapp) + '</span>' + (voteBadge ? ' ' + voteBadge : '') + '</div>';
           }
-          if (contentEl) contentEl.innerHTML = renderHiveBodyHtml(post.body || '');
+          if (contentEl) contentEl.innerHTML = renderHiveBodyHtml(post.body || '', post);
           loadPostComments(rootAuthor, rootPermlink);
         })
         .catch(function() {
@@ -4111,7 +4111,27 @@
       });
     }
 
-    function resolveHiveImageSrc(rawSrc) {
+    function extractMetadataImages(postOrComment) {
+      var urls = [];
+      if (!postOrComment || typeof postOrComment !== 'object') return urls;
+      var meta = postOrComment.json_metadata;
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta); } catch (e) { meta = null; }
+      }
+      if (!meta || typeof meta !== 'object') return urls;
+      var sources = [];
+      if (Array.isArray(meta.image)) sources = sources.concat(meta.image);
+      else if (typeof meta.image === 'string') sources.push(meta.image);
+      if (Array.isArray(meta.images)) sources = sources.concat(meta.images);
+      else if (typeof meta.images === 'string') sources.push(meta.images);
+      for (var i = 0; i < sources.length; i++) {
+        var u = String(sources[i] || '').trim();
+        if (u && urls.indexOf(u) === -1) urls.push(u);
+      }
+      return urls;
+    }
+
+    function resolveHiveImageSrc(rawSrc, metadataImages) {
       var s = String(rawSrc || '').trim();
       if (!s) return '';
       if (/^ipfs:\/\//i.test(s)) {
@@ -4127,13 +4147,26 @@
         return 'https:' + s;
       }
       if (/^[A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#].*)?$/i.test(s)) {
+        var baseName = s.split(/[?#]/)[0].toLowerCase();
+        if (Array.isArray(metadataImages) && metadataImages.length > 0) {
+          for (var i = 0; i < metadataImages.length; i++) {
+            var metaUrl = String(metadataImages[i] || '').trim();
+            if (!metaUrl) continue;
+            var metaClean = metaUrl.split(/[?#]/)[0].toLowerCase();
+            if (metaClean.endsWith('/' + baseName) || metaClean.indexOf(baseName) !== -1) {
+              if (/^https?:\/\//i.test(metaUrl)) return metaUrl;
+              if (/^ipfs:\/\//i.test(metaUrl)) return 'https://ipfs.io/ipfs/' + metaUrl.slice(7).replace(/^ipfs\//i, '');
+            }
+          }
+        }
         return 'https://images.hive.blog/0x0/' + s;
       }
       return '';
     }
 
-    function renderHiveBodyHtml(rawText) {
+    function renderHiveBodyHtml(rawText, postOrComment) {
       var body = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
+      var metadataImages = extractMetadataImages(postOrComment);
 
       for (var decodePass = 0; decodePass < 2 && !/<\/?(?:pre|code)\b/i.test(body) && /&lt;\/?(?:p|div|span|img|a|br|h[1-6]|table|center|blockquote|iframe|figure|video)\b/i.test(body); decodePass++) {
         var decoder = document.createElement('textarea');
@@ -4146,7 +4179,7 @@
       body = body.replace(/&nbsp;/gi, ' ');
 
       body = body.replace(/(^|[\s(>])!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;])/gi, function (match, prefix, fileName) {
-        var resolved = resolveHiveImageSrc(fileName);
+        var resolved = resolveHiveImageSrc(fileName, metadataImages);
         if (!resolved) return match;
         return prefix + '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(fileName) + '">';
       });
@@ -4349,7 +4382,7 @@
         if (/^\/ipfs\//i.test(url)) return 'https://ipfs.io' + url;
         if (/^\/(?!\/)/.test(url)) return url;
         if (/\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#].*)?$/i.test(url) && url.indexOf('/') === -1) {
-          return 'https://images.hive.blog/0x0/' + url;
+          return resolveHiveImageSrc(url, metadataImages) || ('https://images.hive.blog/0x0/' + url);
         }
         if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(url)) return 'https://' + url;
         return '';
@@ -4433,7 +4466,10 @@
                 } else if (/^https?:\/\//i.test(src) && !/images\.hive\.blog\/0x0\//i.test(src)) {
                   candidates.push('https://images.hive.blog/0x0/' + src);
                 } else if (/images\.hive\.blog\/0x0\//i.test(src)) {
-                  candidates.push(src.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, ''));
+                  var unwrapped = src.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, '');
+                  if (/^https?:\/\//i.test(unwrapped)) {
+                    candidates.push(unwrapped);
+                  }
                 }
                 child.setAttribute('src', candidates.shift() || src);
                 child.setAttribute('loading', 'lazy');
@@ -6139,7 +6175,7 @@
       }
 
       if (contentEl) {
-        contentEl.innerHTML = renderHiveBodyHtml(p.body || '');
+        contentEl.innerHTML = renderHiveBodyHtml(p.body || '', p);
       }
 
       if (modal) {
@@ -6237,7 +6273,7 @@
         html += '      <button type="button" class="kc-btn" style="padding:2px 8px; font-size:11px;" onclick="setReplyTarget(\'' + cAuthor + '\', \'' + escapeHtml(c.permlink || '') + '\', \'' + escapeHtml(cKey) + '\')">↩ Reply</button>';
         html += '    </div>';
         html += '  </div>';
-        html += '  <div class="comment-body">' + renderHiveBodyHtml(c.body || '') + '</div>';
+        html += '  <div class="comment-body">' + renderHiveBodyHtml(c.body || '', c) + '</div>';
         html += '</div>';
 
         html += renderCommentTree(repliesMap, cKey, depth + 1, connectedUser);
