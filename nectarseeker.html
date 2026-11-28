@@ -4111,6 +4111,27 @@
       });
     }
 
+    function resolveHiveImageSrc(rawSrc) {
+      var s = String(rawSrc || '').trim();
+      if (!s) return '';
+      if (/^ipfs:\/\//i.test(s)) {
+        return 'https://ipfs.io/ipfs/' + s.slice(7).replace(/^ipfs\//i, '');
+      }
+      if (/^\/ipfs\//i.test(s)) {
+        return 'https://ipfs.io' + s;
+      }
+      if (/^https?:\/\//i.test(s)) {
+        return s;
+      }
+      if (/^\/\//.test(s)) {
+        return 'https:' + s;
+      }
+      if (/^[A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#].*)?$/i.test(s)) {
+        return 'https://images.hive.blog/0x0/' + s;
+      }
+      return '';
+    }
+
     function renderHiveBodyHtml(rawText) {
       var body = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
 
@@ -4123,6 +4144,12 @@
       }
 
       body = body.replace(/&nbsp;/gi, ' ');
+
+      body = body.replace(/(^|[\s(>])!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;])/gi, function (match, prefix, fileName) {
+        var resolved = resolveHiveImageSrc(fileName);
+        if (!resolved) return match;
+        return prefix + '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(fileName) + '">';
+      });
 
       body = body.replace(/!\s*\[([^\]]*)\]\s*\(([\s\S]*?)\)/g, function(match, alt, rawUrl) {
         var cleanAlt = alt.replace(/\s+/g, ' ').trim();
@@ -4140,20 +4167,6 @@
         if (ytEmbed) {
           return '<iframe src="' + escapeHtml(ytEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
         }
-        return '[' + label + '](' + cleanUrl + ')';
-      });
-
-            body = body.replace(/\[([^\]]+)\]\s*\(([\s\S]*?)\)/g, function(match, label, rawUrl) {
-        var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
-        var threeSpeakEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
-        if (threeSpeakEmbed) {
-          return '<iframe src="' + escapeHtml(threeSpeakEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
-        }
-        var ytEmbed = buildYouTubeEmbedUrl(cleanUrl);
-        if (ytEmbed) {
-          return '<iframe src="' + escapeHtml(ytEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
-        }
-        // FIX: Directly render to an HTML anchor tag instead of reverting to raw Markdown brackets
         return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>';
       });
 
@@ -4335,6 +4348,9 @@
         if (/^https?:\/\//i.test(url)) return url;
         if (/^\/ipfs\//i.test(url)) return 'https://ipfs.io' + url;
         if (/^\/(?!\/)/.test(url)) return url;
+        if (/\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#].*)?$/i.test(url) && url.indexOf('/') === -1) {
+          return 'https://images.hive.blog/0x0/' + url;
+        }
         if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(url)) return 'https://' + url;
         return '';
       }
