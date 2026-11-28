@@ -4128,6 +4128,41 @@
       });
     }
 
+    function collectImageStringsFromValue(val, out, depth) {
+      if (!val || !Array.isArray(out) || depth > 4) return;
+      if (typeof val === 'string') {
+        var trimmed = val.trim();
+        if (!trimmed) return;
+        if ((trimmed.charAt(0) === '[' || trimmed.charAt(0) === '{') && depth < 3) {
+          try {
+            collectImageStringsFromValue(JSON.parse(trimmed), out, depth + 1);
+            return;
+          } catch (e) {}
+        }
+        if (out.indexOf(trimmed) === -1) out.push(trimmed);
+        return;
+      }
+      if (Array.isArray(val)) {
+        for (var i = 0; i < val.length; i++) {
+          collectImageStringsFromValue(val[i], out, depth + 1);
+        }
+        return;
+      }
+      if (typeof val === 'object') {
+        var priorityKeys = ['image', 'images', 'thumbnail', 'thumb', 'cover', 'cover_image', 'featured_image', 'url', 'src'];
+        for (var k = 0; k < priorityKeys.length; k++) {
+          var key = priorityKeys[k];
+          if (Object.prototype.hasOwnProperty.call(val, key)) {
+            collectImageStringsFromValue(val[key], out, depth + 1);
+          }
+        }
+        if (val.video && typeof val.video === 'object') {
+          collectImageStringsFromValue(val.video.info && val.video.info.thumb, out, depth + 1);
+          collectImageStringsFromValue(val.video.content && val.video.content.thumb, out, depth + 1);
+        }
+      }
+    }
+
     function extractMetadataImages(postOrComment) {
       var urls = [];
       if (!postOrComment || typeof postOrComment !== 'object') return urls;
@@ -4138,17 +4173,7 @@
           try { meta = JSON.parse(meta); } catch (e) { meta = null; break; }
         }
         if (!meta || typeof meta !== 'object') continue;
-        var sources = [];
-        if (Array.isArray(meta.image)) sources = sources.concat(meta.image);
-        else if (typeof meta.image === 'string') sources.push(meta.image);
-        if (Array.isArray(meta.images)) sources = sources.concat(meta.images);
-        else if (typeof meta.images === 'string') sources.push(meta.images);
-        if (meta.video && meta.video.info && meta.video.info.thumb) sources.push(meta.video.info.thumb);
-        if (meta.video && meta.video.content && meta.video.content.thumb) sources.push(meta.video.content.thumb);
-        for (var i = 0; i < sources.length; i++) {
-          var u = String(sources[i] || '').trim();
-          if (u && urls.indexOf(u) === -1) urls.push(u);
-        }
+        collectImageStringsFromValue(meta, urls, 0);
       }
       return urls;
     }
@@ -4171,49 +4196,68 @@
       return '';
     }
 
-    function getAuthorPostImageUrl(post) {
-      if (!post || typeof post !== 'object') return '';
+    function getAllPostImageCandidates(post) {
+      var candidates = [];
+      if (!post || typeof post !== 'object') return candidates;
       var metadataImages = extractMetadataImages(post);
 
+      function addCandidate(raw) {
+        var resolved = resolveHiveImageSrc(raw, metadataImages);
+        if (!resolved) return;
+        if (candidates.indexOf(resolved) === -1) candidates.push(resolved);
+        if (/^https?:\/\//i.test(resolved)) {
+          if (!/images\.hive\.blog\/0x0\//i.test(resolved)) {
+            var proxied = 'https://images.hive.blog/0x0/' + resolved;
+            if (candidates.indexOf(proxied) === -1) candidates.push(proxied);
+          } else {
+            var unproxied = resolved.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, '');
+            if (/^https?:\/\//i.test(unproxied) && candidates.indexOf(unproxied) === -1) {
+              candidates.push(unproxied);
+            }
+          }
+        }
+      }
+
       for (var i = 0; i < metadataImages.length; i++) {
-        var resolvedMeta = resolveHiveImageSrc(metadataImages[i], metadataImages);
-        if (resolvedMeta) return resolvedMeta;
+        addCandidate(metadataImages[i]);
       }
 
       var body = String(post.body || '');
 
-      var htmlImgMatch = body.match(/<img\b[^>]*?\b(?:src|data-src|data-original)\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/i);
-      if (htmlImgMatch) {
-        var rawHtmlImg = (htmlImgMatch[1] || htmlImgMatch[2] || '').trim();
-        var resolvedHtml = resolveHiveImageSrc(rawHtmlImg, metadataImages);
-        if (resolvedHtml) return resolvedHtml;
+      var htmlImgMatches = body.match(/<img\b[^>]*?\b(?:src|data-src|data-original)\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/gi) || [];
+      for (var h = 0; h < htmlImgMatches.length; h++) {
+        var mHtml = htmlImgMatches[h].match(/\b(?:src|data-src|data-original)\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/i);
+        if (mHtml) addCandidate((mHtml[1] || mHtml[2] || '').trim());
       }
 
-      var mdImgMatch = body.match(/!\s*\[[\s\S]*?\]\s*\(([\s\S]*?)\)/);
-      if (mdImgMatch && mdImgMatch[1]) {
-        var cleanMdUrl = mdImgMatch[1].replace(/[\s\r\n\t]+/g, '').trim();
-        var resolvedMd = resolveHiveImageSrc(cleanMdUrl, metadataImages);
-        if (resolvedMd) return resolvedMd;
+      var mdImgMatches = body.match(/!\s*\[[\s\S]*?\]\s*\(([\s\S]*?)\)/g) || [];
+      for (var md = 0; md < mdImgMatches.length; md++) {
+        var mMd = mdImgMatches[md].match(/!\s*\[[\s\S]*?\]\s*\(([\s\S]*?)\)/);
+        if (mMd && mMd[1]) addCandidate(mMd[1].replace(/[\s\r\n\t]+/g, '').trim());
       }
 
-      var bangFileMatch = body.match(/(?:^|[\s(>]|(?:\r?\n))!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;]|(?:\r?\n))/i);
-      if (bangFileMatch && bangFileMatch[1]) {
-        var resolvedFile = resolveHiveImageSrc(bangFileMatch[1], metadataImages);
-        if (resolvedFile) return resolvedFile;
+      var bangFileMatches = body.match(/(?:^|[\s(>]|(?:\r?\n))!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;]|(?:\r?\n))/gi) || [];
+      for (var bf = 0; bf < bangFileMatches.length; bf++) {
+        var mBf = bangFileMatches[bf].match(/!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)/i);
+        if (mBf && mBf[1]) addCandidate(mBf[1]);
       }
 
-      var directImgMatch = body.match(/https?:\/\/[^\s<>"']+?(?:\.(?:png|jpe?g|gif|webp|avif)|\/DQm[1-9A-HJ-NP-Za-km-z]{40,})(?:[?#][^\s<>"')]*)?/i);
-      if (directImgMatch && directImgMatch[0]) {
-        var resolvedDirect = resolveHiveImageSrc(directImgMatch[0], metadataImages);
-        if (resolvedDirect) return resolvedDirect;
+      var directImgMatches = body.match(/https?:\/\/[^\s<>"']+?(?:\.(?:png|jpe?g|gif|webp|avif)|\/DQm[1-9A-HJ-NP-Za-km-z]{40,})(?:[?#][^\s<>"')]*)?/gi) || [];
+      for (var dImg = 0; dImg < directImgMatches.length; dImg++) {
+        addCandidate(directImgMatches[dImg]);
       }
 
       var ytMatch = body.match(/https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?[^\s<>"')]*v=|youtu\.be\/|youtube\.com\/(?:embed|shorts)\/)([A-Za-z0-9_-]{6,})/i);
       if (ytMatch && ytMatch[1]) {
-        return 'https://img.youtube.com/vi/' + encodeURIComponent(ytMatch[1]) + '/hqdefault.jpg';
+        addCandidate('https://img.youtube.com/vi/' + encodeURIComponent(ytMatch[1]) + '/hqdefault.jpg');
       }
 
-      return '';
+      return candidates;
+    }
+
+    function getAuthorPostImageUrl(post) {
+      var candidates = getAllPostImageCandidates(post);
+      return candidates.length > 0 ? candidates[0] : '';
     }
 
     function resolveHiveImageSrc(rawSrc, metadataImages) {
@@ -5950,13 +5994,14 @@
 
         var mediaHtml = '';
         if (appState.mode === 'user' || appState.mode === 'search') {
-          var imgUrl = getAuthorPostImageUrl(p);
-          if (imgUrl) {
-            var proxyFallback = !/images\.hive\.blog\/0x0\//i.test(imgUrl)
-              ? 'https://images.hive.blog/0x0/' + imgUrl
-              : imgUrl.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, '');
-            var fallbacksAttr = escapeHtml(JSON.stringify(proxyFallback && proxyFallback !== imgUrl ? [proxyFallback] : []));
-            mediaHtml = '<div class="card-media"><a class="card-media-link" href="javascript:void(0)" onclick="openPostReader(' + i + ')"><img src="' + escapeHtml(imgUrl) + '" data-image-fallbacks="' + fallbacksAttr + '" alt="' + title + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a></div>';
+          var imgCandidates = getAllPostImageCandidates(p);
+          if (imgCandidates.length > 0) {
+            var primaryImg = imgCandidates[0];
+            var fallbacksList = imgCandidates.slice(1, 6);
+            var fallbacksAttr = escapeHtml(JSON.stringify(fallbacksList));
+            var resultIdx = appState.results.indexOf(entry);
+            var openIdx = resultIdx !== -1 ? resultIdx : i;
+            mediaHtml = '<div class="card-media"><a class="card-media-link" href="javascript:void(0)" onclick="openPostReader(' + openIdx + ')"><img src="' + escapeHtml(primaryImg) + '" data-image-fallbacks="' + fallbacksAttr + '" alt="' + title + '" loading="lazy" decoding="async"></a></div>';
           }
         }
 
