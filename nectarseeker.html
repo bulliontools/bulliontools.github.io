@@ -4182,9 +4182,10 @@
 
       var body = String(post.body || '');
 
-      var mdImgMatch = body.match(/!\[[^\]]*\]\(\s*([^\s)]+)/);
+      var mdImgMatch = body.match(/!\s*\[[\s\S]*?\]\s*\(([\s\S]*?)\)/);
       if (mdImgMatch && mdImgMatch[1]) {
-        var resolvedMd = resolveHiveImageSrc(mdImgMatch[1], metadataImages);
+        var cleanMdUrl = mdImgMatch[1].replace(/[\s\r\n\t]+/g, '').trim();
+        var resolvedMd = resolveHiveImageSrc(cleanMdUrl, metadataImages);
         if (resolvedMd) return resolvedMd;
       }
 
@@ -4243,14 +4244,40 @@
 
       body = body.replace(/&nbsp;/gi, ' ');
 
-      body = body.replace(/!\s*\[([^\]]*)\]\s*\(([\s\S]*?)\)/g, function(match, alt, rawUrl) {
+      // Normalize broken/multiline HTML tags (e.g. <img\nsrc="..."> or <a\nhref="...">)
+      body = body.replace(/<\s*(\/?\s*[a-zA-Z][a-zA-Z0-9-]*)([\s\S]*?)>/g, function(match, tagPart, attrsPart) {
+        var cleanTag = tagPart.replace(/\s+/g, '');
+        var cleanAttrs = attrsPart.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ');
+        return '<' + cleanTag + cleanAttrs + '>';
+      });
+
+      // Normalize Markdown images even when broken across spaces, tabs, or line breaks: ! [ alt ] ( url )
+      body = body.replace(/!\s*\[([\s\S]*?)\]\s*\(([\s\S]*?)\)/g, function(match, alt, rawUrl) {
         var cleanAlt = alt.replace(/\s+/g, ' ').trim();
-        var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
+        var cleanUrl = rawUrl.replace(/[\r\n\t\s]+/g, '').trim();
+        var resolved = resolveHiveImageSrc(cleanUrl, metadataImages);
+        if (resolved) {
+          return '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(cleanAlt || 'Image') + '">';
+        }
         return '![' + cleanAlt + '](' + cleanUrl + ')';
       });
 
+      // Handle bare "!image" or "!image[1]" placeholders when metadata images exist (e.g. Ecency/PeakD shorthand or broken image tag)
+      var metaImgCursor = 0;
+      body = body.replace(/(^|[\s(>]|(?:\r?\n))!image(?:\[(\d+)\])?(?=$|[\s)<.,!?:;]|(?:\r?\n))/gi, function(match, prefix, idxStr) {
+        if (Array.isArray(metadataImages) && metadataImages.length > 0) {
+          var targetIdx = idxStr ? Math.max(0, parseInt(idxStr, 10) - 1) : metaImgCursor++;
+          if (targetIdx >= metadataImages.length) targetIdx = metadataImages.length - 1;
+          var resolvedMeta = resolveHiveImageSrc(metadataImages[targetIdx], metadataImages);
+          if (resolvedMeta) {
+            return prefix + '<img src="' + escapeHtml(resolvedMeta) + '" alt="Image">';
+          }
+        }
+        return match;
+      });
+
       body = body.replace(/\[([^\]]+)\]\s*\(([\s\S]*?)\)/g, function(match, label, rawUrl) {
-        var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
+        var cleanUrl = rawUrl.replace(/[\r\n\t\s]+/g, '').trim();
         var threeSpeakEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
         if (threeSpeakEmbed) {
           return '<iframe src="' + escapeHtml(threeSpeakEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
@@ -4286,13 +4313,14 @@
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
 
-        text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (m, alt, url) {
-          var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
-          return hold('<img src="' + escapeHtml(cleanUrl) + '" alt="' + escapeHtml(alt) + '">');
+        text = text.replace(/!\s*\[([\s\S]*?)\]\s*\(([\s\S]*?)\)/g, function (m, alt, url) {
+          var cleanUrl = url.replace(/[\s\r\n\t]+/g, '').replace(/^[<"]|[>"]$/g, '');
+          var resolved = resolveHiveImageSrc(cleanUrl, metadataImages) || cleanUrl;
+          return hold('<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(alt.replace(/\s+/g, ' ').trim()) + '">');
         });
 
-        text = text.replace(/\[([^\]]+?)\]\(([^)\s]+)\)/g, function (m, label, url) {
-          var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
+        text = text.replace(/\[([\s\S]+?)\]\s*\(([\s\S]*?)\)/g, function (m, label, url) {
+          var cleanUrl = url.replace(/[\s\r\n\t]+/g, '').replace(/^[<"]|[>"]$/g, '');
           var tsEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
           if (tsEmbed) {
             return hold('<iframe src="' + escapeHtml(tsEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>');
@@ -6490,8 +6518,7 @@
     function openKeychainLoginModal() {
       var modal = document.getElementById('keychainLoginModal');
       var input = document.getElementById('keychainLoginUsernameInput');
-      var queryInput = document.getElementById('queryInput');
-      var prefill = stripLeadingAt((queryInput && queryInput.value) || getConnectedUser() || '');
+      var prefill = stripLeadingAt(getConnectedUser() || '');
       if (input) input.value = prefill;
       if (modal) modal.style.display = 'flex';
       if (input) {
@@ -6999,15 +7026,10 @@
         }
       });
 
-      var savedUser = getConnectedUser();
-      if (savedUser) {
-        if (input && appState.mode === 'feed' && !input.value) {
-          input.value = savedUser;
-        }
-        startApp();
-      } else {
-        startApp();
+      if (input) {
+        input.value = '';
       }
+      startApp();
     })();
   </script>
 </body>
