@@ -4263,16 +4263,12 @@
         return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>';
       });
 
-      body = body.replace(/(^|[\s(>]|(?:\r?\n))!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;]|(?:\r?\n))/gi, function (match, prefix, fileName) {
+      body = body.replace(/(^|[\s(>])!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;])/gi, function (match, prefix, fileName) {
         var resolved = resolveHiveImageSrc(fileName, metadataImages);
         if (!resolved) return match;
         return prefix + '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(fileName) + '">';
       });
-      body = body.replace(/(^|
-|
-)!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|
-|
-|\s)/gi, function (match, prefix, fileName) {
+      body = body.replace(/(^|[\s(>]|(?:\r?\n))!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;]|(?:\r?\n))/gi, function (match, prefix, fileName) {
         var resolved = resolveHiveImageSrc(fileName, metadataImages);
         if (!resolved) return match;
         return prefix + '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(fileName) + '">';
@@ -6903,9 +6899,18 @@
     }
 
     function loginKeychain() {
-      openKeychainLoginModal();
+      if (!window.hive_keychain && typeof setStatus === 'function') {
+        setStatus('Hive Keychain extension or app browser not detected yet. Enter your username to sign in or install Hive Keychain.', true);
+      }
+      if (typeof openKeychainLoginModal === 'function') {
+        openKeychainLoginModal();
+      }
     }
     window.loginKeychain = loginKeychain;
+    if (typeof openKeychainLoginModal === 'function') window.openKeychainLoginModal = openKeychainLoginModal;
+    if (typeof closeKeychainLoginModal === 'function') window.closeKeychainLoginModal = closeKeychainLoginModal;
+    if (typeof confirmKeychainLoginModal === 'function') window.confirmKeychainLoginModal = confirmKeychainLoginModal;
+    if (typeof disconnectKeychain === 'function') window.disconnectKeychain = disconnectKeychain;
 
     function startApp() {
       if (appState.isRunning) return;
