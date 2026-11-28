@@ -4176,6 +4176,11 @@
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
 
+        text = text.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (m, alt, url) {
+          var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
+          return hold('<img src="' + escapeHtml(cleanUrl) + '" alt="' + escapeHtml(alt) + '">');
+        });
+
         text = text.replace(/\[([^\]]+?)\]\(([^)\s]+)\)/g, function (m, label, url) {
           var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
           var tsEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
@@ -4318,15 +4323,15 @@
       var parsed = new DOMParser().parseFromString('<!doctype html><html><body>' + generated + '</body></html>', 'text/html');
       var allowed = 'A ABBR ADDRESS ARTICLE ASIDE B BIG BLOCKQUOTE BR CAPTION CENTER CITE CODE DD DEL DETAILS DL DT EM FIGCAPTION FIGURE FONT H1 H2 H3 H4 H5 H6 HR I IMG INS KBD LI OL P PRE Q S SAMP SMALL SOURCE SPAN STRIKE STRONG SUB SUMMARY SUP TABLE TBODY TD TFOOT TH THEAD TR U UL VAR VIDEO IFRAME'.split(' ');
       var blocked = 'SCRIPT STYLE OBJECT EMBED FORM INPUT BUTTON TEXTAREA LINK META BASE SVG MATH'.split(' ');
-      var safeFrameHosts = ['youtube.com', '[www.youtube.com](https://www.youtube.com)', 'youtube-nocookie.com', '[www.youtube-nocookie.com](https://www.youtube-nocookie.com)', 'player.vimeo.com', '3speak.tv', 'play.3speak.tv', '3speak.online', '3speak.co'];
+      var safeFrameHosts = ['youtube.com', 'www.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com', 'player.vimeo.com', '3speak.tv', 'play.3speak.tv', '3speak.online', '3speak.co'];
 
       function safeUrl(value) {
         var url = String(value || '').trim().replace(/[\u0000-\u001F]+/g, '');
         if (!url) return '';
         if (url.indexOf('//') === 0) url = 'https:' + url;
-        if (/^ipfs:\/\//i.test(url)) return '[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + url.slice(7).replace(/^ipfs\//, '');
+        if (/^ipfs:\/\//i.test(url)) return 'https://ipfs.io/ipfs/' + url.slice(7).replace(/^ipfs\//, '');
         if (/^https?:\/\//i.test(url)) return url;
-        if (/^\/ipfs\//i.test(url)) return '[https://ipfs.io](https://ipfs.io)' + url;
+        if (/^\/ipfs\//i.test(url)) return 'https://ipfs.io' + url;
         if (/^\/(?!\/)/.test(url)) return url;
         if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(url)) return 'https://' + url;
         return '';
@@ -4406,9 +4411,9 @@
                 var ipfsMatch = src.match(/\/ipfs\/([^?#]+)/i);
                 if (ipfsMatch) {
                   var hash = ipfsMatch[1];
-                  candidates.push('[https://ipfs.io/ipfs/](https://ipfs.io/ipfs/)' + hash, '[https://gateway.pinata.cloud/ipfs/](https://gateway.pinata.cloud/ipfs/)' + hash, '[https://cloudflare-ipfs.com/ipfs/](https://cloudflare-ipfs.com/ipfs/)' + hash);
+                  candidates.push('https://ipfs.io/ipfs/' + hash, 'https://gateway.pinata.cloud/ipfs/' + hash, 'https://cloudflare-ipfs.com/ipfs/' + hash);
                 } else if (/^https?:\/\//i.test(src) && !/images\.hive\.blog\/0x0\//i.test(src)) {
-                  candidates.push('[https://images.hive.blog/0x0/](https://images.hive.blog/0x0/)' + src);
+                  candidates.push('https://images.hive.blog/0x0/' + src);
                 } else if (/images\.hive\.blog\/0x0\//i.test(src)) {
                   candidates.push(src.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, ''));
                 }
@@ -6014,7 +6019,7 @@
         return post.url;
       }
       var cat = post.category || 'hive';
-      return '[https://peakd.com/](https://peakd.com/)' + encodeURIComponent(cat) + '/@' + encodeURIComponent(post.author) + '/' + encodeURIComponent(post.permlink);
+      return 'https://peakd.com/' + encodeURIComponent(cat) + '/@' + encodeURIComponent(post.author) + '/' + encodeURIComponent(post.permlink);
     }
 
     function formatAge(createdStr) {
