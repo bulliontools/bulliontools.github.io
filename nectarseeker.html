@@ -4142,10 +4142,20 @@
         return '[' + label + '](' + cleanUrl + ')';
       });
 
-      body = body.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function(match, alt, url) {
-        var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
-        return '<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">';
+            body = body.replace(/\[([^\]]+)\]\s*\(([\s\S]*?)\)/g, function(match, label, rawUrl) {
+        var cleanUrl = rawUrl.replace(/[\r\n\t]+/g, '').trim().replace(/\s+/g, '%20');
+        var threeSpeakEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
+        if (threeSpeakEmbed) {
+          return '<iframe src="' + escapeHtml(threeSpeakEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
+        }
+        var ytEmbed = buildYouTubeEmbedUrl(cleanUrl);
+        if (ytEmbed) {
+          return '<iframe src="' + escapeHtml(ytEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>';
+        }
+        // FIX: Directly render to an HTML anchor tag instead of reverting to raw Markdown brackets
+        return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>';
       });
+
 
       var imageUrlRegex = /(^|[\s|>])(https?:\/\/[^\s<>"'|]+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"'|]+|\/[^\s<>"'|]*\?(?:[^\s<>"'|]*img|format|w|h)=)[^\s<>"'|]*)/gi;
 
