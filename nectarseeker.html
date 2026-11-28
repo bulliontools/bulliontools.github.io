@@ -4182,6 +4182,13 @@
 
       var body = String(post.body || '');
 
+      var htmlImgMatch = body.match(/<img\b[^>]*?\b(?:src|data-src|data-original)\s*=\s*(?:["']([^"']+)["']|([^\s>]+))/i);
+      if (htmlImgMatch) {
+        var rawHtmlImg = (htmlImgMatch[1] || htmlImgMatch[2] || '').trim();
+        var resolvedHtml = resolveHiveImageSrc(rawHtmlImg, metadataImages);
+        if (resolvedHtml) return resolvedHtml;
+      }
+
       var mdImgMatch = body.match(/!\s*\[[\s\S]*?\]\s*\(([\s\S]*?)\)/);
       if (mdImgMatch && mdImgMatch[1]) {
         var cleanMdUrl = mdImgMatch[1].replace(/[\s\r\n\t]+/g, '').trim();
@@ -4195,10 +4202,15 @@
         if (resolvedFile) return resolvedFile;
       }
 
-      var directImgMatch = body.match(/https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<>"')]*)?/i);
+      var directImgMatch = body.match(/https?:\/\/[^\s<>"']+?(?:\.(?:png|jpe?g|gif|webp|avif)|\/DQm[1-9A-HJ-NP-Za-km-z]{40,})(?:[?#][^\s<>"')]*)?/i);
       if (directImgMatch && directImgMatch[0]) {
         var resolvedDirect = resolveHiveImageSrc(directImgMatch[0], metadataImages);
         if (resolvedDirect) return resolvedDirect;
+      }
+
+      var ytMatch = body.match(/https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?[^\s<>"')]*v=|youtu\.be\/|youtube\.com\/(?:embed|shorts)\/)([A-Za-z0-9_-]{6,})/i);
+      if (ytMatch && ytMatch[1]) {
+        return 'https://img.youtube.com/vi/' + encodeURIComponent(ytMatch[1]) + '/hqdefault.jpg';
       }
 
       return '';
@@ -5940,7 +5952,11 @@
         if (appState.mode === 'user' || appState.mode === 'search') {
           var imgUrl = getAuthorPostImageUrl(p);
           if (imgUrl) {
-            mediaHtml = '<div class="card-media"><a class="card-media-link" href="javascript:void(0)" onclick="openPostReader(' + i + ')"><img src="' + escapeHtml(imgUrl) + '" alt="' + title + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a></div>';
+            var proxyFallback = !/images\.hive\.blog\/0x0\//i.test(imgUrl)
+              ? 'https://images.hive.blog/0x0/' + imgUrl
+              : imgUrl.replace(/^https?:\/\/images\.hive\.blog\/0x0\//i, '');
+            var fallbacksAttr = escapeHtml(JSON.stringify(proxyFallback && proxyFallback !== imgUrl ? [proxyFallback] : []));
+            mediaHtml = '<div class="card-media"><a class="card-media-link" href="javascript:void(0)" onclick="openPostReader(' + i + ')"><img src="' + escapeHtml(imgUrl) + '" data-image-fallbacks="' + fallbacksAttr + '" alt="' + title + '" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a></div>';
           }
         }
 
