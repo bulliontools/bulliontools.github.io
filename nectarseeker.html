@@ -583,6 +583,23 @@
       background-color: rgba(248, 113, 113, 0.15);
       color: var(--accent-danger);
     }
+    .card-media {
+      margin: 8px 0 12px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background-color: var(--surface-2);
+    }
+    .card-media-link {
+      display: block;
+      cursor: pointer;
+    }
+    .card-media img {
+      display: block;
+      width: 100%;
+      max-height: 260px;
+      object-fit: cover;
+    }
 
     #postReaderModal {
       display: none;
@@ -4131,6 +4148,38 @@
       return urls;
     }
 
+    function getAuthorPostImageUrl(post) {
+      if (!post || typeof post !== 'object') return '';
+      var metadataImages = extractMetadataImages(post);
+
+      for (var i = 0; i < metadataImages.length; i++) {
+        var resolvedMeta = resolveHiveImageSrc(metadataImages[i], metadataImages);
+        if (resolvedMeta) return resolvedMeta;
+      }
+
+      var body = String(post.body || '');
+
+      var mdImgMatch = body.match(/!\[[^\]]*\]\(\s*([^\s)]+)/);
+      if (mdImgMatch && mdImgMatch[1]) {
+        var resolvedMd = resolveHiveImageSrc(mdImgMatch[1], metadataImages);
+        if (resolvedMd) return resolvedMd;
+      }
+
+      var bangFileMatch = body.match(/(?:^|[\s(>])!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;])/i);
+      if (bangFileMatch && bangFileMatch[1]) {
+        var resolvedFile = resolveHiveImageSrc(bangFileMatch[1], metadataImages);
+        if (resolvedFile) return resolvedFile;
+      }
+
+      var directImgMatch = body.match(/https?:\/\/[^\s<>"')]+?\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<>"')]*)?/i);
+      if (directImgMatch && directImgMatch[0]) {
+        var resolvedDirect = resolveHiveImageSrc(directImgMatch[0], metadataImages);
+        if (resolvedDirect) return resolvedDirect;
+      }
+
+      return '';
+    }
+
     function resolveHiveImageSrc(rawSrc, metadataImages) {
       var s = String(rawSrc || '').trim();
       if (!s) return '';
@@ -6112,6 +6161,7 @@
         var snippetText = formatPreviewSnippet(p.body || '', 210);
         var snippet = escapeHtml(snippetText || 'No text preview available.');
         var kwText = (item.matched && item.matched.length > 0) ? item.matched.join(', ') : (p.category || 'hive');
+        var postImageUrl = getAuthorPostImageUrl(p);
 
         var voteBadgeHtml = '';
         if (connectedUser) {
@@ -6124,6 +6174,13 @@
         html += '    <div class="badge-group">' + voteBadgeHtml + '<span class="dapp-tag">' + dapp + '</span></div>';
         html += '  </div>';
         html += '  <div class="meta">by <strong style="cursor:pointer; color:var(--accent-cyan);" onclick="openUserProfile(\'' + author + '\')">@' + author + '</strong>' + (age ? ' &middot; ' + age : '') + '</div>';
+        if (postImageUrl) {
+          html += '  <div class="card-media">';
+          html += '    <a class="card-media-link" onclick="openPostReader(' + i + ')">';
+          html += '      <img src="' + escapeHtml(postImageUrl) + '" alt="' + title + '" loading="lazy" onerror="if(this.parentElement&&this.parentElement.parentElement){this.parentElement.parentElement.style.display=\'none\';}">';
+          html += '    </a>';
+          html += '  </div>';
+        }
         html += '  <div class="snippet">' + snippet + '</div>';
         html += '  <div class="card-footer">';
         html += '    <div class="keywords">Topics: ' + escapeHtml(kwText) + '</div>';
