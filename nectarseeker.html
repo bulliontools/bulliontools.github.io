@@ -4147,6 +4147,8 @@
         return '<img alt="' + escapeHtml(alt) + '" src="' + escapeHtml(cleanUrl) + '">';
       });
 
+      body = body.replace(/\\\[([^\]]+)\\\]\s*\\?\(([^)\s]+)\\?\)/g, '[$1]($2)');
+
       var imageUrlRegex = /(^|[\s|>])(https?:\/\/[^\s<>"'|]+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"'|]+|\/[^\s<>"'|]*\?(?:[^\s<>"'|]*img|format|w|h)=)[^\s<>"'|]*)/gi;
 
       body = body.replace(imageUrlRegex, function(match, prefix, url) {
@@ -4165,8 +4167,8 @@
         text = text.replace(/`([^`]+)`/g, function (m, code) { return hold('<code>' + escapeHtml(code) + '</code>'); });
         text = escapeHtml(text);
 
-        text = text.replace(/\[([^\]]+?)\]\(([^)\s]+)\)/g, function (m, label, url) {
-          var cleanUrl = url.replace(/^[<"]|[>"]$/g, '');
+        text = text.replace(/\\?\[([^\]]+?)\\?\]\s*\\?\(([^)\s]+)\\?\)/g, function (m, label, url) {
+          var cleanUrl = url.replace(/^[<"]|[>"]$/g, '').replace(/&amp;/g, '&');
           var tsEmbed = buildThreeSpeakEmbedUrl(cleanUrl);
           if (tsEmbed) {
             return hold('<iframe src="' + escapeHtml(tsEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>');
@@ -4175,7 +4177,7 @@
           if (ytEmbed) {
             return hold('<iframe src="' + escapeHtml(ytEmbed) + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>');
           }
-          return hold('<a href="' + escapeHtml(cleanUrl) + '">' + escapeHtml(label) + '</a>');
+          return hold('<a href="' + escapeHtml(cleanUrl) + '">' + label + '</a>');
         });
 
         text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
