@@ -4148,6 +4148,24 @@
       return urls;
     }
 
+    function normalizeDirectImageUrl(rawSrc) {
+      var s = String(rawSrc || '').trim();
+      if (!s) return '';
+      if (/^ipfs:\/\//i.test(s)) {
+        return 'https://ipfs.io/ipfs/' + s.slice(7).replace(/^ipfs\//i, '');
+      }
+      if (/^\/ipfs\//i.test(s)) {
+        return 'https://ipfs.io' + s;
+      }
+      if (/^\/\//.test(s)) {
+        return 'https:' + s;
+      }
+      if (/^https?:\/\//i.test(s)) {
+        return s;
+      }
+      return '';
+    }
+
     function getAuthorPostImageUrl(post) {
       if (!post || typeof post !== 'object') return '';
       var metadataImages = extractMetadataImages(post);
@@ -4171,7 +4189,7 @@
         if (resolvedFile) return resolvedFile;
       }
 
-      var directImgMatch = body.match(/https?:\/\/[^\s<>"')]+?\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<>"')]*)?/i);
+      var directImgMatch = body.match(/https?:\/\/[^\s<>"']+?\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<>"')]*)?/i);
       if (directImgMatch && directImgMatch[0]) {
         var resolvedDirect = resolveHiveImageSrc(directImgMatch[0], metadataImages);
         if (resolvedDirect) return resolvedDirect;
@@ -4183,32 +4201,24 @@
     function resolveHiveImageSrc(rawSrc, metadataImages) {
       var s = String(rawSrc || '').trim();
       if (!s) return '';
-      if (/^ipfs:\/\//i.test(s)) {
-        return 'https://ipfs.io/ipfs/' + s.slice(7).replace(/^ipfs\//i, '');
-      }
-      if (/^\/ipfs\//i.test(s)) {
-        return 'https://ipfs.io' + s;
-      }
-      if (/^https?:\/\//i.test(s)) {
-        return s;
-      }
-      if (/^\/\//.test(s)) {
-        return 'https:' + s;
-      }
+      var direct = normalizeDirectImageUrl(s);
+      if (direct) return direct;
+
       if (/^[A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#].*)?$/i.test(s)) {
         var baseName = s.split(/[?#]/)[0].toLowerCase();
+        var firstValidMeta = '';
         if (Array.isArray(metadataImages) && metadataImages.length > 0) {
           for (var i = 0; i < metadataImages.length; i++) {
-            var metaUrl = String(metadataImages[i] || '').trim();
-            if (!metaUrl) continue;
-            var metaClean = metaUrl.split(/[?#]/)[0].toLowerCase();
+            var metaDirect = normalizeDirectImageUrl(metadataImages[i]);
+            if (!metaDirect) continue;
+            if (!firstValidMeta) firstValidMeta = metaDirect;
+            var metaClean = metaDirect.split(/[?#]/)[0].toLowerCase();
             if (metaClean.endsWith('/' + baseName) || metaClean.indexOf(baseName) !== -1) {
-              if (/^https?:\/\//i.test(metaUrl)) return metaUrl;
-              if (/^ipfs:\/\//i.test(metaUrl)) return 'https://ipfs.io/ipfs/' + metaUrl.slice(7).replace(/^ipfs\//i, '');
+              return metaDirect;
             }
           }
         }
-        return 'https://images.hive.blog/0x0/' + s;
+        return firstValidMeta || '';
       }
       return '';
     }
@@ -4226,12 +4236,6 @@
       }
 
       body = body.replace(/&nbsp;/gi, ' ');
-
-      body = body.replace(/(^|[\s(>])!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;])/gi, function (match, prefix, fileName) {
-        var resolved = resolveHiveImageSrc(fileName, metadataImages);
-        if (!resolved) return match;
-        return prefix + '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(fileName) + '">';
-      });
 
       body = body.replace(/!\s*\[([^\]]*)\]\s*\(([\s\S]*?)\)/g, function(match, alt, rawUrl) {
         var cleanAlt = alt.replace(/\s+/g, ' ').trim();
@@ -4252,6 +4256,11 @@
         return '<a href="' + escapeHtml(cleanUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(label) + '</a>';
       });
 
+      body = body.replace(/(^|[\s(>])!([A-Za-z0-9._-]+\.(?:png|jpe?g|gif|webp|avif)(?:[?#][^\s<)"']*)?)(?=$|[\s)<.,!?:;])/gi, function (match, prefix, fileName) {
+        var resolved = resolveHiveImageSrc(fileName, metadataImages);
+        if (!resolved) return match;
+        return prefix + '<img src="' + escapeHtml(resolved) + '" alt="' + escapeHtml(fileName) + '">';
+      });
 
       var imageUrlRegex = /(^|[\s|>])(https?:\/\/[^\s<>"'|]+(?:\.(?:png|jpe?g|gif|webp|avif|svg)|\/(?:tpci|img|images|assets|uploads)\/[^\s<>"'|]+|\/[^\s<>"'|]*\?(?:[^\s<>"'|]*img|format|w|h)=)[^\s<>"'|]*)/gi;
 
@@ -4542,17 +4551,19 @@
     if (!window.__nectarHiveImageFallbackInstalled) {
       document.addEventListener('error', function (event) {
         var img = event.target;
-        if (!img || img.tagName !== 'IMG' || !img.hasAttribute('data-image-fallbacks')) return;
-        var list = [];
-        try { list = JSON.parse(img.getAttribute('data-image-fallbacks') || '[]'); } catch (e) {}
-        if (list.length) {
-          img.setAttribute('src', list.shift());
-          img.setAttribute('data-image-fallbacks', JSON.stringify(list));
-        } else {
+        if (!img || img.tagName !== 'IMG') return;
+        if (img.hasAttribute('data-image-fallbacks')) {
+          var list = [];
+          try { list = JSON.parse(img.getAttribute('data-image-fallbacks') || '[]'); } catch (e) {}
+          if (list.length) {
+            img.setAttribute('src', list.shift());
+            img.setAttribute('data-image-fallbacks', JSON.stringify(list));
+            return;
+          }
           img.removeAttribute('data-image-fallbacks');
-          img.alt = img.alt || 'Image could not be loaded';
-          img.style.border = '1px dashed var(--border)';
-          img.style.padding = '10px';
+        }
+        if (!img.closest('.hive-user-pill')) {
+          img.style.display = 'none';
         }
       }, true);
       window.__nectarHiveImageFallbackInstalled = true;
